@@ -8,6 +8,9 @@ export class TimelineController {
     this.keyframeMarkers = [];
     this.isPlaying = false;
     this.playInterval = null;
+    this.zoomLevel = 1.0; // 缩放级别
+    this.minZoom = 1.0;
+    this.maxZoom = 10.0;
     
     this.setupUI();
   }
@@ -20,12 +23,129 @@ export class TimelineController {
       this.setCurrentFrame(value);
     });
     
-    // 添加关键帧标记容器
-    const timeline = document.getElementById('timeline');
-    const markerContainer = document.createElement('div');
-    markerContainer.id = 'keyframe-markers';
-    markerContainer.style.cssText = 'position: relative; height: 20px; margin-bottom: 10px;';
-    timeline.insertBefore(markerContainer, slider);
+    // 缩放按钮
+    document.getElementById('timeline-zoom-in').addEventListener('click', () => {
+      this.setZoom(this.zoomLevel * 1.5);
+    });
+    
+    document.getElementById('timeline-zoom-out').addEventListener('click', () => {
+      this.setZoom(this.zoomLevel / 1.5);
+    });
+    
+    document.getElementById('timeline-zoom-reset').addEventListener('click', () => {
+      this.setZoom(1.0);
+    });
+    
+    // 鼠标滚轮缩放（在时间轴区域）
+    const viewport = document.getElementById('timeline-viewport');
+    viewport.addEventListener('wheel', (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        this.setZoom(this.zoomLevel * delta);
+      }
+    }, { passive: false });
+    
+    // 禁用所有触摸手势
+    viewport.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+    }, { passive: false });
+    
+    viewport.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+    }, { passive: false });
+    
+    // 自定义滚动条
+    this.setupCustomScrollbar();
+  }
+  
+  setupCustomScrollbar() {
+    const viewport = document.getElementById('timeline-viewport');
+    const content = document.getElementById('timeline-content');
+    const scrollbar = document.getElementById('timeline-scrollbar');
+    const thumb = document.getElementById('timeline-scrollbar-thumb');
+    
+    let isDragging = false;
+    let startX = 0;
+    let startScrollLeft = 0;
+    
+    const updateThumb = () => {
+      const viewportWidth = viewport.offsetWidth;
+      const contentWidth = content.offsetWidth;
+      
+      if (contentWidth <= viewportWidth) {
+        scrollbar.style.display = 'none';
+        return;
+      }
+      
+      scrollbar.style.display = 'block';
+      const thumbWidth = (viewportWidth / contentWidth) * scrollbar.offsetWidth;
+      thumb.style.width = thumbWidth + 'px';
+      
+      const scrollRatio = this.scrollLeft / (contentWidth - viewportWidth);
+      const maxThumbLeft = scrollbar.offsetWidth - thumbWidth;
+      thumb.style.left = (scrollRatio * maxThumbLeft) + 'px';
+    };
+    
+    // 拖动滑块
+    thumb.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      startX = e.clientX;
+      startScrollLeft = this.scrollLeft || 0;
+      e.preventDefault();
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      
+      const deltaX = e.clientX - startX;
+      const scrollbar = document.getElementById('timeline-scrollbar');
+      const thumb = document.getElementById('timeline-scrollbar-thumb');
+      const content = document.getElementById('timeline-content');
+      const viewport = document.getElementById('timeline-viewport');
+      
+      const thumbWidth = thumb.offsetWidth;
+      const maxThumbLeft = scrollbar.offsetWidth - thumbWidth;
+      const contentWidth = content.offsetWidth;
+      const viewportWidth = viewport.offsetWidth;
+      
+      const scrollRatio = deltaX / maxThumbLeft;
+      this.scrollLeft = startScrollLeft + scrollRatio * (contentWidth - viewportWidth);
+      this.scrollLeft = Math.max(0, Math.min(contentWidth - viewportWidth, this.scrollLeft));
+      
+      this.updateContentPosition();
+      updateThumb();
+    });
+    
+    document.addEventListener('mouseup', () => {
+      isDragging = false;
+    });
+    
+    // 点击滚动条轨道
+    scrollbar.addEventListener('click', (e) => {
+      if (e.target === thumb) return;
+      
+      const rect = scrollbar.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const scrollbar_el = document.getElementById('timeline-scrollbar');
+      const thumb_el = document.getElementById('timeline-scrollbar-thumb');
+      const content = document.getElementById('timeline-content');
+      const viewport = document.getElementById('timeline-viewport');
+      
+      const thumbWidth = thumb_el.offsetWidth;
+      const scrollRatio = (clickX - thumbWidth / 2) / (scrollbar_el.offsetWidth - thumbWidth);
+      
+      const contentWidth = content.offsetWidth;
+      const viewportWidth = viewport.offsetWidth;
+      this.scrollLeft = scrollRatio * (contentWidth - viewportWidth);
+      this.scrollLeft = Math.max(0, Math.min(contentWidth - viewportWidth, this.scrollLeft));
+      
+      this.updateContentPosition();
+      updateThumb();
+    });
+    
+    this.scrollLeft = 0;
+    this.updateScrollbar = updateThumb;
   }
 
   updateTimeline(frameCount, duration) {
@@ -37,8 +157,46 @@ export class TimelineController {
     slider.value = 0;
     
     this.setCurrentFrame(0);
+    this.setZoom(1.0); // 重置缩放
     
     document.getElementById('total-time').textContent = `总时长: ${duration.toFixed(2)}s`;
+  }
+
+  updateContentPosition() {
+    const content = document.getElementById('timeline-content');
+    content.style.transform = `translateX(${-this.scrollLeft}px)`;
+  }
+
+  setZoom(zoom) {
+    this.zoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
+    
+    const content = document.getElementById('timeline-content');
+    const viewport = document.getElementById('timeline-viewport');
+    
+    // 保存当前滚动位置比例
+    const oldContentWidth = content.offsetWidth;
+    const scrollRatio = oldContentWidth > viewport.offsetWidth ? 
+      this.scrollLeft / (oldContentWidth - viewport.offsetWidth) : 0;
+    
+    // 设置内容宽度
+    content.style.width = `${this.zoomLevel * 100}%`;
+    content.style.minWidth = `${this.zoomLevel * 100}%`;
+    
+    // 更新缩放显示
+    document.getElementById('zoom-level').textContent = `缩放: ${this.zoomLevel.toFixed(1)}x`;
+    
+    // 恢复滚动位置
+    setTimeout(() => {
+      const newContentWidth = content.offsetWidth;
+      if (newContentWidth > viewport.offsetWidth) {
+        this.scrollLeft = scrollRatio * (newContentWidth - viewport.offsetWidth);
+      } else {
+        this.scrollLeft = 0;
+      }
+      this.updateContentPosition();
+      if (this.updateScrollbar) this.updateScrollbar();
+      this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
+    }, 0);
   }
 
   setCurrentFrame(frame) {
@@ -59,12 +217,44 @@ export class TimelineController {
       deleteBtn.style.display = 'none';
     }
     
+    // 自动滚动到当前帧（如果缩放了）
+    if (this.zoomLevel > 1.0) {
+      const viewport = document.getElementById('timeline-viewport');
+      const content = document.getElementById('timeline-content');
+      const progress = this.currentFrame / (this.frameCount - 1);
+      const targetScroll = progress * content.offsetWidth - viewport.offsetWidth / 2;
+      this.scrollLeft = Math.max(0, Math.min(content.offsetWidth - viewport.offsetWidth, targetScroll));
+      this.updateContentPosition();
+      if (this.updateScrollbar) this.updateScrollbar();
+    }
+    
     // 更新机器人状态
     this.editor.updateRobotState(this.currentFrame);
   }
 
   getCurrentFrame() {
     return this.currentFrame;
+  }
+
+  getThumbPosition(slider) {
+    // 计算range input thumb的中心位置
+    const rect = slider.getBoundingClientRect();
+    const ratio = (slider.value - slider.min) / (slider.max - slider.min);
+    
+    // 使用CSS自定义属性或计算样式来获取thumb宽度
+    // 如果无法获取，使用默认值16px（Chrome/Safari标准）
+    let thumbWidth = 16;
+    
+    // 尝试从计算样式获取
+    const style = window.getComputedStyle(slider);
+    if (style.getPropertyValue('--thumb-width')) {
+      thumbWidth = parseFloat(style.getPropertyValue('--thumb-width'));
+    }
+    
+    const effectiveWidth = rect.width - thumbWidth;
+    const thumbCenter = thumbWidth / 2 + ratio * effectiveWidth;
+    
+    return thumbCenter;
   }
 
   updateKeyframeMarkers(keyframes) {
@@ -79,40 +269,76 @@ export class TimelineController {
     
     // 创建新标记
     const slider = document.getElementById('timeline-slider');
-    const sliderWidth = slider.offsetWidth;
+    const content = document.getElementById('timeline-content');
     
-    keyframes.forEach(frameIndex => {
-      const marker = document.createElement('div');
-      marker.className = 'keyframe-marker';
-      marker.style.cssText = `
-        position: absolute;
-        width: 8px;
-        height: 20px;
-        background: #4ec9b0;
-        cursor: pointer;
-        border-radius: 2px;
-        left: ${(frameIndex / (this.frameCount - 1)) * sliderWidth}px;
-        transform: translateX(-50%);
-      `;
-      marker.title = `关键帧 ${frameIndex} - 右键删除`;
+    // 等待DOM更新后获取宽度
+    requestAnimationFrame(() => {
+      // 使用slider的getBoundingClientRect来获取精确的可用宽度
+      const sliderRect = slider.getBoundingClientRect();
+      const sliderWidth = sliderRect.width;
       
-      // 点击跳转到关键帧
-      marker.addEventListener('click', () => {
-        this.setCurrentFrame(frameIndex);
+      // 动态测量thumb的实际宽度
+      // 通过计算slider在不同值时thumb中心的位置来反推
+      const oldValue = slider.value;
+      slider.value = 0;
+      const thumbPos0 = this.getThumbPosition(slider);
+      slider.value = slider.max;
+      const thumbPosMax = this.getThumbPosition(slider);
+      slider.value = oldValue;
+      
+      const effectiveWidth = thumbPosMax - thumbPos0;
+      const offset = thumbPos0;
+      
+      keyframes.forEach(frameIndex => {
+        const marker = document.createElement('div');
+        marker.className = 'keyframe-marker';
+        
+        // 计算位置：使用有效宽度
+        const progress = frameIndex / (this.frameCount - 1);
+        const leftPos = offset + progress * effectiveWidth;
+        
+        marker.style.cssText = `
+          position: absolute;
+          width: 8px;
+          height: 20px;
+          background: #4ec9b0;
+          cursor: pointer;
+          border-radius: 2px;
+          left: ${leftPos}px;
+          transform: translateX(-50%);
+          transition: background 0.2s, transform 0.2s;
+        `;
+        marker.title = `关键帧 ${frameIndex} - 右键删除`;
+        
+        // 鼠标悬停效果
+        marker.addEventListener('mouseenter', () => {
+          marker.style.background = '#6fd4bd';
+          marker.style.transform = 'translateX(-50%) scale(1.2)';
+        });
+        
+        marker.addEventListener('mouseleave', () => {
+          marker.style.background = '#4ec9b0';
+          marker.style.transform = 'translateX(-50%)';
+        });
+        
+        // 点击跳转到关键帧
+        marker.addEventListener('click', () => {
+          this.setCurrentFrame(frameIndex);
+        });
+        
+        // 右键删除关键帧
+        marker.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          if (confirm(`确定删除关键帧 ${frameIndex}？`)) {
+            this.editor.trajectoryManager.removeKeyframe(frameIndex);
+            this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
+            this.editor.updateRobotState(this.currentFrame);
+          }
+        });
+        
+        container.appendChild(marker);
+        this.keyframeMarkers.push(marker);
       });
-      
-      // 右键删除关键帧
-      marker.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        if (confirm(`确定删除关键帧 ${frameIndex}？`)) {
-          this.editor.trajectoryManager.removeKeyframe(frameIndex);
-          this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
-          this.editor.updateRobotState(this.currentFrame);
-        }
-      });
-      
-      container.appendChild(marker);
-      this.keyframeMarkers.push(marker);
     });
   }
 

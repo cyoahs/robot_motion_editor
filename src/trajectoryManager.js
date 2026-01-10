@@ -361,4 +361,79 @@ export class TrajectoryManager {
     
     return lines.join('\n');
   }
+
+  exportBaseTrajectory() {
+    const lines = [];
+    
+    for (let i = 0; i < this.baseTrajectory.length; i++) {
+      const state = this.baseTrajectory[i];
+      
+      const values = [
+        state.base.position.x,
+        state.base.position.y,
+        state.base.position.z,
+        state.base.quaternion.x,
+        state.base.quaternion.y,
+        state.base.quaternion.z,
+        state.base.quaternion.w,
+        ...state.joints
+      ];
+      
+      lines.push(values.join(','));
+    }
+    
+    return lines.join('\n');
+  }
+
+  getProjectData() {
+    // 序列化工程数据：原始轨迹 + 关键帧
+    const keyframesArray = Array.from(this.keyframes.entries()).map(([frameIndex, data]) => ({
+      frameIndex,
+      residual: data.residual,
+      baseResidual: data.baseResidual
+    }));
+
+    return {
+      version: '1.0',
+      baseTrajectory: this.baseTrajectory,
+      keyframes: keyframesArray,
+      jointCount: this.jointCount,
+      originalFileName: this.originalFileName,
+      fps: this.fps || 50
+    };
+  }
+
+  loadProjectData(projectData) {
+    // 清除当前数据
+    this.baseTrajectory = [];
+    this.keyframes.clear();
+    
+    // 加载新数据
+    if (projectData.baseTrajectory) {
+      this.baseTrajectory = projectData.baseTrajectory;
+    }
+    
+    if (projectData.keyframes) {
+      projectData.keyframes.forEach(kf => {
+        this.keyframes.set(kf.frameIndex, {
+          residual: kf.residual,
+          baseResidual: kf.baseResidual
+        });
+      });
+    }
+    
+    this.jointCount = projectData.jointCount || 0;
+    this.originalFileName = projectData.originalFileName || '';
+    this.fps = projectData.fps || 50;
+    
+    console.log('✅ 加载工程文件:', this.baseTrajectory.length, '帧,', this.keyframes.size, '个关键帧');
+  }
+
+  clearAll() {
+    this.baseTrajectory = [];
+    this.keyframes.clear();
+    this.jointCount = 0;
+    this.originalFileName = '';
+    console.log('🗑️ 已清除所有轨迹和关键帧');
+  }
 }

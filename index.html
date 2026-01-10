@@ -120,17 +120,42 @@
     }
 
     #timeline-slider {
-      width: 100%;
-      margin-bottom: 10px;
+      cursor: pointer;
     }
     
-    .keyframe-marker {
+    #timeline-viewport {
+      overflow-x: hidden;
+      overflow-y: hidden;
+      touch-action: none;
+      position: relative;
+    }
+    
+    #timeline-scrollbar {
+      width: 100%;
+      height: 12px;
+      background: #252526;
+      border-radius: 6px;
+      position: relative;
+      margin-top: 5px;
+      cursor: pointer;
+    }
+    
+    #timeline-scrollbar-thumb {
+      height: 100%;
+      background: #3e3e42;
+      border-radius: 6px;
+      position: absolute;
+      cursor: grab;
       transition: background 0.2s;
     }
     
-    .keyframe-marker:hover {
-      background: #6fd4bd !important;
-      transform: translateX(-50%) scale(1.2) !important;
+    #timeline-scrollbar-thumb:hover {
+      background: #4e4e52;
+    }
+    
+    #timeline-scrollbar-thumb:active {
+      cursor: grabbing;
+      background: #5e5e62;
     }
 
     .timeline-info {
@@ -138,14 +163,6 @@
       justify-content: space-between;
       font-size: 12px;
       color: #858585;
-    }
-
-    .keyframe-marker {
-      position: absolute;
-      width: 2px;
-      height: 20px;
-      background: #4ec9b0;
-      cursor: pointer;
     }
 
     #status {
@@ -167,7 +184,13 @@
         加载 CSV 轨迹
         <input type="file" id="csv-file" accept=".csv">
       </label>
-      <button id="export-trajectory">导出轨迹</button>
+      <button id="export-trajectory">导出编辑轨迹</button>
+      <button id="export-base-trajectory">导出原始轨迹</button>
+      <label for="load-project">
+        加载工程文件
+        <input type="file" id="load-project" accept=".json">
+      </label>
+      <button id="save-project">保存工程文件</button>
       <span id="status-text" style="margin-left: 20px; color: #858585;">就绪</span>
     </div>
 
@@ -213,14 +236,26 @@
         <button id="add-keyframe" style="padding: 4px 12px; font-size: 12px;">添加关键帧</button>
         <button id="delete-keyframe" style="padding: 4px 12px; font-size: 12px; display: none;">删除关键帧</button>
         <div style="flex: 1;"></div>
+        <button id="timeline-zoom-out" style="padding: 4px 12px; font-size: 12px;" title="缩小时间轴">🔍-</button>
+        <button id="timeline-zoom-reset" style="padding: 4px 12px; font-size: 12px;" title="重置缩放">1:1</button>
+        <button id="timeline-zoom-in" style="padding: 4px 12px; font-size: 12px;" title="放大时间轴">🔍+</button>
         <button id="play-pause" style="padding: 4px 16px; font-size: 12px;">▶ 播放</button>
         <span id="fps-display" style="font-size: 12px; color: #858585;">FPS: 50</span>
       </div>
-      <input type="range" id="timeline-slider" min="0" max="100" value="0">
+      <div id="timeline-viewport" style="position: relative; overflow-x: hidden; overflow-y: hidden; width: 100%; margin-bottom: 5px;">
+        <div id="timeline-content" style="position: relative; width: 100%; min-width: 100%;">
+          <div id="keyframe-markers" style="position: relative; height: 20px; margin-bottom: 5px;"></div>
+          <input type="range" id="timeline-slider" min="0" max="100" value="0" style="width: 100%; margin: 0;">
+        </div>
+      </div>
+      <div id="timeline-scrollbar">
+        <div id="timeline-scrollbar-thumb"></div>
+      </div>
       <div class="timeline-info">
         <span id="current-time">时间: 0.00s</span>
         <span id="current-frame">帧: 0</span>
         <span id="total-time">总时长: 0.00s</span>
+        <span id="zoom-level" style="margin-left: 10px;">缩放: 1.0x</span>
       </div>
     </div>
   </div>

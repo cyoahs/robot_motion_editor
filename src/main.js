@@ -221,9 +221,24 @@ class RobotKeyframeEditor {
       this.timelineController.togglePlayPause();
     });
 
-    // 导出轨迹
+    // 导出编辑后的轨迹
     document.getElementById('export-trajectory').addEventListener('click', () => {
       this.exportTrajectory();
+    });
+
+    // 导出原始轨迹
+    document.getElementById('export-base-trajectory').addEventListener('click', () => {
+      this.exportBaseTrajectory();
+    });
+
+    // 保存工程文件
+    document.getElementById('save-project').addEventListener('click', () => {
+      this.saveProject();
+    });
+
+    // 加载工程文件
+    document.getElementById('load-project').addEventListener('change', (e) => {
+      this.loadProject(e);
     });
 
     // 切换相机模式（旋转/平移）
@@ -541,6 +556,119 @@ class RobotKeyframeEditor {
     
     console.log('✅ 轨迹已导出:', finalFileName);
     this.updateStatus('轨迹已导出', 'success');
+  }
+
+  exportBaseTrajectory() {
+    if (!this.trajectoryManager.hasTrajectory()) {
+      alert('请先加载 CSV 轨迹');
+      return;
+    }
+
+    const csv = this.trajectoryManager.exportBaseTrajectory();
+    const originalFileName = this.trajectoryManager.originalFileName || 'trajectory';
+    const defaultFileName = originalFileName.replace(/\.csv$/i, '') + '_base.csv';
+    
+    // 让用户确认或修改文件名
+    const fileName = prompt('请输入导出文件名:', defaultFileName);
+    if (!fileName) {
+      console.log('用户取消导出');
+      return;
+    }
+    
+    // 确保文件名以.csv结尾
+    const finalFileName = fileName.endsWith('.csv') ? fileName : fileName + '.csv';
+    
+    // 创建下载
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = finalFileName;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    console.log('✅ 原始轨迹已导出:', finalFileName);
+    this.updateStatus('原始轨迹已导出', 'success');
+  }
+
+  saveProject() {
+    if (!this.trajectoryManager.hasTrajectory()) {
+      alert('请先加载 CSV 轨迹');
+      return;
+    }
+
+    const projectData = this.trajectoryManager.getProjectData();
+    const json = JSON.stringify(projectData, null, 2);
+    
+    const originalFileName = this.trajectoryManager.originalFileName || 'project';
+    const defaultFileName = originalFileName.replace(/\.csv$/i, '') + '_project.json';
+    
+    // 让用户确认或修改文件名
+    const fileName = prompt('请输入工程文件名:', defaultFileName);
+    if (!fileName) {
+      console.log('用户取消保存');
+      return;
+    }
+    
+    // 确保文件名以.json结尾
+    const finalFileName = fileName.endsWith('.json') ? fileName : fileName + '.json';
+    
+    // 创建下载
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = finalFileName;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    console.log('✅ 工程文件已保存:', finalFileName);
+    this.updateStatus('工程文件已保存', 'success');
+  }
+
+  async loadProject(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const projectData = JSON.parse(text);
+      
+      // 清除当前所有数据
+      this.trajectoryManager.clearAll();
+      
+      // 加载新数据
+      this.trajectoryManager.loadProjectData(projectData);
+      
+      // 如果有URDF，更新机器人状态
+      if (this.robotLeft && this.robotRight) {
+        // 更新时间轴
+        const frameCount = this.trajectoryManager.getFrameCount();
+        const duration = this.trajectoryManager.getDuration();
+        this.timelineController.updateTimeline(frameCount, duration);
+        this.timelineController.setFPS(this.trajectoryManager.fps || 50);
+        
+        // 更新关键帧标记
+        const keyframes = Array.from(this.trajectoryManager.keyframes.keys());
+        this.timelineController.updateKeyframeMarkers(keyframes);
+        
+        // 更新到第一帧
+        this.updateRobotState(0);
+        this.timelineController.setCurrentFrame(0);
+      } else {
+        alert('请先加载 URDF 文件，然后再次加载工程文件');
+      }
+      
+      console.log('✅ 工程文件已加载:', file.name);
+      this.updateStatus('工程文件已加载: ' + file.name, 'success');
+    } catch (error) {
+      console.error('❌ 加载工程文件失败:', error);
+      alert('加载工程文件失败: ' + error.message);
+      this.updateStatus('加载工程文件失败', 'error');
+    }
+    
+    // 清除文件输入，允许重新选择同一文件
+    event.target.value = '';
   }
 
   toggleCameraMode() {
