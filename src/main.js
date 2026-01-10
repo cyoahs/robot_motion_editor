@@ -61,29 +61,38 @@ class RobotKeyframeEditor {
     // 兼容旧代码
     this.scene = this.sceneRight;
 
-    // 创建相机 (Z-up 坐标系)
+    // 创建相机 (Z-up 坐标系，正交投影)
     const viewport = document.getElementById('viewport');
     const fullWidth = viewport.clientWidth;
     const fullHeight = viewport.clientHeight;
     const halfWidth = fullWidth / 2;
+    const aspect = halfWidth / fullHeight;
+    const frustumSize = 5; // 可视范围大小
     
-    this.cameraLeft = new THREE.PerspectiveCamera(
-      75,
-      halfWidth / fullHeight,
+    this.cameraLeft = new THREE.OrthographicCamera(
+      frustumSize * aspect / -2,
+      frustumSize * aspect / 2,
+      frustumSize / 2,
+      frustumSize / -2,
       0.1,
       1000
     );
     this.cameraLeft.position.set(3, 3, 2);
     this.cameraLeft.up.set(0, 0, 1);
     
-    this.cameraRight = new THREE.PerspectiveCamera(
-      75,
-      halfWidth / fullHeight,
+    this.cameraRight = new THREE.OrthographicCamera(
+      frustumSize * aspect / -2,
+      frustumSize * aspect / 2,
+      frustumSize / 2,
+      frustumSize / -2,
       0.1,
       1000
     );
     this.cameraRight.position.set(3, 3, 2);
     this.cameraRight.up.set(0, 0, 1);
+    
+    // 存储frustumSize用于窗口调整
+    this.frustumSize = frustumSize;
     
     // 兼容旧代码
     this.camera = this.cameraRight;
@@ -100,10 +109,12 @@ class RobotKeyframeEditor {
     this.controls.dampingFactor = 0.05;
     this.controls.target.set(0, 0, 0.5);
     
-    // 同步左侧相机跟随右侧相机
+    // 同步左侧相机跟随右侧相机（位置、旋转、缩放）
     this.controls.addEventListener('change', () => {
       this.cameraLeft.position.copy(this.cameraRight.position);
       this.cameraLeft.quaternion.copy(this.cameraRight.quaternion);
+      this.cameraLeft.zoom = this.cameraRight.zoom;
+      this.cameraLeft.updateProjectionMatrix();
     });
     
     // 兼容双控制器引用
@@ -146,11 +157,19 @@ class RobotKeyframeEditor {
       const fullWidth = viewport.clientWidth;
       const fullHeight = viewport.clientHeight;
       const halfWidth = fullWidth / 2;
+      const aspect = halfWidth / fullHeight;
       
-      this.cameraLeft.aspect = halfWidth / fullHeight;
+      // 更新正交相机的frustum
+      this.cameraLeft.left = this.frustumSize * aspect / -2;
+      this.cameraLeft.right = this.frustumSize * aspect / 2;
+      this.cameraLeft.top = this.frustumSize / 2;
+      this.cameraLeft.bottom = this.frustumSize / -2;
       this.cameraLeft.updateProjectionMatrix();
       
-      this.cameraRight.aspect = halfWidth / fullHeight;
+      this.cameraRight.left = this.frustumSize * aspect / -2;
+      this.cameraRight.right = this.frustumSize * aspect / 2;
+      this.cameraRight.top = this.frustumSize / 2;
+      this.cameraRight.bottom = this.frustumSize / -2;
       this.cameraRight.updateProjectionMatrix();
       
       this.renderer.setSize(fullWidth, fullHeight);
