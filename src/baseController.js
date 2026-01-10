@@ -92,6 +92,10 @@ export class BaseController {
       const value = parseFloat(e.target.value);
       numberInput.value = value.toFixed(3);
       onChange(value);
+      // 更新COM显示
+      if (this.editor.showCOM && this.editor.comVisualizerRight && this.editor.robotRight) {
+        this.editor.comVisualizerRight.update(this.editor.robotRight);
+      }
     });
     
     numberInput.addEventListener('change', (e) => {
@@ -100,6 +104,10 @@ export class BaseController {
       slider.value = value;
       numberInput.value = value.toFixed(3);
       onChange(value);
+      // 更新COM显示
+      if (this.editor.showCOM && this.editor.comVisualizerRight && this.editor.robotRight) {
+        this.editor.comVisualizerRight.update(this.editor.robotRight);
+      }
     });
     
     row.appendChild(slider);

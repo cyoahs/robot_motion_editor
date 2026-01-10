@@ -88,6 +88,13 @@ export class JointController {
       this.joints[index].joint.setJointValue(value);
     }
     
+    // 更新COM显示
+    if (this.editor.showCOM) {
+      if (this.editor.comVisualizerRight && this.editor.robotRight) {
+        this.editor.comVisualizerRight.update(this.editor.robotRight);
+      }
+    }
+    
     // 如果当前帧是关键帧，自动更新残差
     this.autoUpdateKeyframe();
   }

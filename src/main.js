@@ -5,6 +5,7 @@ import { TrajectoryManager } from './trajectoryManager.js';
 import { JointController } from './jointController.js';
 import { BaseController } from './baseController.js';
 import { TimelineController } from './timelineController.js';
+import { COMVisualizer } from './comVisualizer.js';
 
 class RobotKeyframeEditor {
   constructor() {
@@ -34,6 +35,11 @@ class RobotKeyframeEditor {
     this.jointController = null;
     this.baseController = null;
     this.timelineController = null;
+    
+    // COM可视化器
+    this.comVisualizerLeft = null;
+    this.comVisualizerRight = null;
+    this.showCOM = true; // 默认显示COM
     
     // 相机控制状态
     this.cameraMode = 'rotate'; // 'rotate' 或 'pan'
@@ -65,8 +71,10 @@ class RobotKeyframeEditor {
     this.sceneRight.background = new THREE.Color(0x263238);
     
     // 兼容旧代码
-    this.scene = this.sceneRight;
-
+    this.scene = this.sceneRight;    
+    // 创建COM可视化器
+    this.comVisualizerLeft = new COMVisualizer(this.sceneLeft);
+    this.comVisualizerRight = new COMVisualizer(this.sceneRight);
     // 创建相机 (Z-up 坐标系，正交投影)
     const viewport = document.getElementById('viewport');
     const fullWidth = viewport.clientWidth;
@@ -256,6 +264,16 @@ class RobotKeyframeEditor {
       this.toggleFollowRobot();
     });
 
+    // 切换重心显示
+    document.getElementById('toggle-com').addEventListener('click', () => {
+      this.toggleCOM();
+    });
+
+    // 刷新地面投影包络线
+    document.getElementById('refresh-footprint').addEventListener('click', () => {
+      this.refreshFootprint();
+    });
+
     // 键盘快捷键
     document.addEventListener('keydown', (e) => {
       // 如果焦点在输入框内，不触发快捷键
@@ -337,6 +355,12 @@ class RobotKeyframeEditor {
             const currentFrame = this.timelineController.getCurrentFrame();
             this.updateRobotState(currentFrame);
           }
+          
+          // 更新COM显示
+          if (this.showCOM && this.comVisualizerLeft) {
+            console.log('🎯 更新左侧COM显示');
+            this.comVisualizerLeft.update(this.robotLeft);
+          }
         });
         
         console.log('✅ 右侧机器人模型已添加到场景');
@@ -348,6 +372,12 @@ class RobotKeyframeEditor {
         
         this.jointController = new JointController(joints, this);
         this.baseController = new BaseController(this);
+        
+        // 更新COM显示
+        if (this.showCOM && this.comVisualizerRight && this.robotRight) {
+          console.log('🎯 更新右侧COM显示');
+          this.comVisualizerRight.update(this.robotRight);
+        }
         
         console.log('✅ 关节控制面板已初始化');
         console.log('========================================');
@@ -469,8 +499,16 @@ class RobotKeyframeEditor {
         this.baseController.updateBase(combinedState.base.position, combinedState.base.quaternion);
       }
     }
-    
-    // 兼容旧代码
+        // 更新COM可视化
+    if (this.showCOM) {
+      if (this.comVisualizerLeft && this.robotLeft) {
+        this.comVisualizerLeft.update(this.robotLeft);
+      }
+      if (this.comVisualizerRight && this.robotRight) {
+        this.comVisualizerRight.update(this.robotRight);
+      }
+    }
+        // 兼容旧代码
     this.robot = this.robotRight;
   }
 
@@ -736,6 +774,56 @@ class RobotKeyframeEditor {
       button.style.background = 'rgba(0,0,0,0.7)';
       console.log('🤖 停止跟随机器人');
     }
+  }
+
+  toggleCOM() {
+    this.showCOM = !this.showCOM;
+    const button = document.getElementById('toggle-com');
+    
+    if (this.showCOM) {
+      button.textContent = '🎯 重心: 开';
+      button.style.background = 'rgba(255, 0, 0, 0.3)';
+      
+      // 立即更新COM显示
+      if (this.comVisualizerLeft && this.robotLeft) {
+        this.comVisualizerLeft.update(this.robotLeft);
+      }
+      if (this.comVisualizerRight && this.robotRight) {
+        this.comVisualizerRight.update(this.robotRight);
+      }
+      
+      console.log('🎯 显示重心');
+    } else {
+      button.textContent = '🎯 重心: 关';
+      button.style.background = 'rgba(0,0,0,0.7)';
+      
+      if (this.comVisualizerLeft) {
+        this.comVisualizerLeft.hide();
+      }
+      if (this.comVisualizerRight) {
+        this.comVisualizerRight.hide();
+      }
+      
+      console.log('🎯 隐藏重心');
+    }
+  }
+
+  refreshFootprint() {
+    if (!this.robotLeft && !this.robotRight) {
+      alert('请先加载机器人模型');
+      return;
+    }
+    
+    console.log('👣 手动刷新地面投影包络线...');
+    
+    if (this.comVisualizerLeft && this.robotLeft) {
+      this.comVisualizerLeft.updateFootprint(this.robotLeft);
+    }
+    if (this.comVisualizerRight && this.robotRight) {
+      this.comVisualizerRight.updateFootprint(this.robotRight);
+    }
+    
+    this.updateStatus('地面投影包络线已刷新', 'success');
   }
 
   animate() {

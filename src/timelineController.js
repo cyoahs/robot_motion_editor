@@ -217,17 +217,6 @@ export class TimelineController {
       deleteBtn.style.display = 'none';
     }
     
-    // 自动滚动到当前帧（如果缩放了）
-    if (this.zoomLevel > 1.0) {
-      const viewport = document.getElementById('timeline-viewport');
-      const content = document.getElementById('timeline-content');
-      const progress = this.currentFrame / (this.frameCount - 1);
-      const targetScroll = progress * content.offsetWidth - viewport.offsetWidth / 2;
-      this.scrollLeft = Math.max(0, Math.min(content.offsetWidth - viewport.offsetWidth, targetScroll));
-      this.updateContentPosition();
-      if (this.updateScrollbar) this.updateScrollbar();
-    }
-    
     // 更新机器人状态
     this.editor.updateRobotState(this.currentFrame);
   }

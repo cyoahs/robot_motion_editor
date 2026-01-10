@@ -4,6 +4,14 @@ import URDFLoaderLib from 'urdf-loader';
 export class URDFLoader {
   constructor() {
     this.loader = new URDFLoaderLib();
+    // 配置urdf-loader解析选项
+    this.loader.parseCollision = true;  // 解析碰撞信息
+    this.loader.parseVisual = true;     // 解析视觉信息
+    // urdf-loader默认会解析inertial，但我们明确设置
+    if (this.loader.hasOwnProperty('parseInertial')) {
+      this.loader.parseInertial = true;
+    }
+    
     this.robot = null;
     this.joints = [];
     this.fileMap = new Map();
