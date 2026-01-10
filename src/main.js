@@ -587,6 +587,12 @@ class RobotKeyframeEditor {
     this.followRobot = !this.followRobot;
     const button = document.getElementById('follow-robot');
     if (this.followRobot) {
+      // 如果开启跟随，且当前是平移模式，自动切换到旋转模式
+      if (this.cameraMode === 'pan') {
+        this.toggleCameraMode();
+        console.log('📷 跟随模式下自动切换到旋转模式');
+      }
+      
       button.textContent = '🤖 跟随: 开';
       button.style.background = 'rgba(78, 201, 176, 0.3)';
       console.log('🤖 开始跟随机器人');
