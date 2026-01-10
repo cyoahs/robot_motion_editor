@@ -172,7 +172,11 @@
     </div>
 
     <div class="main-content">
-      <div id="viewport"></div>
+      <div id="viewport" style="position: relative;">
+        <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: #4ec9b0; pointer-events: none;">原始轨迹 (Base)</div>
+        <div style="position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: #f48771; pointer-events: none;">编辑后 (Modified)</div>
+        <div style="position: absolute; top: 50%; left: 50%; width: 2px; height: 100%; background: #3e3e42; transform: translateX(-50%); pointer-events: none; z-index: 99;"></div>
+      </div>
       <div id="sidebar">
         <!-- 基体控制 -->
         <div style="border-bottom: 1px solid #3e3e42; margin-bottom: 10px; padding-bottom: 10px;">

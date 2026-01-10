@@ -298,4 +298,92 @@ export class URDFLoader {
   getJoints() {
     return this.joints;
   }
+
+  // 从已有的文件映射创建新的机器人实例
+  async loadFromMap(fileMap, onComplete) {
+    try {
+      console.log('🔄 从文件映射创建新机器人实例...');
+      
+      // 找到URDF文件
+      let urdfFile = null;
+      let urdfPath = '';
+      for (const [path, file] of fileMap.entries()) {
+        if (path.toLowerCase().endsWith('.urdf')) {
+          urdfFile = file;
+          urdfPath = path;
+          break;
+        }
+      }
+      
+      if (!urdfFile) {
+        throw new Error('文件映射中未找到URDF文件');
+      }
+      
+      const urdfText = await urdfFile.text();
+      const basePath = urdfPath.substring(0, urdfPath.lastIndexOf('/') + 1);
+      
+      // 设置加载管理器
+      const manager = new THREE.LoadingManager();
+      
+      manager.setURLModifier((url) => {
+        console.log(`🔗 请求URL: ${url}`);
+        
+        let cleanUrl = url.replace(/^package:\/\//, '').replace(/^file:\/\//, '');
+        if (cleanUrl.startsWith('./')) cleanUrl = cleanUrl.substring(2);
+        if (cleanUrl.startsWith('/')) cleanUrl = cleanUrl.substring(1);
+        
+        const fullPath = basePath + cleanUrl;
+        let file = fileMap.get(fullPath);
+        
+        if (!file) {
+          const relativePath = cleanUrl;
+          file = fileMap.get(relativePath);
+        }
+        
+        if (!file) {
+          for (const [path, f] of fileMap.entries()) {
+            if (path.endsWith(cleanUrl)) {
+              file = f;
+              break;
+            }
+          }
+        }
+        
+        if (!file) {
+          const filename = cleanUrl.split('/').pop();
+          for (const [path, f] of fileMap.entries()) {
+            if (path.endsWith(filename)) {
+              file = f;
+              break;
+            }
+          }
+        }
+        
+        if (file) {
+          const blobUrl = URL.createObjectURL(file);
+          console.log(`✅ 映射成功: ${url} -> ${blobUrl}`);
+          return blobUrl;
+        }
+        
+        console.warn(`⚠️ 未找到文件: ${url}`);
+        return url;
+      });
+      
+      const loader = new URDFLoaderLib(manager);
+      // 不设置自定义 loadMeshCb，让 urdf-loader 使用默认的 mesh 加载器
+      // urdf-loader 会根据文件扩展名自动选择正确的加载器（STLLoader, ColladaLoader等）
+      
+      const newRobot = loader.parse(urdfText);
+      console.log('✅ 新机器人实例创建成功');
+      
+      if (onComplete) {
+        onComplete(newRobot);
+      }
+      
+      return newRobot;
+    } catch (error) {
+      console.error('❌ 从文件映射创建机器人失败:', error);
+      throw error;
+    }
+  }
 }

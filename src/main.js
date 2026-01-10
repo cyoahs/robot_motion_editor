@@ -8,11 +8,27 @@ import { TimelineController } from './timelineController.js';
 
 class RobotKeyframeEditor {
   constructor() {
+    // 左侧场景 (原始轨迹)
+    this.sceneLeft = null;
+    this.cameraLeft = null;
+    this.controlsLeft = null;
+    this.robotLeft = null;
+    
+    // 右侧场景 (编辑后轨迹)
+    this.sceneRight = null;
+    this.cameraRight = null;
+    this.controlsRight = null;
+    this.robotRight = null;
+    
+    // 共享渲染器
+    this.renderer = null;
+    
+    // 兼容旧代码的引用
     this.scene = null;
     this.camera = null;
-    this.renderer = null;
     this.controls = null;
     this.robot = null;
+    
     this.urdfLoader = new URDFLoader();
     this.trajectoryManager = new TrajectoryManager();
     this.jointController = null;
@@ -34,50 +50,92 @@ class RobotKeyframeEditor {
   }
 
   init() {
-    // 创建场景
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x263238);
+    // 创建左侧场景 (原始轨迹)
+    this.sceneLeft = new THREE.Scene();
+    this.sceneLeft.background = new THREE.Color(0x1a1a1a);
+    
+    // 创建右侧场景 (编辑后轨迹)
+    this.sceneRight = new THREE.Scene();
+    this.sceneRight.background = new THREE.Color(0x263238);
+    
+    // 兼容旧代码
+    this.scene = this.sceneRight;
 
     // 创建相机 (Z-up 坐标系)
     const viewport = document.getElementById('viewport');
-    this.camera = new THREE.PerspectiveCamera(
+    const fullWidth = viewport.clientWidth;
+    const fullHeight = viewport.clientHeight;
+    const halfWidth = fullWidth / 2;
+    
+    this.cameraLeft = new THREE.PerspectiveCamera(
       75,
-      viewport.clientWidth / viewport.clientHeight,
+      halfWidth / fullHeight,
       0.1,
       1000
     );
-    // Z-up: 相机位于侧面上方
-    this.camera.position.set(3, 3, 2);
-    this.camera.up.set(0, 0, 1); // 设置 Z 轴为上方向
+    this.cameraLeft.position.set(3, 3, 2);
+    this.cameraLeft.up.set(0, 0, 1);
+    
+    this.cameraRight = new THREE.PerspectiveCamera(
+      75,
+      halfWidth / fullHeight,
+      0.1,
+      1000
+    );
+    this.cameraRight.position.set(3, 3, 2);
+    this.cameraRight.up.set(0, 0, 1);
+    
+    // 兼容旧代码
+    this.camera = this.cameraRight;
 
     // 创建渲染器
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setSize(viewport.clientWidth, viewport.clientHeight);
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.setSize(fullWidth, fullHeight);
+    this.renderer.autoClear = false; // 手动控制清除，用于多视口渲染
     viewport.appendChild(this.renderer.domElement);
 
-    // 添加轨道控制器
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    // 添加轨道控制器 - 只使用一个控制器，但同步两个相机
+    this.controls = new OrbitControls(this.cameraRight, this.renderer.domElement);
     this.controls.enableDamping = true;
-    this.controls.target.set(0, 0, 0.5); // 目标点设在地面上方
+    this.controls.dampingFactor = 0.05;
+    this.controls.target.set(0, 0, 0.5);
+    
+    // 同步左侧相机跟随右侧相机
+    this.controls.addEventListener('change', () => {
+      this.cameraLeft.position.copy(this.cameraRight.position);
+      this.cameraLeft.quaternion.copy(this.cameraRight.quaternion);
+    });
+    
+    // 兼容双控制器引用
+    this.controlsLeft = this.controls;
+    this.controlsRight = this.controls;
 
-    // 添加光源
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-    this.scene.add(ambientLight);
-
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(5, 5, 10); // Z-up: 光源从上方照射
-    directionalLight.castShadow = true;
-    this.scene.add(directionalLight);
-
-    // 添加地面网格 (XY 平面，Z-up)
-    const gridHelper = new THREE.GridHelper(10, 20);
-    gridHelper.rotation.x = Math.PI / 2; // 旋转网格使其在 XY 平面
-    this.scene.add(gridHelper);
-
-    // 添加坐标轴 (X=红, Y=绿, Z=蓝)
-    const axesHelper = new THREE.AxesHelper(1);
-    this.scene.add(axesHelper);
+    // 添加光源到两个场景
+    // 左侧场景
+    const ambientLightLeft = new THREE.AmbientLight(0xffffff, 0.6);
+    this.sceneLeft.add(ambientLightLeft);
+    const directionalLightLeft = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLightLeft.position.set(5, 5, 10);
+    directionalLightLeft.castShadow = true;
+    this.sceneLeft.add(directionalLightLeft);
+    const gridHelperLeft = new THREE.GridHelper(10, 20);
+    gridHelperLeft.rotation.x = Math.PI / 2;
+    this.sceneLeft.add(gridHelperLeft);
+    const axesHelperLeft = new THREE.AxesHelper(1);
+    this.sceneLeft.add(axesHelperLeft);
+    
+    // 右侧场景
+    const ambientLightRight = new THREE.AmbientLight(0xffffff, 0.6);
+    this.sceneRight.add(ambientLightRight);
+    const directionalLightRight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLightRight.position.set(5, 5, 10);
+    directionalLightRight.castShadow = true;
+    this.sceneRight.add(directionalLightRight);
+    const gridHelperRight = new THREE.GridHelper(10, 20);
+    gridHelperRight.rotation.x = Math.PI / 2;
+    this.sceneRight.add(gridHelperRight);
+    const axesHelperRight = new THREE.AxesHelper(1);
+    this.sceneRight.add(axesHelperRight);
 
     // 初始化时间轴控制器
     this.timelineController = new TimelineController(this);
@@ -85,9 +143,17 @@ class RobotKeyframeEditor {
     // 窗口大小调整
     window.addEventListener('resize', () => {
       const viewport = document.getElementById('viewport');
-      this.camera.aspect = viewport.clientWidth / viewport.clientHeight;
-      this.camera.updateProjectionMatrix();
-      this.renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+      const fullWidth = viewport.clientWidth;
+      const fullHeight = viewport.clientHeight;
+      const halfWidth = fullWidth / 2;
+      
+      this.cameraLeft.aspect = halfWidth / fullHeight;
+      this.cameraLeft.updateProjectionMatrix();
+      
+      this.cameraRight.aspect = halfWidth / fullHeight;
+      this.cameraRight.updateProjectionMatrix();
+      
+      this.renderer.setSize(fullWidth, fullHeight);
     });
   }
 
@@ -159,9 +225,28 @@ class RobotKeyframeEditor {
       console.log('机器人模型:', this.robot);
       
       if (this.robot) {
-        console.log('➕ 将机器人添加到场景...');
-        this.scene.add(this.robot);
-        console.log('✅ 机器人模型已添加到场景');
+        console.log('➕ 将机器人添加到两个场景...');
+        
+        // 为右侧场景使用原始机器人
+        this.robotRight = this.robot;
+        this.sceneRight.add(this.robotRight);
+        
+        // 为左侧场景创建第二个机器人实例
+        console.log('🔄 为左侧场景创建第二个机器人实例...');
+        const fileMapCopy = new Map(this.urdfLoader.fileMap);
+        this.urdfLoader.loadFromMap(fileMapCopy, (leftRobot) => {
+          this.robotLeft = leftRobot;
+          this.sceneLeft.add(this.robotLeft);
+          console.log('✅ 左侧机器人模型已添加');
+          
+          // 如果已经加载了轨迹，更新左侧机器人状态
+          if (this.trajectoryManager.hasTrajectory()) {
+            const currentFrame = this.timelineController.getCurrentFrame();
+            this.updateRobotState(currentFrame);
+          }
+        });
+        
+        console.log('✅ 右侧机器人模型已添加到场景');
         
         // 初始化关节控制器
         console.log('🎮 初始化关节控制器...');
@@ -238,30 +323,62 @@ class RobotKeyframeEditor {
   }
 
   updateRobotState(frameIndex) {
-    if (!this.robot || !this.trajectoryManager.hasTrajectory()) {
+    if ((!this.robotLeft && !this.robotRight) || !this.trajectoryManager.hasTrajectory()) {
       return;
     }
 
-    const state = this.trajectoryManager.getCombinedState(frameIndex);
+    // 获取原始状态和编辑后状态
+    const baseState = this.trajectoryManager.getBaseState(frameIndex);
+    const combinedState = this.trajectoryManager.getCombinedState(frameIndex);
     
-    // 更新 base 位置和姿态
-    this.robot.position.set(state.base.position.x, state.base.position.y, state.base.position.z);
-    this.robot.quaternion.set(
-      state.base.quaternion.x,
-      state.base.quaternion.y,
-      state.base.quaternion.z,
-      state.base.quaternion.w
-    );
-
-    // 更新关节角度
-    if (this.jointController) {
-      this.jointController.updateJoints(state.joints);
+    // 更新左侧机器人 (原始轨迹)
+    if (this.robotLeft && baseState) {
+      this.robotLeft.position.set(
+        baseState.base.position.x,
+        baseState.base.position.y,
+        baseState.base.position.z
+      );
+      this.robotLeft.quaternion.set(
+        baseState.base.quaternion.x,
+        baseState.base.quaternion.y,
+        baseState.base.quaternion.z,
+        baseState.base.quaternion.w
+      );
+      
+      // 更新左侧关节
+      baseState.joints.forEach((value, index) => {
+        const jointName = this.jointController.joints[index].name;
+        this.robotLeft.setJointValue(jointName, value);
+      });
     }
     
-    // 更新基体控制器显示
-    if (this.baseController) {
-      this.baseController.updateBase(state.base.position, state.base.quaternion);
+    // 更新右侧机器人 (编辑后轨迹)
+    if (this.robotRight && combinedState) {
+      this.robotRight.position.set(
+        combinedState.base.position.x,
+        combinedState.base.position.y,
+        combinedState.base.position.z
+      );
+      this.robotRight.quaternion.set(
+        combinedState.base.quaternion.x,
+        combinedState.base.quaternion.y,
+        combinedState.base.quaternion.z,
+        combinedState.base.quaternion.w
+      );
+      
+      // 更新UI和右侧关节
+      if (this.jointController) {
+        this.jointController.updateJoints(combinedState.joints);
+      }
+      
+      // 更新基体控制器显示
+      if (this.baseController) {
+        this.baseController.updateBase(combinedState.base.position, combinedState.base.quaternion);
+      }
     }
+    
+    // 兼容旧代码
+    this.robot = this.robotRight;
   }
 
   addKeyframe() {
@@ -352,7 +469,27 @@ class RobotKeyframeEditor {
     requestAnimationFrame(() => this.animate());
     
     this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    
+    // 获取整个viewport的尺寸
+    const viewport = document.getElementById('viewport');
+    const fullWidth = viewport.clientWidth;
+    const fullHeight = viewport.clientHeight;
+    const halfWidth = fullWidth / 2;
+    
+    // 清除整个画布
+    this.renderer.clear();
+    
+    // 渲染左侧视口 (原始轨迹)
+    this.renderer.setViewport(0, 0, halfWidth, fullHeight);
+    this.renderer.setScissor(0, 0, halfWidth, fullHeight);
+    this.renderer.setScissorTest(true);
+    this.renderer.render(this.sceneLeft, this.cameraLeft);
+    
+    // 渲染右侧视口 (编辑后轨迹)
+    this.renderer.setViewport(halfWidth, 0, halfWidth, fullHeight);
+    this.renderer.setScissor(halfWidth, 0, halfWidth, fullHeight);
+    this.renderer.setScissorTest(true);
+    this.renderer.render(this.sceneRight, this.cameraRight);
   }
 }
 
