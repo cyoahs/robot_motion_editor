@@ -1,3 +1,5 @@
+import * as THREE from 'three';
+
 export class TrajectoryManager {
   constructor() {
     this.baseTrajectory = [];  // CSV 加载的基础轨迹
@@ -89,24 +91,37 @@ export class TrajectoryManager {
     };
     
     if (baseResidual) {
+      // 位置直接相加
       combinedBase.position.x += baseResidual.position.x;
       combinedBase.position.y += baseResidual.position.y;
       combinedBase.position.z += baseResidual.position.z;
       
-      combinedBase.quaternion.x += baseResidual.quaternion.x;
-      combinedBase.quaternion.y += baseResidual.quaternion.y;
-      combinedBase.quaternion.z += baseResidual.quaternion.z;
-      combinedBase.quaternion.w += baseResidual.quaternion.w;
+      // 四元数使用乘法（正确的旋转组合方式）
+      const qBase = new THREE.Quaternion(
+        baseState.base.quaternion.x,
+        baseState.base.quaternion.y,
+        baseState.base.quaternion.z,
+        baseState.base.quaternion.w
+      );
+      const qResidual = new THREE.Quaternion(
+        baseResidual.quaternion.x,
+        baseResidual.quaternion.y,
+        baseResidual.quaternion.z,
+        baseResidual.quaternion.w
+      );
       
-      // 归一化四元数
-      const q = combinedBase.quaternion;
-      const length = Math.sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
-      if (length > 0.0001) {
-        q.x /= length;
-        q.y /= length;
-        q.z /= length;
-        q.w /= length;
-      }
+      // q_combined = q_base * q_residual（使用clone避免修改qBase）
+      const qCombined = qBase.clone().multiply(qResidual);
+      
+      // 确保归一化
+      qCombined.normalize();
+      
+      combinedBase.quaternion = {
+        x: qCombined.x,
+        y: qCombined.y,
+        z: qCombined.z,
+        w: qCombined.w
+      };
     }
 
     return {
@@ -212,17 +227,31 @@ export class TrajectoryManager {
       }
       
       const t = frameIndex / firstKeyframeIndex;
+      
+      // 位置线性插值
+      const position = {
+        x: firstKeyframe.baseResidual.position.x * t,
+        y: firstKeyframe.baseResidual.position.y * t,
+        z: firstKeyframe.baseResidual.position.z * t
+      };
+      
+      // 四元数从单位四元数插值到目标残差
+      const qIdentity = new THREE.Quaternion(0, 0, 0, 1); // 单位四元数
+      const qTarget = new THREE.Quaternion(
+        firstKeyframe.baseResidual.quaternion.x,
+        firstKeyframe.baseResidual.quaternion.y,
+        firstKeyframe.baseResidual.quaternion.z,
+        firstKeyframe.baseResidual.quaternion.w
+      );
+      const qInterpolated = qIdentity.clone().slerp(qTarget, t);
+      
       return {
-        position: {
-          x: firstKeyframe.baseResidual.position.x * t,
-          y: firstKeyframe.baseResidual.position.y * t,
-          z: firstKeyframe.baseResidual.position.z * t
-        },
+        position,
         quaternion: {
-          x: firstKeyframe.baseResidual.quaternion.x * t,
-          y: firstKeyframe.baseResidual.quaternion.y * t,
-          z: firstKeyframe.baseResidual.quaternion.z * t,
-          w: firstKeyframe.baseResidual.quaternion.w * t
+          x: qInterpolated.x,
+          y: qInterpolated.y,
+          z: qInterpolated.z,
+          w: qInterpolated.w
         }
       };
     }
@@ -258,24 +287,44 @@ export class TrajectoryManager {
     
     const prev = prevKeyframe.baseResidual || {
       position: { x: 0, y: 0, z: 0 },
-      quaternion: { x: 0, y: 0, z: 0, w: 0 }
+      quaternion: { x: 0, y: 0, z: 0, w: 1 }
     };
     const next = nextKeyframe.baseResidual || {
       position: { x: 0, y: 0, z: 0 },
-      quaternion: { x: 0, y: 0, z: 0, w: 0 }
+      quaternion: { x: 0, y: 0, z: 0, w: 1 }
     };
     
+    // 位置线性插值
+    const interpolatedPosition = {
+      x: prev.position.x + (next.position.x - prev.position.x) * t,
+      y: prev.position.y + (next.position.y - prev.position.y) * t,
+      z: prev.position.z + (next.position.z - prev.position.z) * t
+    };
+    
+    // 四元数球面线性插值 (SLERP)
+    const qPrev = new THREE.Quaternion(
+      prev.quaternion.x,
+      prev.quaternion.y,
+      prev.quaternion.z,
+      prev.quaternion.w
+    );
+    const qNext = new THREE.Quaternion(
+      next.quaternion.x,
+      next.quaternion.y,
+      next.quaternion.z,
+      next.quaternion.w
+    );
+    
+    // 使用SLERP插值
+    const qInterpolated = qPrev.clone().slerp(qNext, t);
+    
     return {
-      position: {
-        x: prev.position.x + (next.position.x - prev.position.x) * t,
-        y: prev.position.y + (next.position.y - prev.position.y) * t,
-        z: prev.position.z + (next.position.z - prev.position.z) * t
-      },
+      position: interpolatedPosition,
       quaternion: {
-        x: prev.quaternion.x + (next.quaternion.x - prev.quaternion.x) * t,
-        y: prev.quaternion.y + (next.quaternion.y - prev.quaternion.y) * t,
-        z: prev.quaternion.z + (next.quaternion.z - prev.quaternion.z) * t,
-        w: prev.quaternion.w + (next.quaternion.w - prev.quaternion.w) * t
+        x: qInterpolated.x,
+        y: qInterpolated.y,
+        z: qInterpolated.z,
+        w: qInterpolated.w
       }
     };
   }
@@ -295,17 +344,37 @@ export class TrajectoryManager {
     // 计算基体残差
     let baseResidual = null;
     if (baseValues) {
+      // 位置残差：直接相减
+      const positionResidual = {
+        x: baseValues.position.x - baseState.base.position.x,
+        y: baseValues.position.y - baseState.base.position.y,
+        z: baseValues.position.z - baseState.base.position.z
+      };
+      
+      // 四元数残差： q_residual = q_base^(-1) * q_current
+      const qCurrent = new THREE.Quaternion(
+        baseValues.quaternion.x,
+        baseValues.quaternion.y,
+        baseValues.quaternion.z,
+        baseValues.quaternion.w
+      );
+      const qBase = new THREE.Quaternion(
+        baseState.base.quaternion.x,
+        baseState.base.quaternion.y,
+        baseState.base.quaternion.z,
+        baseState.base.quaternion.w
+      );
+      
+      // 计算残差四元数（使用clone避免修改qBase）
+      const qResidual = qBase.clone().invert().multiply(qCurrent);
+      
       baseResidual = {
-        position: {
-          x: baseValues.position.x - baseState.base.position.x,
-          y: baseValues.position.y - baseState.base.position.y,
-          z: baseValues.position.z - baseState.base.position.z
-        },
+        position: positionResidual,
         quaternion: {
-          x: baseValues.quaternion.x - baseState.base.quaternion.x,
-          y: baseValues.quaternion.y - baseState.base.quaternion.y,
-          z: baseValues.quaternion.z - baseState.base.quaternion.z,
-          w: baseValues.quaternion.w - baseState.base.quaternion.w
+          x: qResidual.x,
+          y: qResidual.y,
+          z: qResidual.z,
+          w: qResidual.w
         }
       };
     }
@@ -394,7 +463,7 @@ export class TrajectoryManager {
     }));
 
     return {
-      version: '1.0',
+      version: '2.0', // 升级：使用Three.js Quaternion运算
       baseTrajectory: this.baseTrajectory,
       keyframes: keyframesArray,
       jointCount: this.jointCount,
@@ -404,6 +473,19 @@ export class TrajectoryManager {
   }
 
   loadProjectData(projectData) {
+    // 检查版本兼容性
+    const version = projectData.version || '1.0';
+    
+    if (version === '1.0') {
+      console.warn('⚠️ 检测到旧版本工程文件 (v1.0)');
+      console.warn('⚠️ 四元数残差计算方式已改变，建议重新创建关键帧');
+      console.warn('⚠️ 继续加载可能导致姿态不正确');
+      // 可以选择提醒用户
+      if (typeof alert !== 'undefined') {
+        alert('⚠️ 检测到旧版本工程文件！\n\n四元数运算已优化，建议：\n1. 重新加载CSV轨迹\n2. 重新创建所有关键帧\n\n否则可能出现姿态错误。');
+      }
+    }
+    
     // 清除当前数据
     this.baseTrajectory = [];
     this.keyframes.clear();

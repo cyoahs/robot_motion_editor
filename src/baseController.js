@@ -138,11 +138,22 @@ export class BaseController {
     const q = this.baseValues.quaternion;
     const length = Math.sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
     
-    if (length > 0.0001) {
+    if (length < 0.0001) {
+      console.warn('⚠️ 四元数长度接近0，恢复为单位四元数');
+      q.x = 0;
+      q.y = 0;
+      q.z = 0;
+      q.w = 1;
+    } else if (length > 0.0001) {
+      const oldLength = length;
       q.x /= length;
       q.y /= length;
       q.z /= length;
       q.w /= length;
+      
+      if (Math.abs(oldLength - 1.0) > 0.01) {
+        console.log(`🔄 四元数归一化: ${oldLength.toFixed(4)} → 1.0`);
+      }
       
       // 更新UI
       const container = document.getElementById('base-controls');
