@@ -219,6 +219,44 @@ class RobotKeyframeEditor {
     document.getElementById('export-trajectory').addEventListener('click', () => {
       this.exportTrajectory();
     });
+
+    // 键盘快捷键
+    document.addEventListener('keydown', (e) => {
+      // 如果焦点在输入框内，不触发快捷键
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      switch(e.code) {
+        case 'Space':
+          e.preventDefault(); // 防止页面滚动
+          if (this.timelineController) {
+            this.timelineController.togglePlayPause();
+          }
+          break;
+        
+        case 'ArrowLeft':
+          e.preventDefault();
+          if (this.timelineController) {
+            const currentFrame = this.timelineController.getCurrentFrame();
+            if (currentFrame > 0) {
+              this.timelineController.setCurrentFrame(currentFrame - 1);
+            }
+          }
+          break;
+        
+        case 'ArrowRight':
+          e.preventDefault();
+          if (this.timelineController) {
+            const currentFrame = this.timelineController.getCurrentFrame();
+            const maxFrame = this.trajectoryManager.getFrameCount() - 1;
+            if (currentFrame < maxFrame) {
+              this.timelineController.setCurrentFrame(currentFrame + 1);
+            }
+          }
+          break;
+      }
+    });
   }
 
   async loadURDFFolder(files) {
