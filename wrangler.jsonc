@@ -1,5 +1,5 @@
 {
-  "name": "mujoco-keyframe-editor",
+  "name": "robot-motion-editor",
   "compatibility_date": "2026-01-10",
   "assets": {
     "directory": "./dist"
