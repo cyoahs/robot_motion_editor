@@ -176,6 +176,19 @@
         <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: #4ec9b0; pointer-events: none;">原始轨迹 (Base)</div>
         <div style="position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: #f48771; pointer-events: none;">编辑后 (Modified)</div>
         <div style="position: absolute; top: 50%; left: 50%; width: 2px; height: 100%; background: #3e3e42; transform: translateX(-50%); pointer-events: none; z-index: 99;"></div>
+        
+        <!-- 相机控制按钮 -->
+        <div style="position: absolute; bottom: 10px; left: 10px; z-index: 100; display: flex; gap: 5px;">
+          <button id="toggle-camera-mode" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;">
+            🔄 旋转
+          </button>
+          <button id="reset-camera" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;">
+            � 重置视角
+          </button>
+          <button id="follow-robot" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;">
+            🤖 跟随: 关
+          </button>
+        </div>
       </div>
       <div id="sidebar">
         <!-- 基体控制 -->

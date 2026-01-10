@@ -34,6 +34,12 @@ class RobotKeyframeEditor {
     this.jointController = null;
     this.baseController = null;
     this.timelineController = null;
+    
+    // 相机控制状态
+    this.cameraMode = 'rotate'; // 'rotate' 或 'pan'
+    this.followRobot = false;
+    this.defaultCameraPosition = new THREE.Vector3(3, 3, 2);
+    this.defaultCameraTarget = new THREE.Vector3(0, 0, 0.5);
 
     this.init();
     this.setupEventListeners();
@@ -218,6 +224,21 @@ class RobotKeyframeEditor {
     // 导出轨迹
     document.getElementById('export-trajectory').addEventListener('click', () => {
       this.exportTrajectory();
+    });
+
+    // 切换相机模式（旋转/平移）
+    document.getElementById('toggle-camera-mode').addEventListener('click', () => {
+      this.toggleCameraMode();
+    });
+
+    // 重置相机视角
+    document.getElementById('reset-camera').addEventListener('click', () => {
+      this.resetCamera();
+    });
+
+    // 切换跟随机器人
+    document.getElementById('follow-robot').addEventListener('click', () => {
+      this.toggleFollowRobot();
     });
 
     // 键盘快捷键
@@ -522,10 +543,77 @@ class RobotKeyframeEditor {
     this.updateStatus('轨迹已导出', 'success');
   }
 
+  toggleCameraMode() {
+    if (this.cameraMode === 'rotate') {
+      this.cameraMode = 'pan';
+      this.controls.enableRotate = false;
+      this.controls.enablePan = true;
+      // 设置鼠标左键为平移
+      this.controls.mouseButtons = {
+        LEFT: THREE.MOUSE.PAN,
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.PAN
+      };
+      document.getElementById('toggle-camera-mode').textContent = '↔️ 平移';
+      console.log('📷 相机模式: 平移');
+    } else {
+      this.cameraMode = 'rotate';
+      this.controls.enableRotate = true;
+      this.controls.enablePan = false;
+      // 恢复默认：鼠标左键为旋转
+      this.controls.mouseButtons = {
+        LEFT: THREE.MOUSE.ROTATE,
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.PAN
+      };
+      document.getElementById('toggle-camera-mode').textContent = '🔄 旋转';
+      console.log('📷 相机模式: 旋转');
+    }
+  }
+
+  resetCamera() {
+    this.cameraLeft.position.copy(this.defaultCameraPosition);
+    this.cameraRight.position.copy(this.defaultCameraPosition);
+    this.cameraLeft.zoom = 1;
+    this.cameraRight.zoom = 1;
+    this.cameraLeft.updateProjectionMatrix();
+    this.cameraRight.updateProjectionMatrix();
+    this.controls.target.copy(this.defaultCameraTarget);
+    this.controls.update();
+    console.log('📷 相机视角已重置');
+  }
+
+  toggleFollowRobot() {
+    this.followRobot = !this.followRobot;
+    const button = document.getElementById('follow-robot');
+    if (this.followRobot) {
+      button.textContent = '🤖 跟随: 开';
+      button.style.background = 'rgba(78, 201, 176, 0.3)';
+      console.log('🤖 开始跟随机器人');
+      
+      // 立即更新相机位置
+      if (this.robotRight) {
+        const robotPos = this.robotRight.position;
+        this.controls.target.set(robotPos.x, robotPos.y, robotPos.z + 0.5);
+        this.controls.update();
+      }
+    } else {
+      button.textContent = '🤖 跟随: 关';
+      button.style.background = 'rgba(0,0,0,0.7)';
+      console.log('🤖 停止跟随机器人');
+    }
+  }
+
   animate() {
     requestAnimationFrame(() => this.animate());
     
     this.controls.update();
+    
+    // 跟随机器人平移
+    if (this.followRobot && this.robotRight) {
+      const robotPos = this.robotRight.position;
+      this.controls.target.set(robotPos.x, robotPos.y, robotPos.z + 0.5);
+    }
     
     // 获取整个viewport的尺寸
     const viewport = document.getElementById('viewport');
