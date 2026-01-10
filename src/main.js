@@ -44,6 +44,9 @@ class RobotKeyframeEditor {
     // 相机控制状态
     this.cameraMode = 'rotate'; // 'rotate' 或 'pan'
     this.followRobot = false;
+    this.showCOM = true; // 默认显示重心
+    this.autoRefreshFootprint = false; // 自动刷新包络线开关，默认关闭
+    this.footprintUpdateTimer = null; // 包络线更新防抖定时器
     this.defaultCameraPosition = new THREE.Vector3(3, 3, 2);
     this.defaultCameraTarget = new THREE.Vector3(0, 0, 0.5);
 
@@ -272,6 +275,11 @@ class RobotKeyframeEditor {
     // 刷新地面投影包络线
     document.getElementById('refresh-footprint').addEventListener('click', () => {
       this.refreshFootprint();
+    });
+
+    // 切换自动刷新包络线
+    document.getElementById('toggle-auto-refresh').addEventListener('click', () => {
+      this.toggleAutoRefreshFootprint();
     });
 
     // 键盘快捷键
@@ -808,22 +816,66 @@ class RobotKeyframeEditor {
     }
   }
 
+  toggleAutoRefreshFootprint() {
+    this.autoRefreshFootprint = !this.autoRefreshFootprint;
+    const button = document.getElementById('toggle-auto-refresh');
+    
+    if (this.autoRefreshFootprint) {
+      button.textContent = '⏱️ 自动刷新: 开';
+      button.style.background = 'rgba(0, 255, 0, 0.3)';
+      console.log('⏱️ 开启包络线自动刷新（2秒防抖）');
+      // 立即触发一次更新
+      this.scheduleFootprintUpdate();
+    } else {
+      button.textContent = '⏱️ 自动刷新: 关';
+      button.style.background = 'rgba(0,0,0,0.7)';
+      // 取消待执行的定时器
+      if (this.footprintUpdateTimer) {
+        clearTimeout(this.footprintUpdateTimer);
+        this.footprintUpdateTimer = null;
+      }
+      console.log('⏱️ 关闭包络线自动刷新');
+    }
+  }
+
+  scheduleFootprintUpdate() {
+    // 只有开启自动刷新时才执行
+    if (!this.autoRefreshFootprint) {
+      return;
+    }
+    
+    // 取消之前的定时器
+    if (this.footprintUpdateTimer) {
+      clearTimeout(this.footprintUpdateTimer);
+    }
+    
+    // 设置2秒后更新包络线
+    this.footprintUpdateTimer = setTimeout(() => {
+      if (this.showCOM) {
+        console.log('⏱️ 机器人状态稳定2秒，开始异步计算包络线...');
+        this.refreshFootprint();
+      }
+    }, 2000);
+  }
+
   refreshFootprint() {
     if (!this.robotLeft && !this.robotRight) {
       alert('请先加载机器人模型');
       return;
     }
     
-    console.log('👣 手动刷新地面投影包络线...');
+    console.log('👣 刷新地面投影包络线...');
     
-    if (this.comVisualizerLeft && this.robotLeft) {
-      this.comVisualizerLeft.updateFootprint(this.robotLeft);
-    }
-    if (this.comVisualizerRight && this.robotRight) {
-      this.comVisualizerRight.updateFootprint(this.robotRight);
-    }
-    
-    this.updateStatus('地面投影包络线已刷新', 'success');
+    // 使用setTimeout实现异步计算，避免阻塞UI
+    setTimeout(() => {
+      if (this.comVisualizerLeft && this.robotLeft) {
+        this.comVisualizerLeft.updateFootprint(this.robotLeft);
+      }
+      if (this.comVisualizerRight && this.robotRight) {
+        this.comVisualizerRight.updateFootprint(this.robotRight);
+      }
+      this.updateStatus('地面投影包络线已刷新', 'success');
+    }, 0);
   }
 
   animate() {

@@ -93,6 +93,8 @@ export class JointController {
       if (this.editor.comVisualizerRight && this.editor.robotRight) {
         this.editor.comVisualizerRight.update(this.editor.robotRight);
       }
+      // 触发包络线防抖更新
+      this.editor.scheduleFootprintUpdate();
     }
     
     // 如果当前帧是关键帧，自动更新残差
