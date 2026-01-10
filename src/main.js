@@ -1,0 +1,360 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { URDFLoader } from './urdfLoader.js';
+import { TrajectoryManager } from './trajectoryManager.js';
+import { JointController } from './jointController.js';
+import { BaseController } from './baseController.js';
+import { TimelineController } from './timelineController.js';
+
+class RobotKeyframeEditor {
+  constructor() {
+    this.scene = null;
+    this.camera = null;
+    this.renderer = null;
+    this.controls = null;
+    this.robot = null;
+    this.urdfLoader = new URDFLoader();
+    this.trajectoryManager = new TrajectoryManager();
+    this.jointController = null;
+    this.baseController = null;
+    this.timelineController = null;
+
+    this.init();
+    this.setupEventListeners();
+    this.animate();
+  }
+
+  updateStatus(message, type = 'info') {
+    const statusText = document.getElementById('status-text');
+    if (statusText) {
+      statusText.textContent = message;
+      statusText.style.color = type === 'error' ? '#f48771' : 
+                                type === 'success' ? '#4ec9b0' : '#858585';
+    }
+  }
+
+  init() {
+    // 创建场景
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x263238);
+
+    // 创建相机 (Z-up 坐标系)
+    const viewport = document.getElementById('viewport');
+    this.camera = new THREE.PerspectiveCamera(
+      75,
+      viewport.clientWidth / viewport.clientHeight,
+      0.1,
+      1000
+    );
+    // Z-up: 相机位于侧面上方
+    this.camera.position.set(3, 3, 2);
+    this.camera.up.set(0, 0, 1); // 设置 Z 轴为上方向
+
+    // 创建渲染器
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+    this.renderer.shadowMap.enabled = true;
+    viewport.appendChild(this.renderer.domElement);
+
+    // 添加轨道控制器
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.enableDamping = true;
+    this.controls.target.set(0, 0, 0.5); // 目标点设在地面上方
+
+    // 添加光源
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    this.scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(5, 5, 10); // Z-up: 光源从上方照射
+    directionalLight.castShadow = true;
+    this.scene.add(directionalLight);
+
+    // 添加地面网格 (XY 平面，Z-up)
+    const gridHelper = new THREE.GridHelper(10, 20);
+    gridHelper.rotation.x = Math.PI / 2; // 旋转网格使其在 XY 平面
+    this.scene.add(gridHelper);
+
+    // 添加坐标轴 (X=红, Y=绿, Z=蓝)
+    const axesHelper = new THREE.AxesHelper(1);
+    this.scene.add(axesHelper);
+
+    // 初始化时间轴控制器
+    this.timelineController = new TimelineController(this);
+
+    // 窗口大小调整
+    window.addEventListener('resize', () => {
+      const viewport = document.getElementById('viewport');
+      this.camera.aspect = viewport.clientWidth / viewport.clientHeight;
+      this.camera.updateProjectionMatrix();
+      this.renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+    });
+  }
+
+  setupEventListeners() {
+    // URDF 文件夹加载
+    document.getElementById('urdf-folder').addEventListener('change', (e) => {
+      this.loadURDFFolder(e.target.files);
+    });
+
+    // CSV 文件加载
+    document.getElementById('csv-file').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        this.loadCSV(file);
+      }
+    });
+
+    // 添加关键帧
+    document.getElementById('add-keyframe').addEventListener('click', () => {
+      this.addKeyframe();
+    });
+
+    // 删除当前关键帧
+    document.getElementById('delete-keyframe').addEventListener('click', () => {
+      this.deleteCurrentKeyframe();
+    });
+
+    // 重置关节
+    document.getElementById('reset-joints').addEventListener('click', () => {
+      if (this.jointController) {
+        this.jointController.resetToBase();
+      }
+      if (this.baseController) {
+        this.baseController.resetToBase();
+      }
+    });
+
+    // 播放/暂停
+    document.getElementById('play-pause').addEventListener('click', () => {
+      this.timelineController.togglePlayPause();
+    });
+
+    // 导出轨迹
+    document.getElementById('export-trajectory').addEventListener('click', () => {
+      this.exportTrajectory();
+    });
+  }
+
+  async loadURDFFolder(files) {
+    console.log('========================================');
+    console.log('📂 开始加载 URDF 文件夹...');
+    console.log(`文件数量: ${files.length}`);
+    this.updateStatus('正在加载 URDF 文件夹...', 'info');
+    
+    try {
+      console.log('🔄 调用 urdfLoader.loadFromFolder()...');
+      await this.urdfLoader.loadFromFolder(files);
+      console.log('✅ urdfLoader.loadFromFolder() 完成');
+      
+      // 移除旧机器人
+      if (this.robot) {
+        console.log('🗑️ 移除旧机器人模型');
+        this.scene.remove(this.robot);
+      }
+
+      // 加载并添加新机器人
+      console.log('🔄 获取机器人模型...');
+      this.robot = this.urdfLoader.getRobotModel();
+      console.log('机器人模型:', this.robot);
+      
+      if (this.robot) {
+        console.log('➕ 将机器人添加到场景...');
+        this.scene.add(this.robot);
+        console.log('✅ 机器人模型已添加到场景');
+        
+        // 初始化关节控制器
+        console.log('🎮 初始化关节控制器...');
+        const joints = this.urdfLoader.getJoints();
+        console.log(`关节信息:`, joints);
+        
+        this.jointController = new JointController(joints, this);
+        this.baseController = new BaseController(this);
+        
+        console.log('✅ 关节控制面板已初始化');
+        console.log('========================================');
+        this.updateStatus(`URDF 加载成功 (关节数: ${joints.length})`, 'success');
+        alert(`URDF 加载成功！\n关节数: ${joints.length}`);
+      } else {
+        console.error('❌ 机器人模型为 null 或 undefined');
+        throw new Error('机器人模型创建失败');
+      }
+    } catch (error) {
+      console.error('========================================');
+      console.error('❌ URDF 加载失败');
+      console.error('错误类型:', error.constructor.name);
+      console.error('错误信息:', error.message);
+      console.error('错误堆栈:', error.stack);
+      console.error('========================================');
+      this.updateStatus('URDF 加载失败', 'error');
+      alert('URDF 加载失败: ' + error.message);
+    }
+  }
+
+  async loadCSV(file) {
+    this.updateStatus('正在加载 CSV 文件...', 'info');
+    try {
+      const text = await file.text();
+      
+      // 清理之前的所有操作
+      console.log('🔄 清理之前的操作信息...');
+      this.trajectoryManager.clearAllKeyframes();
+      
+      // 停止播放
+      if (this.timelineController.isPlaying) {
+        this.timelineController.pause();
+      }
+      
+      // 解析CSV
+      this.trajectoryManager.parseCSV(text, file.name);
+      
+      // 设置 FPS
+      const fpsInput = prompt('请设置轨迹 FPS（帧率）:', '50');
+      const fps = parseInt(fpsInput) || 50;
+      this.timelineController.setFPS(fps);
+      
+      // 更新时间轴
+      this.timelineController.updateTimeline(
+        this.trajectoryManager.getFrameCount(),
+        this.trajectoryManager.getFrameCount() / fps
+      );
+      
+      // 清空关键帧标记
+      this.timelineController.updateKeyframeMarkers([]);
+      
+      // 更新到第一帧
+      this.timelineController.setCurrentFrame(0);
+      this.updateRobotState(0);
+      
+      const frameCount = this.trajectoryManager.getFrameCount();
+      console.log('✅ CSV 加载成功, 帧数:', frameCount, 'FPS:', fps);
+      console.log('📄 文件名:', file.name);
+      this.updateStatus(`CSV 加载成功 (帧数: ${frameCount}, FPS: ${fps})`, 'success');
+    } catch (error) {
+      console.error('CSV 加载失败:', error);
+      this.updateStatus('CSV 加载失败', 'error');
+      alert('CSV 加载失败: ' + error.message);
+    }
+  }
+
+  updateRobotState(frameIndex) {
+    if (!this.robot || !this.trajectoryManager.hasTrajectory()) {
+      return;
+    }
+
+    const state = this.trajectoryManager.getCombinedState(frameIndex);
+    
+    // 更新 base 位置和姿态
+    this.robot.position.set(state.base.position.x, state.base.position.y, state.base.position.z);
+    this.robot.quaternion.set(
+      state.base.quaternion.x,
+      state.base.quaternion.y,
+      state.base.quaternion.z,
+      state.base.quaternion.w
+    );
+
+    // 更新关节角度
+    if (this.jointController) {
+      this.jointController.updateJoints(state.joints);
+    }
+    
+    // 更新基体控制器显示
+    if (this.baseController) {
+      this.baseController.updateBase(state.base.position, state.base.quaternion);
+    }
+  }
+
+  addKeyframe() {
+    if (!this.jointController) {
+      alert('请先加载 URDF 文件');
+      return;
+    }
+
+    if (!this.trajectoryManager.hasTrajectory()) {
+      alert('请先加载 CSV 轨迹');
+      return;
+    }
+
+    const currentFrame = this.timelineController.getCurrentFrame();
+    const currentJointValues = this.jointController.getCurrentJointValues();
+    const currentBaseValues = this.baseController ? 
+      this.baseController.getCurrentBaseValues() : null;
+    
+    const isNew = this.trajectoryManager.addKeyframe(currentFrame, currentJointValues, currentBaseValues);
+    
+    // 只有新关键帧才更新标记
+    if (isNew) {
+      const keyframes = Array.from(this.trajectoryManager.keyframes.keys());
+      this.timelineController.updateKeyframeMarkers(keyframes);
+      console.log('➕ 添加关键帧:', currentFrame);
+    } else {
+      console.log('🔄 关键帧已存在，已更新残差');
+    }
+  }
+
+  deleteCurrentKeyframe() {
+    if (!this.trajectoryManager.hasTrajectory()) {
+      alert('请先加载 CSV 轨迹');
+      return;
+    }
+
+    const currentFrame = this.timelineController.getCurrentFrame();
+    
+    if (this.trajectoryManager.keyframes.has(currentFrame)) {
+      this.trajectoryManager.removeKeyframe(currentFrame);
+      
+      // 更新时间轴上的关键帧标记
+      const keyframes = Array.from(this.trajectoryManager.keyframes.keys());
+      this.timelineController.updateKeyframeMarkers(keyframes);
+      
+      // 更新显示
+      this.updateRobotState(currentFrame);
+      
+      console.log('删除关键帧:', currentFrame);
+    } else {
+      alert('当前帧不是关键帧');
+    }
+  }
+
+  exportTrajectory() {
+    if (!this.trajectoryManager.hasTrajectory()) {
+      alert('请先加载 CSV 轨迹');
+      return;
+    }
+
+    const csv = this.trajectoryManager.exportCombinedTrajectory();
+    const defaultFileName = this.trajectoryManager.getExportFileName();
+    
+    // 让用户确认或修改文件名
+    const fileName = prompt('请输入导出文件名:', defaultFileName);
+    if (!fileName) {
+      console.log('用户取消导出');
+      return;
+    }
+    
+    // 确保文件名以.csv结尾
+    const finalFileName = fileName.endsWith('.csv') ? fileName : fileName + '.csv';
+    
+    // 创建下载
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = finalFileName;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    console.log('✅ 轨迹已导出:', finalFileName);
+    this.updateStatus('轨迹已导出', 'success');
+  }
+
+  animate() {
+    requestAnimationFrame(() => this.animate());
+    
+    this.controls.update();
+    this.renderer.render(this.scene, this.camera);
+  }
+}
+
+// 启动应用
+new RobotKeyframeEditor();
