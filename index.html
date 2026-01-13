@@ -193,9 +193,9 @@
       </label>
       <button id="save-project">保存工程文件</button>
       <span id="status-text" style="margin-left: 20px; color: #858585;">就绪</span>
-      <span style="margin-left: auto; padding: 4px 12px; background: rgba(78, 201, 176, 0.15); color: #4ec9b0; border: 1px solid #4ec9b0; border-radius: 4px; font-size: 11px; display: flex; align-items: center; gap: 5px;">
+      <span id="security-info" style="margin-left: auto; padding: 4px 12px; background: rgba(78, 201, 176, 0.15); color: #4ec9b0; border: 1px solid #4ec9b0; border-radius: 4px; font-size: 11px; display: flex; align-items: center; gap: 5px; cursor: pointer; transition: all 0.2s;">
         <span style="font-size: 14px;">🔒</span>
-        <span>完全本地运行，数据不上传</span>
+        <span>本地处理，数据安全</span>
       </span>
     </div>
 
@@ -270,6 +270,73 @@
         <span id="current-frame">帧: 0</span>
         <span id="total-time">总时长: 0.00s</span>
         <span id="zoom-level" style="margin-left: 10px;">缩放: 1.0x</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 构建信息弹窗 -->
+  <div id="build-info-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center;">
+    <div style="background: #252526; border: 1px solid #3e3e42; border-radius: 8px; padding: 20px; max-width: 500px; width: 90%; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h3 style="margin: 0; color: #cccccc; font-size: 17px;">🔒 应用信息</h3>
+        <button id="close-modal" style="background: none; border: none; color: #858585; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px;">×</button>
+      </div>
+      <div style="color: #d4d4d4; font-size: 14px; line-height: 1.6;">
+        <div style="margin-bottom: 12px; padding: 10px; background: rgba(78, 201, 176, 0.1); border-left: 3px solid #4ec9b0; border-radius: 4px;">
+          <div style="color: #4ec9b0; font-weight: bold; margin-bottom: 4px; font-size: 14px;">✅ 隐私保护</div>
+          <div style="font-size: 13px; line-height: 1.5;">所有数据处理完全在您的浏览器本地完成，不会上传任何文件或数据到服务器。</div>
+        </div>
+        <div style="margin-bottom: 12px;">
+          <div style="color: #858585; font-size: 13px; font-weight: 500; margin-bottom: 6px;">托管环境</div>
+          <div id="hosting-info" style="color: #cccccc; font-size: 13px; margin-bottom: 6px;">加载中...</div>
+          <div id="deploy-details" style="font-size: 12px; color: #858585; display: none; line-height: 1.5; padding: 8px; background: rgba(255, 255, 255, 0.03); border: 1px solid #3e3e42; border-radius: 4px; position: relative;">
+            <button id="copy-hosting" style="position: absolute; top: 6px; right: 6px; background: none; border: none; color: #858585; font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 3px; transition: all 0.2s;" title="复制托管信息">📋</button>
+            <div style="margin-bottom: 6px;">
+              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;">域名</div>
+              <div id="hostname" style="font-family: monospace; color: #d4d4d4; font-size: 12px;"></div>
+            </div>
+            <div style="margin-bottom: 6px;">
+              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;">协议</div>
+              <div id="protocol" style="font-family: monospace; color: #d4d4d4; font-size: 12px;"></div>
+            </div>
+            <div>
+              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;">User Agent</div>
+              <div id="user-agent" style="font-family: monospace; color: #d4d4d4; font-size: 11px; word-break: break-all;"></div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-bottom: 8px;">
+          <div style="color: #858585; font-size: 13px; font-weight: 500; margin-bottom: 6px;">构建信息</div>
+          <div style="padding: 8px; background: rgba(255, 255, 255, 0.03); border: 1px solid #3e3e42; border-radius: 4px; position: relative;">
+            <button id="copy-build" style="position: absolute; top: 6px; right: 6px; background: none; border: none; color: #858585; font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 3px; transition: all 0.2s;" title="复制构建信息">📋</button>
+            <div style="margin-bottom: 6px;">
+              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;">版本</div>
+              <div style="color: #cccccc; font-family: monospace; font-size: 12px;">
+                <span id="build-version-short">加载中...</span>
+                <span id="build-version-full" style="display: none;"></span>
+              </div>
+            </div>
+            <div style="margin-bottom: 6px;">
+              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;">时间</div>
+              <div id="build-date" style="color: #cccccc; font-size: 12px;">加载中...</div>
+            </div>
+            <div style="margin-bottom: 6px;">
+              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;">分支</div>
+              <div id="build-branch" style="color: #cccccc; font-family: monospace; font-size: 12px;">加载中...</div>
+            </div>
+            <div id="build-tag-container" style="display: none;">
+              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;">标签</div>
+              <div id="build-tag" style="color: #cccccc; font-family: monospace; font-size: 12px;"></div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #3e3e42;">
+          <a id="github-link" href="https://github.com/cyoahs/robot_motion_editor" target="_blank" style="color: #4ec9b0; text-decoration: none; display: flex; align-items: center; gap: 5px; font-size: 14px;">
+            <span>📦</span>
+            <span>在 GitHub 上查看源代码</span>
+            <span style="font-size: 11px;">↗</span>
+          </a>
+        </div>
       </div>
     </div>
   </div>

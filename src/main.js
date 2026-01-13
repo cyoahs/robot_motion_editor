@@ -914,3 +914,181 @@ class RobotKeyframeEditor {
 
 // 启动应用
 new RobotKeyframeEditor();
+
+// 初始化构建信息弹窗
+function initBuildInfoModal() {
+  const securityInfo = document.getElementById('security-info');
+  const modal = document.getElementById('build-info-modal');
+  const closeBtn = document.getElementById('close-modal');
+  
+  if (!securityInfo || !modal) return;
+  
+  // 获取构建信息
+  const commitShort = typeof __GIT_COMMIT_SHORT__ !== 'undefined' ? __GIT_COMMIT_SHORT__ : 'dev';
+  const commitHash = typeof __GIT_COMMIT_HASH__ !== 'undefined' ? __GIT_COMMIT_HASH__ : 'unknown';
+  const commitDate = typeof __GIT_COMMIT_DATE__ !== 'undefined' ? __GIT_COMMIT_DATE__ : '未知';
+  const branch = typeof __GIT_BRANCH__ !== 'undefined' ? __GIT_BRANCH__ : 'unknown';
+  const tag = typeof __GIT_TAG__ !== 'undefined' ? __GIT_TAG__ : '';
+  const buildTimeEnv = typeof __HOSTING_ENV__ !== 'undefined' ? __HOSTING_ENV__ : '';
+  
+  // 运行时检测托管环境
+  function getRuntimeHostingEnv() {
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol;
+    
+    // 检测是否为本地环境
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '' || hostname.startsWith('192.168.') || hostname.startsWith('10.')) {
+      return '本地部署';
+    }
+    
+    // 检测已知的托管服务
+    if (hostname.includes('pages.dev') || hostname.includes('cloudflare')) {
+      return 'Cloudflare Pages';
+    } else if (hostname.includes('vercel.app')) {
+      return 'Vercel';
+    } else if (hostname.includes('netlify.app')) {
+      return 'Netlify';
+    } else if (hostname.includes('github.io')) {
+      return 'GitHub Pages';
+    }
+    
+    // 其他情况
+    return '其他';
+  }
+  
+  const runtimeEnv = getRuntimeHostingEnv();
+  const finalEnv = runtimeEnv === '本地部署' ? '本地部署' : (buildTimeEnv || runtimeEnv);
+  
+  // 填充modal内容
+  document.getElementById('hosting-info').textContent = finalEnv;
+  
+  // 显示commit id前8位，但保存完整hash
+  const versionShortEl = document.getElementById('build-version-short');
+  const versionFullEl = document.getElementById('build-version-full');
+  if (versionShortEl && versionFullEl) {
+    versionShortEl.textContent = commitShort;
+    versionFullEl.textContent = commitHash;
+  }
+  
+  document.getElementById('build-date').textContent = commitDate;
+  document.getElementById('build-branch').textContent = branch;
+  
+  if (tag) {
+    document.getElementById('build-tag-container').style.display = 'block';
+    document.getElementById('build-tag').textContent = tag;
+  }
+  
+  // 如果是"其他"环境或本地部署，显示详细信息
+  if (finalEnv === '其他' || finalEnv === '本地部署') {
+    const deployDetails = document.getElementById('deploy-details');
+    if (deployDetails) {
+      deployDetails.style.display = 'block';
+      const hostnameEl = document.getElementById('hostname');
+      const protocolEl = document.getElementById('protocol');
+      const userAgentEl = document.getElementById('user-agent');
+      
+      if (hostnameEl) hostnameEl.textContent = window.location.hostname || 'N/A';
+      if (protocolEl) protocolEl.textContent = window.location.protocol || 'N/A';
+      if (userAgentEl) userAgentEl.textContent = navigator.userAgent || 'N/A';
+    }
+  }
+  
+  // 复制托管信息
+  const copyHostingBtn = document.getElementById('copy-hosting');
+  if (copyHostingBtn) {
+    copyHostingBtn.addEventListener('mouseenter', () => {
+      copyHostingBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+      copyHostingBtn.style.color = '#cccccc';
+    });
+    copyHostingBtn.addEventListener('mouseleave', () => {
+      copyHostingBtn.style.background = 'none';
+      copyHostingBtn.style.color = '#858585';
+    });
+    
+    copyHostingBtn.addEventListener('click', () => {
+      const hostnameEl = document.getElementById('hostname');
+      const protocolEl = document.getElementById('protocol');
+      const userAgentEl = document.getElementById('user-agent');
+      
+      let text = `托管环境: ${finalEnv}`;
+      if (hostnameEl && hostnameEl.textContent) {
+        text += `\n域名: ${hostnameEl.textContent}`;
+      }
+      if (protocolEl && protocolEl.textContent) {
+        text += `\n协议: ${protocolEl.textContent}`;
+      }
+      if (userAgentEl && userAgentEl.textContent) {
+        text += `\nUser Agent: ${userAgentEl.textContent}`;
+      }
+      
+      navigator.clipboard.writeText(text).then(() => {
+        copyHostingBtn.textContent = '✓';
+        setTimeout(() => {
+          copyHostingBtn.textContent = '📋';
+        }, 1500);
+      });
+    });
+  }
+  
+  // 复制构建信息
+  const copyBuildBtn = document.getElementById('copy-build');
+  if (copyBuildBtn) {
+    copyBuildBtn.addEventListener('mouseenter', () => {
+      copyBuildBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+      copyBuildBtn.style.color = '#cccccc';
+    });
+    copyBuildBtn.addEventListener('mouseleave', () => {
+      copyBuildBtn.style.background = 'none';
+      copyBuildBtn.style.color = '#858585';
+    });
+    
+    copyBuildBtn.addEventListener('click', () => {
+      const tagText = tag ? `\n标签: ${tag}` : '';
+      const text = `版本: ${commitHash}\n时间: ${commitDate}\n分支: ${branch}${tagText}`;
+      
+      navigator.clipboard.writeText(text).then(() => {
+        copyBuildBtn.textContent = '✓';
+        setTimeout(() => {
+          copyBuildBtn.textContent = '📋';
+        }, 1500);
+      });
+    });
+  }
+  
+  // 点击安全信息图标打开modal
+  securityInfo.addEventListener('click', () => {
+    modal.style.display = 'flex';
+  });
+  
+  // hover效果
+  securityInfo.addEventListener('mouseenter', () => {
+    securityInfo.style.background = 'rgba(78, 201, 176, 0.25)';
+  });
+  
+  securityInfo.addEventListener('mouseleave', () => {
+    securityInfo.style.background = 'rgba(78, 201, 176, 0.15)';
+  });
+  
+  // 关闭modal
+  const closeModal = () => {
+    modal.style.display = 'none';
+  };
+  
+  closeBtn.addEventListener('click', closeModal);
+  
+  // 点击背景关闭
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      closeModal();
+    }
+  });
+  
+  // ESC键关闭
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modal.style.display === 'flex') {
+      closeModal();
+    }
+  });
+}
+
+initBuildInfoModal();
