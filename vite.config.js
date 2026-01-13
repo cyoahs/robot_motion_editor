@@ -21,28 +21,27 @@ function getGitInfo() {
 }
 
 function getHostingEnvironment() {
-  // 检测托管环境
+  const env = process.env || {};
+
   console.log('🔍 检测环境变量:');
-  console.log('  CF_PAGES:', process.env.CF_PAGES);
-  console.log('  CF_PAGES_BRANCH:', process.env.CF_PAGES_BRANCH);
-  console.log('  CF_PAGES_COMMIT_SHA:', process.env.CF_PAGES_COMMIT_SHA);
-  console.log('  VERCEL:', process.env.VERCEL);
-  console.log('  NETLIFY:', process.env.NETLIFY);
-  console.log('  NODE_ENV:', process.env.NODE_ENV);
-  
-  // Cloudflare Pages 检测（多个环境变量）
-  if (process.env.CF_PAGES || process.env.CF_PAGES_BRANCH || process.env.CF_PAGES_COMMIT_SHA) {
-    console.log('✅ 检测到 Cloudflare Pages 环境');
-    return 'Cloudflare Pages';
-  } else if (process.env.VERCEL) {
-    return 'Vercel';
-  } else if (process.env.NETLIFY) {
-    return 'Netlify';
-  } else if (process.env.NODE_ENV === 'development') {
-    return '本地开发环境';
-  } else {
-    return '本地部署';
+  Object.keys(env)
+    .filter(k => k.startsWith('CLOUDFLARE') || k.startsWith('CF_'))
+    .forEach(k => console.log(`  ${k}:`, env[k]));
+
+  const isCloudflare = Object.keys(env).some(
+    key => key.startsWith('CLOUDFLARE') || key.startsWith('CF_')
+  );
+
+  if (isCloudflare) {
+    console.log('✅ 检测到 Cloudflare 环境');
+    return 'Cloudflare';
   }
+
+  if (env.VERCEL) return 'Vercel';
+  if (env.NETLIFY) return 'Netlify';
+  if (env.NODE_ENV === 'development') return '本地开发环境';
+
+  return '本地 / 其他环境';
 }
 
 const gitInfo = getGitInfo();
