@@ -382,10 +382,16 @@ class RobotKeyframeEditor {
         this.jointController = new JointController(joints, this);
         this.baseController = new BaseController(this);
         
-        // 更新COM显示
-        if (this.showCOM && this.comVisualizerRight && this.robotRight) {
-          console.log('🎯 更新右侧COM显示');
-          this.comVisualizerRight.update(this.robotRight);
+        // 更新COM显示（无论是否有轨迹，都显示当前状态的COM）
+        if (this.showCOM) {
+          if (this.comVisualizerLeft && this.robotLeft) {
+            console.log('🎯 更新左侧COM显示');
+            this.comVisualizerLeft.update(this.robotLeft);
+          }
+          if (this.comVisualizerRight && this.robotRight) {
+            console.log('🎯 更新右侧COM显示');
+            this.comVisualizerRight.update(this.robotRight);
+          }
         }
         
         console.log('✅ 关节控制面板已初始化');
