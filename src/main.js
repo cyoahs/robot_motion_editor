@@ -941,7 +941,7 @@ function initBuildInfoModal() {
       return '本地部署';
     }
     
-    // 检测已知的托管服务
+    // 检测已知的托管服务（包括自定义域名）
     if (hostname.includes('pages.dev') || hostname.includes('cloudflare')) {
       return 'Cloudflare Pages';
     } else if (hostname.includes('vercel.app')) {
@@ -953,11 +953,24 @@ function initBuildInfoModal() {
     }
     
     // 其他情况
-    return '其他';
+    return null; // 返回null表示运行时无法判断
   }
   
   const runtimeEnv = getRuntimeHostingEnv();
-  const finalEnv = runtimeEnv === '本地部署' ? '本地部署' : (buildTimeEnv || runtimeEnv);
+  // 优先级：运行时明确识别 > 构建时环境变量 > 其他
+  let finalEnv;
+  if (runtimeEnv === '本地部署') {
+    finalEnv = '本地部署';
+  } else if (runtimeEnv) {
+    // 运行时明确识别出的托管服务
+    finalEnv = runtimeEnv;
+  } else if (buildTimeEnv) {
+    // 使用构建时的环境变量（适用于自定义域名）
+    finalEnv = buildTimeEnv;
+  } else {
+    // 都无法识别
+    finalEnv = '其他';
+  }
   
   // 填充modal内容
   document.getElementById('hosting-info').textContent = finalEnv;
