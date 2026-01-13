@@ -22,7 +22,17 @@ function getGitInfo() {
 
 function getHostingEnvironment() {
   // 检测托管环境
-  if (process.env.CF_PAGES) {
+  console.log('🔍 检测环境变量:');
+  console.log('  CF_PAGES:', process.env.CF_PAGES);
+  console.log('  CF_PAGES_BRANCH:', process.env.CF_PAGES_BRANCH);
+  console.log('  CF_PAGES_COMMIT_SHA:', process.env.CF_PAGES_COMMIT_SHA);
+  console.log('  VERCEL:', process.env.VERCEL);
+  console.log('  NETLIFY:', process.env.NETLIFY);
+  console.log('  NODE_ENV:', process.env.NODE_ENV);
+  
+  // Cloudflare Pages 检测（多个环境变量）
+  if (process.env.CF_PAGES || process.env.CF_PAGES_BRANCH || process.env.CF_PAGES_COMMIT_SHA) {
+    console.log('✅ 检测到 Cloudflare Pages 环境');
     return 'Cloudflare Pages';
   } else if (process.env.VERCEL) {
     return 'Vercel';
