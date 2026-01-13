@@ -1,3 +1,5 @@
+import { i18n } from './i18n.js';
+
 export class JointController {
   constructor(joints, editor) {
     console.log('🎮 JointController 构造函数');
@@ -80,7 +82,7 @@ export class JointController {
       // 添加重置按钮
       const resetBtn = document.createElement('button');
       resetBtn.innerHTML = '↺';
-      resetBtn.title = `重置 ${joint.name || 'Joint ' + (index + 1)}`;
+      resetBtn.title = joint.name ? `${i18n.t('resetJointTitle').replace('{name}', joint.name)}` : `Reset Joint ${index + 1}`;
       resetBtn.style.cssText = 'width: 20px; height: 20px; padding: 0; font-size: 14px; background: #3c3c3c; color: #cccccc; border: 1px solid #3e3e42; border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center;';
       resetBtn.addEventListener('mouseover', () => {
         resetBtn.style.background = '#505050';

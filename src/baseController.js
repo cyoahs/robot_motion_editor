@@ -1,3 +1,5 @@
+import { i18n } from './i18n.js';
+
 export class BaseController {
   constructor(editor) {
     this.editor = editor;
@@ -17,7 +19,8 @@ export class BaseController {
     
     // 添加全局重置按钮
     const resetAllBtn = document.createElement('button');
-    resetAllBtn.textContent = '重置基体';
+    resetAllBtn.textContent = i18n.t('resetBaseTitle');
+    resetAllBtn.title = i18n.t('resetBaseTitle');
     resetAllBtn.style.cssText = 'margin-left: 10px; padding: 2px 8px; font-size: 11px; background: #0e639c; color: white; border: none; border-radius: 3px; cursor: pointer;';
     resetAllBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -103,7 +106,9 @@ export class BaseController {
     // 添加重置按钮
     const resetBtn = document.createElement('button');
     resetBtn.innerHTML = '↺';
-    resetBtn.title = type === 'quaternion' ? '重置四元数' : `重置${label}`;
+    const titleKey = type === 'quaternion' ? 'resetQuaternionTitle' : 
+                     (axis === 'x' ? 'resetPositionXTitle' : axis === 'y' ? 'resetPositionYTitle' : 'resetPositionZTitle');
+    resetBtn.title = i18n.t(titleKey);
     resetBtn.style.cssText = 'width: 20px; height: 20px; padding: 0; font-size: 14px; background: #3c3c3c; color: #cccccc; border: 1px solid #3e3e42; border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center;';
     resetBtn.addEventListener('mouseover', () => {
       resetBtn.style.background = '#505050';

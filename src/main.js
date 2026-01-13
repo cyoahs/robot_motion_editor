@@ -6,6 +6,7 @@ import { JointController } from './jointController.js';
 import { BaseController } from './baseController.js';
 import { TimelineController } from './timelineController.js';
 import { COMVisualizer } from './comVisualizer.js';
+import { i18n } from './i18n.js';
 
 class RobotKeyframeEditor {
   constructor() {
@@ -325,7 +326,7 @@ class RobotKeyframeEditor {
     console.log('========================================');
     console.log('📂 开始加载 URDF 文件夹...');
     console.log(`文件数量: ${files.length}`);
-    this.updateStatus('正在加载 URDF 文件夹...', 'info');
+    this.updateStatus(i18n.t('loadingURDFFolder'), 'info');
     
     try {
       console.log('🔄 调用 urdfLoader.loadFromFolder()...');
@@ -389,8 +390,8 @@ class RobotKeyframeEditor {
         
         console.log('✅ 关节控制面板已初始化');
         console.log('========================================');
-        this.updateStatus(`URDF 加载成功 (关节数: ${joints.length})`, 'success');
-        alert(`URDF 加载成功！\n关节数: ${joints.length}`);
+        this.updateStatus(i18n.t('urdfLoadSuccess', { count: joints.length }), 'success');
+        alert(i18n.t('urdfLoadSuccess', { count: joints.length }));
       } else {
         console.error('❌ 机器人模型为 null 或 undefined');
         throw new Error('机器人模型创建失败');
@@ -402,13 +403,13 @@ class RobotKeyframeEditor {
       console.error('错误信息:', error.message);
       console.error('错误堆栈:', error.stack);
       console.error('========================================');
-      this.updateStatus('URDF 加载失败', 'error');
-      alert('URDF 加载失败: ' + error.message);
+      this.updateStatus(i18n.t('urdfLoadFailed'), 'error');
+      alert(i18n.t('urdfLoadFailed') + ': ' + error.message);
     }
   }
 
   async loadCSV(file) {
-    this.updateStatus('正在加载 CSV 文件...', 'info');
+    this.updateStatus(i18n.t('loadingCSVFile'), 'info');
     try {
       const text = await file.text();
       
@@ -445,11 +446,11 @@ class RobotKeyframeEditor {
       const frameCount = this.trajectoryManager.getFrameCount();
       console.log('✅ CSV 加载成功, 帧数:', frameCount, 'FPS:', fps);
       console.log('📄 文件名:', file.name);
-      this.updateStatus(`CSV 加载成功 (帧数: ${frameCount}, FPS: ${fps})`, 'success');
+      this.updateStatus(i18n.t('csvLoadSuccess', { frames: frameCount, fps: fps }), 'success');
     } catch (error) {
       console.error('CSV 加载失败:', error);
-      this.updateStatus('CSV 加载失败', 'error');
-      alert('CSV 加载失败: ' + error.message);
+      this.updateStatus(i18n.t('csvLoadFailed'), 'error');
+      alert(i18n.t('csvLoadFailed') + ': ' + error.message);
     }
   }
 
@@ -574,7 +575,7 @@ class RobotKeyframeEditor {
 
   exportTrajectory() {
     if (!this.trajectoryManager.hasTrajectory()) {
-      alert('请先加载 CSV 轨迹');
+      alert(i18n.t('needTrajectory'));
       return;
     }
 
@@ -582,9 +583,9 @@ class RobotKeyframeEditor {
     const defaultFileName = this.trajectoryManager.getExportFileName();
     
     // 让用户确认或修改文件名
-    const fileName = prompt('请输入导出文件名:', defaultFileName);
+    const fileName = prompt(i18n.t('exportFileName'), defaultFileName);
     if (!fileName) {
-      console.log('用户取消导出');
+      console.log(i18n.t('userCancel'));
       return;
     }
     
@@ -601,12 +602,12 @@ class RobotKeyframeEditor {
     URL.revokeObjectURL(url);
     
     console.log('✅ 轨迹已导出:', finalFileName);
-    this.updateStatus('轨迹已导出', 'success');
+    this.updateStatus(i18n.t('trajectoryExported'), 'success');
   }
 
   exportBaseTrajectory() {
     if (!this.trajectoryManager.hasTrajectory()) {
-      alert('请先加载 CSV 轨迹');
+      alert(i18n.t('needTrajectory'));
       return;
     }
 
@@ -615,9 +616,9 @@ class RobotKeyframeEditor {
     const defaultFileName = originalFileName.replace(/\.csv$/i, '') + '_base.csv';
     
     // 让用户确认或修改文件名
-    const fileName = prompt('请输入导出文件名:', defaultFileName);
+    const fileName = prompt(i18n.t('exportFileName'), defaultFileName);
     if (!fileName) {
-      console.log('用户取消导出');
+      console.log(i18n.t('userCancel'));
       return;
     }
     
@@ -634,7 +635,7 @@ class RobotKeyframeEditor {
     URL.revokeObjectURL(url);
     
     console.log('✅ 原始轨迹已导出:', finalFileName);
-    this.updateStatus('原始轨迹已导出', 'success');
+    this.updateStatus(i18n.t('baseTrajectoryExported'), 'success');
   }
 
   saveProject() {
@@ -650,9 +651,9 @@ class RobotKeyframeEditor {
     const defaultFileName = originalFileName.replace(/\.csv$/i, '') + '_project.json';
     
     // 让用户确认或修改文件名
-    const fileName = prompt('请输入工程文件名:', defaultFileName);
+    const fileName = prompt(i18n.t('saveProjectFileName'), defaultFileName);
     if (!fileName) {
-      console.log('用户取消保存');
+      console.log(i18n.t('userCancel'));
       return;
     }
     
@@ -668,8 +669,8 @@ class RobotKeyframeEditor {
     a.click();
     URL.revokeObjectURL(url);
     
-    console.log('✅ 工程文件已保存:', finalFileName);
-    this.updateStatus('工程文件已保存', 'success');
+    console.log('✅', i18n.t('projectSaved') + ':', finalFileName);
+    this.updateStatus(i18n.t('projectSaved'), 'success');
   }
 
   async loadProject(event) {
@@ -702,15 +703,15 @@ class RobotKeyframeEditor {
         this.updateRobotState(0);
         this.timelineController.setCurrentFrame(0);
       } else {
-        alert('请先加载 URDF 文件，然后再次加载工程文件');
+        alert(i18n.t('needRobot'));
       }
       
       console.log('✅ 工程文件已加载:', file.name);
-      this.updateStatus('工程文件已加载: ' + file.name, 'success');
+      this.updateStatus(i18n.t('projectLoaded'), 'success');
     } catch (error) {
       console.error('❌ 加载工程文件失败:', error);
       alert('加载工程文件失败: ' + error.message);
-      this.updateStatus('加载工程文件失败', 'error');
+      this.updateStatus(i18n.t('loadProjectFailed'), 'error');
     }
     
     // 清除文件输入，允许重新选择同一文件
@@ -860,7 +861,7 @@ class RobotKeyframeEditor {
 
   refreshFootprint() {
     if (!this.robotLeft && !this.robotRight) {
-      alert('请先加载机器人模型');
+      alert(i18n.t('needRobot'));
       return;
     }
     
@@ -938,18 +939,18 @@ function initBuildInfoModal() {
     
     // 检测是否为本地环境
     if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '' || hostname.startsWith('192.168.') || hostname.startsWith('10.')) {
-      return '本地部署';
+      return 'localDeployment';
     }
     
     // 检测已知的托管服务（包括自定义域名）
     if (hostname.includes('pages.dev') || hostname.includes('cloudflare')) {
-      return 'Cloudflare Pages';
+      return 'cloudflarePages';
     } else if (hostname.includes('vercel.app')) {
-      return 'Vercel';
+      return 'vercelEnv';
     } else if (hostname.includes('netlify.app')) {
-      return 'Netlify';
+      return 'netlifyEnv';
     } else if (hostname.includes('github.io')) {
-      return 'GitHub Pages';
+      return 'githubPages';
     }
     
     // 其他情况
@@ -958,19 +959,21 @@ function initBuildInfoModal() {
   
   const runtimeEnv = getRuntimeHostingEnv();
   // 优先级：运行时明确识别 > 构建时环境变量 > 其他
-  let finalEnv;
-  if (runtimeEnv === '本地部署') {
-    finalEnv = '本地部署';
+  let finalEnvKey;
+  if (runtimeEnv === 'localDeployment') {
+    finalEnvKey = 'localDeployment';
   } else if (runtimeEnv) {
     // 运行时明确识别出的托管服务
-    finalEnv = runtimeEnv;
+    finalEnvKey = runtimeEnv;
   } else if (buildTimeEnv) {
     // 使用构建时的环境变量（适用于自定义域名）
-    finalEnv = buildTimeEnv;
+    finalEnvKey = buildTimeEnv;
   } else {
     // 都无法识别
-    finalEnv = '其他';
+    finalEnvKey = 'otherEnv';
   }
+  
+  const finalEnv = i18n.t(finalEnvKey);
   
   // 填充modal内容
   document.getElementById('hosting-info').textContent = finalEnv;
@@ -992,7 +995,7 @@ function initBuildInfoModal() {
   }
   
   // 如果是"其他"环境或本地部署，显示详细信息
-  if (finalEnv === '其他' || finalEnv === '本地部署') {
+  if (finalEnvKey === 'otherEnv' || finalEnvKey === 'localDeployment') {
     const deployDetails = document.getElementById('deploy-details');
     if (deployDetails) {
       deployDetails.style.display = 'block';
@@ -1023,15 +1026,15 @@ function initBuildInfoModal() {
       const protocolEl = document.getElementById('protocol');
       const userAgentEl = document.getElementById('user-agent');
       
-      let text = `托管环境: ${finalEnv}`;
+      let text = `${i18n.t('hostingInfoLabel')}: ${finalEnv}`;
       if (hostnameEl && hostnameEl.textContent) {
-        text += `\n域名: ${hostnameEl.textContent}`;
+        text += `\n${i18n.t('domainLabel')}: ${hostnameEl.textContent}`;
       }
       if (protocolEl && protocolEl.textContent) {
-        text += `\n协议: ${protocolEl.textContent}`;
+        text += `\n${i18n.t('protocolLabel')}: ${protocolEl.textContent}`;
       }
       if (userAgentEl && userAgentEl.textContent) {
-        text += `\nUser Agent: ${userAgentEl.textContent}`;
+        text += `\n${i18n.t('userAgentLabel')}: ${userAgentEl.textContent}`;
       }
       
       navigator.clipboard.writeText(text).then(() => {
@@ -1104,4 +1107,92 @@ function initBuildInfoModal() {
   });
 }
 
+// 初始化多语言系统
+function initI18n() {
+  // 保存原始文本模板
+  const templates = {};
+  
+  // 更新所有带有 data-i18n 属性的元素
+  function updateTranslations() {
+    const elements = document.querySelectorAll('[data-i18n]');
+    elements.forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      const translated = i18n.t(key);
+      
+      // 获取子元素
+      const children = Array.from(el.children);
+      
+      if (children.length === 0) {
+        // 没有子元素，直接替换文本
+        el.textContent = translated;
+      } else {
+        // 有子元素，替换第一个文本节点或插入到开头
+        let textNodeFound = false;
+        for (let node of el.childNodes) {
+          if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+            node.textContent = translated;
+            textNodeFound = true;
+            break;
+          }
+        }
+        // 如果没有文本节点，在开头插入
+        if (!textNodeFound && children.length > 0) {
+          el.insertBefore(document.createTextNode(translated), children[0]);
+        }
+      }
+    });
+    
+    // 处理带模板的元素（用于保留格式化的文本）
+    const templateElements = document.querySelectorAll('[data-i18n-template]');
+    templateElements.forEach(el => {
+      const key = el.getAttribute('data-i18n-template');
+      
+      // 首次访问时保存原始文本
+      if (!templates[el.id]) {
+        templates[el.id] = el.textContent;
+      }
+      
+      const original = templates[el.id];
+      const translated = i18n.t(key);
+      
+      // 根据语言和原始文本结构，替换标签部分
+      if (original && original.includes(':')) {
+        const parts = original.split(':');
+        el.textContent = translated + ':' + parts[1];
+      }
+    });
+
+    // 处理 title 属性
+    const titleElements = document.querySelectorAll('[data-i18n-title]');
+    titleElements.forEach(el => {
+      const key = el.getAttribute('data-i18n-title');
+      const translated = i18n.t(key);
+      el.setAttribute('title', translated);
+    });
+  }
+
+  // 设置初始语言
+  updateTranslations();
+
+  // 添加语言切换按钮事件
+  const langToggle = document.getElementById('lang-toggle');
+  if (langToggle) {
+    // 初始化按钮显示
+    const updateLangButton = () => {
+      const currentLang = i18n.getLanguage();
+      langToggle.textContent = currentLang === 'zh' ? 'English' : '中文';
+    };
+    updateLangButton();
+
+    langToggle.addEventListener('click', () => {
+      const currentLang = i18n.getLanguage();
+      const newLang = currentLang === 'zh' ? 'en' : 'zh';
+      i18n.setLanguage(newLang);
+      updateTranslations();
+      updateLangButton();
+    });
+  }
+}
+
+initI18n();
 initBuildInfoModal();

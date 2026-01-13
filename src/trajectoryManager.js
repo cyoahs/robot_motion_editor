@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { i18n } from './i18n.js';
 
 export class TrajectoryManager {
   constructor() {
@@ -482,7 +483,7 @@ export class TrajectoryManager {
       console.warn('⚠️ 继续加载可能导致姿态不正确');
       // 可以选择提醒用户
       if (typeof alert !== 'undefined') {
-        alert('⚠️ 检测到旧版本工程文件！\n\n四元数运算已优化，建议：\n1. 重新加载CSV轨迹\n2. 重新创建所有关键帧\n\n否则可能出现姿态错误。');
+        alert(i18n.t('oldProjectVersion'));
       }
     }
     

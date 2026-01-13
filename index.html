@@ -177,52 +177,55 @@
 <body>
   <div id="app">
     <div class="toolbar">
-      <label for="urdf-folder">
+      <label for="urdf-folder" data-i18n="loadURDF">
         加载 URDF 文件夹
         <input type="file" id="urdf-folder" webkitdirectory directory multiple>
       </label>
-      <label for="csv-file">
+      <label for="csv-file" data-i18n="loadCSV">
         加载 CSV 轨迹
         <input type="file" id="csv-file" accept=".csv">
       </label>
-      <button id="export-trajectory">导出编辑轨迹</button>
-      <button id="export-base-trajectory">导出原始轨迹</button>
-      <label for="load-project">
+      <button id="export-trajectory" data-i18n="exportTrajectory">导出编辑轨迹</button>
+      <button id="export-base-trajectory" data-i18n="exportBaseTrajectory">导出原始轨迹</button>
+      <label for="load-project" data-i18n="loadProject">
         加载工程文件
         <input type="file" id="load-project" accept=".json">
       </label>
-      <button id="save-project">保存工程文件</button>
-      <span id="status-text" style="margin-left: 20px; color: #858585;">就绪</span>
-      <span id="security-info" style="margin-left: auto; padding: 4px 12px; background: rgba(78, 201, 176, 0.15); color: #4ec9b0; border: 1px solid #4ec9b0; border-radius: 4px; font-size: 11px; display: flex; align-items: center; gap: 5px; cursor: pointer; transition: all 0.2s;">
+      <button id="save-project" data-i18n="saveProject">保存工程文件</button>
+      <span id="status-text" style="margin-left: 20px; color: #858585;" data-i18n="ready">就绪</span>
+      <button id="lang-toggle" style="margin-left: auto; margin-right: 10px; padding: 8px 12px; background: #555555; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;">
+        EN/中
+      </button>
+      <span id="security-info" style="padding: 4px 12px; background: rgba(78, 201, 176, 0.15); color: #4ec9b0; border: 1px solid #4ec9b0; border-radius: 4px; font-size: 11px; display: flex; align-items: center; gap: 5px; cursor: pointer; transition: all 0.2s;">
         <span style="font-size: 14px;">🔒</span>
-        <span>本地处理，数据安全</span>
+        <span data-i18n="dataPrivacy">本地处理，数据安全</span>
       </span>
     </div>
 
     <div class="main-content">
       <div id="viewport" style="position: relative;">
-        <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: #4ec9b0; pointer-events: none;">原始轨迹 (Base)</div>
-        <div style="position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: #f48771; pointer-events: none;">编辑后 (Modified)</div>
+        <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: #4ec9b0; pointer-events: none;" data-i18n="baseTrajectory">原始轨迹 (Base)</div>
+        <div style="position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: #f48771; pointer-events: none;" data-i18n="editedTrajectory">编辑后 (Modified)</div>
         <div style="position: absolute; top: 50%; left: 50%; width: 2px; height: 100%; background: #3e3e42; transform: translateX(-50%); pointer-events: none; z-index: 99;"></div>
         
         <!-- 相机控制按钮 -->
         <div style="position: absolute; bottom: 10px; left: 10px; z-index: 100; display: flex; gap: 5px;">
-          <button id="toggle-camera-mode" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;">
+          <button id="toggle-camera-mode" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="rotate">
             🔄 旋转
           </button>
-          <button id="reset-camera" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;">
-            � 重置视角
+          <button id="reset-camera" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="resetCamera">
+            🔄 重置视角
           </button>
-          <button id="follow-robot" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;">
+          <button id="follow-robot" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="followOff">
             🤖 跟随: 关
           </button>
-          <button id="toggle-com" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;">
+          <button id="toggle-com" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="comOn">
             🎯 重心: 开
           </button>
-          <button id="refresh-footprint" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;">
+          <button id="refresh-footprint" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="refreshFootprint">
             👣 刷新包络线
           </button>
-          <button id="toggle-auto-refresh" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;">
+          <button id="toggle-auto-refresh" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="autoRefreshOff">
             ⏱️ 自动刷新: 关
           </button>
         </div>
@@ -231,15 +234,15 @@
         <!-- 基体控制 -->
         <div style="border-bottom: 1px solid #3e3e42; margin-bottom: 10px; padding-bottom: 10px;">
           <div id="base-control-header" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px; background: #2d2d30; border-radius: 4px;">
-            <h3 style="margin: 0; font-size: 13px;">▶ 基体控制 (Base)</h3>
+            <h3 style="margin: 0; font-size: 13px;" data-i18n="baseControl">▶ 基体控制 (Base)</h3>
           </div>
           <div id="base-controls" style="display: none; margin-top: 10px;"></div>
         </div>
         
         <!-- 关节控制 -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-          <h3 style="margin: 0;">关节控制</h3>
-          <button id="reset-joints" style="padding: 4px 12px; font-size: 12px;">重置</button>
+          <h3 style="margin: 0;" data-i18n="jointControl">关节控制</h3>
+          <button id="reset-joints" style="padding: 4px 12px; font-size: 12px;" data-i18n="reset">重置</button>
         </div>
         <div id="joint-controls" style="overflow-y: auto; flex: 1;"></div>
       </div>
@@ -247,14 +250,14 @@
 
     <div id="timeline">
       <div id="keyframe-controls" style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
-        <button id="add-keyframe" style="padding: 4px 12px; font-size: 12px;">添加关键帧</button>
-        <button id="delete-keyframe" style="padding: 4px 12px; font-size: 12px; display: none;">删除关键帧</button>
+        <button id="add-keyframe" style="padding: 4px 12px; font-size: 12px;" data-i18n="addKeyframe">添加关键帧</button>
+        <button id="delete-keyframe" style="padding: 4px 12px; font-size: 12px; display: none;" data-i18n="deleteKeyframe">删除关键帧</button>
         <div style="flex: 1;"></div>
-        <button id="timeline-zoom-out" style="padding: 4px 12px; font-size: 12px;" title="缩小时间轴">🔍-</button>
-        <button id="timeline-zoom-reset" style="padding: 4px 12px; font-size: 12px;" title="重置缩放">1:1</button>
-        <button id="timeline-zoom-in" style="padding: 4px 12px; font-size: 12px;" title="放大时间轴">🔍+</button>
-        <button id="play-pause" style="padding: 4px 16px; font-size: 12px;">▶ 播放</button>
-        <span id="fps-display" style="font-size: 12px; color: #858585;">FPS: 50</span>
+        <button id="timeline-zoom-out" style="padding: 4px 12px; font-size: 12px;" data-i18n-title="zoomOutTitle" data-i18n="zoomOut">🔍-</button>
+        <button id="timeline-zoom-reset" style="padding: 4px 12px; font-size: 12px;" data-i18n-title="zoomResetTitle" data-i18n="zoomReset">1:1</button>
+        <button id="timeline-zoom-in" style="padding: 4px 12px; font-size: 12px;" data-i18n-title="zoomInTitle" data-i18n="zoomIn">🔍+</button>
+        <button id="play-pause" style="padding: 4px 16px; font-size: 12px;" data-i18n="play">▶ 播放</button>
+        <span id="fps-display" style="font-size: 12px; color: #858585;"><span data-i18n="fps">FPS</span>: 50</span>
       </div>
       <div id="timeline-viewport" style="position: relative; overflow-x: hidden; overflow-y: hidden; width: 100%; margin-bottom: 5px;">
         <div id="timeline-content" style="position: relative; width: 100%; min-width: 100%;">
@@ -266,10 +269,10 @@
         <div id="timeline-scrollbar-thumb"></div>
       </div>
       <div class="timeline-info">
-        <span id="current-time">时间: 0.00s</span>
-        <span id="current-frame">帧: 0</span>
-        <span id="total-time">总时长: 0.00s</span>
-        <span id="zoom-level" style="margin-left: 10px;">缩放: 1.0x</span>
+        <span id="current-time" data-i18n-template="time">时间: 0.00s</span>
+        <span id="current-frame" data-i18n-template="frame">帧: 0</span>
+        <span id="total-time" data-i18n-template="totalTime">总时长: 0.00s</span>
+        <span id="zoom-level" style="margin-left: 10px;" data-i18n-template="zoom">缩放: 1.0x</span>
       </div>
     </div>
   </div>
@@ -278,54 +281,54 @@
   <div id="build-info-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center;">
     <div style="background: #252526; border: 1px solid #3e3e42; border-radius: 8px; padding: 20px; max-width: 500px; width: 90%; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-        <h3 style="margin: 0; color: #cccccc; font-size: 17px;">🔒 应用信息</h3>
+        <h3 style="margin: 0; color: #cccccc; font-size: 17px;" data-i18n="appInfo">🔒 应用信息</h3>
         <button id="close-modal" style="background: none; border: none; color: #858585; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px;">×</button>
       </div>
       <div style="color: #d4d4d4; font-size: 14px; line-height: 1.6;">
         <div style="margin-bottom: 12px; padding: 10px; background: rgba(78, 201, 176, 0.1); border-left: 3px solid #4ec9b0; border-radius: 4px;">
-          <div style="color: #4ec9b0; font-weight: bold; margin-bottom: 4px; font-size: 14px;">✅ 隐私保护</div>
-          <div style="font-size: 13px; line-height: 1.5;">所有数据处理完全在您的浏览器本地完成，不会上传任何文件或数据到服务器。</div>
+          <div style="color: #4ec9b0; font-weight: bold; margin-bottom: 4px; font-size: 14px;" data-i18n="privacyTitle">✅ 隐私保护</div>
+          <div style="font-size: 13px; line-height: 1.5;" data-i18n="privacyText">所有数据处理完全在您的浏览器本地完成，不会上传任何文件或数据到服务器。</div>
         </div>
         <div style="margin-bottom: 12px;">
-          <div style="color: #858585; font-size: 13px; font-weight: 500; margin-bottom: 6px;">托管环境</div>
-          <div id="hosting-info" style="color: #cccccc; font-size: 13px; margin-bottom: 6px;">加载中...</div>
+          <div style="color: #858585; font-size: 13px; font-weight: 500; margin-bottom: 6px;" data-i18n="hostingEnv">托管环境</div>
+          <div id="hosting-info" style="color: #cccccc; font-size: 13px; margin-bottom: 6px;" data-i18n="loading">加载中...</div>
           <div id="deploy-details" style="font-size: 12px; color: #858585; display: none; line-height: 1.5; padding: 8px; background: rgba(255, 255, 255, 0.03); border: 1px solid #3e3e42; border-radius: 4px; position: relative;">
-            <button id="copy-hosting" style="position: absolute; top: 6px; right: 6px; background: none; border: none; color: #858585; font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 3px; transition: all 0.2s;" title="复制托管信息">📋</button>
+            <button id="copy-hosting" style="position: absolute; top: 6px; right: 6px; background: none; border: none; color: #858585; font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 3px; transition: all 0.2s;" data-i18n-title="copyHostingTitle" title="复制托管信息">📋</button>
             <div style="margin-bottom: 6px;">
-              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;">域名</div>
+              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;" data-i18n="domain">域名</div>
               <div id="hostname" style="font-family: monospace; color: #d4d4d4; font-size: 12px;"></div>
             </div>
             <div style="margin-bottom: 6px;">
-              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;">协议</div>
+              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;" data-i18n="protocol">协议</div>
               <div id="protocol" style="font-family: monospace; color: #d4d4d4; font-size: 12px;"></div>
             </div>
             <div>
-              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;">User Agent</div>
+              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;" data-i18n="userAgent">User Agent</div>
               <div id="user-agent" style="font-family: monospace; color: #d4d4d4; font-size: 11px; word-break: break-all;"></div>
             </div>
           </div>
         </div>
         <div style="margin-bottom: 8px;">
-          <div style="color: #858585; font-size: 13px; font-weight: 500; margin-bottom: 6px;">构建信息</div>
+          <div style="color: #858585; font-size: 13px; font-weight: 500; margin-bottom: 6px;" data-i18n="buildInfo">构建信息</div>
           <div style="padding: 8px; background: rgba(255, 255, 255, 0.03); border: 1px solid #3e3e42; border-radius: 4px; position: relative;">
-            <button id="copy-build" style="position: absolute; top: 6px; right: 6px; background: none; border: none; color: #858585; font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 3px; transition: all 0.2s;" title="复制构建信息">📋</button>
+            <button id="copy-build" style="position: absolute; top: 6px; right: 6px; background: none; border: none; color: #858585; font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 3px; transition: all 0.2s;" data-i18n-title="copyBuildTitle" title="复制构建信息">📋</button>
             <div style="margin-bottom: 6px;">
-              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;">版本</div>
+              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;" data-i18n="version">版本</div>
               <div style="color: #cccccc; font-family: monospace; font-size: 12px;">
-                <span id="build-version-short">加载中...</span>
+                <span id="build-version-short" data-i18n="loading">加载中...</span>
                 <span id="build-version-full" style="display: none;"></span>
               </div>
             </div>
             <div style="margin-bottom: 6px;">
-              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;">时间</div>
-              <div id="build-date" style="color: #cccccc; font-size: 12px;">加载中...</div>
+              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;" data-i18n="buildTime">时间</div>
+              <div id="build-date" style="color: #cccccc; font-size: 12px;" data-i18n="loading">加载中...</div>
             </div>
             <div style="margin-bottom: 6px;">
-              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;">分支</div>
-              <div id="build-branch" style="color: #cccccc; font-family: monospace; font-size: 12px;">加载中...</div>
+              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;" data-i18n="branch">分支</div>
+              <div id="build-branch" style="color: #cccccc; font-family: monospace; font-size: 12px;" data-i18n="loading">加载中...</div>
             </div>
             <div id="build-tag-container" style="display: none;">
-              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;">标签</div>
+              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;" data-i18n="tag">标签</div>
               <div id="build-tag" style="color: #cccccc; font-family: monospace; font-size: 12px;"></div>
             </div>
           </div>
@@ -333,7 +336,7 @@
         <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #3e3e42;">
           <a id="github-link" href="https://github.com/cyoahs/robot_motion_editor" target="_blank" style="color: #4ec9b0; text-decoration: none; display: flex; align-items: center; gap: 5px; font-size: 14px;">
             <span>📦</span>
-            <span>在 GitHub 上查看源代码</span>
+            <span data-i18n="viewOnGitHub">在 GitHub 上查看源代码</span>
             <span style="font-size: 11px;">↗</span>
           </a>
         </div>
