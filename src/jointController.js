@@ -76,6 +76,23 @@ export class JointController {
       });
       
       row.appendChild(numberInput);
+
+      // 添加重置按钮
+      const resetBtn = document.createElement('button');
+      resetBtn.innerHTML = '↺';
+      resetBtn.title = `重置 ${joint.name || 'Joint ' + (index + 1)}`;
+      resetBtn.style.cssText = 'width: 20px; height: 20px; padding: 0; font-size: 14px; background: #3c3c3c; color: #cccccc; border: 1px solid #3e3e42; border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center;';
+      resetBtn.addEventListener('mouseover', () => {
+        resetBtn.style.background = '#505050';
+      });
+      resetBtn.addEventListener('mouseout', () => {
+        resetBtn.style.background = '#3c3c3c';
+      });
+      resetBtn.addEventListener('click', () => {
+        this.resetJoint(index);
+      });
+      
+      row.appendChild(resetBtn);
       control.appendChild(row);
       container.appendChild(control);
     });
@@ -155,6 +172,44 @@ export class JointController {
       // 如果没有轨迹，重置到 0
       this.updateJoints(new Array(this.joints.length).fill(0));
       console.log('✅ 已重置到 0');
+    }
+  }
+
+  resetJoint(index) {
+    // 重置单个关节到base值
+    if (this.editor.trajectoryManager.hasTrajectory()) {
+      const currentFrame = this.editor.timelineController.getCurrentFrame();
+      const baseState = this.editor.trajectoryManager.getBaseState(currentFrame);
+      if (baseState) {
+        const baseValue = baseState.joints[index];
+        this.jointValues[index] = baseValue;
+        
+        // 更新UI
+        const container = document.getElementById('joint-controls');
+        const controls = container.querySelectorAll('.joint-control');
+        if (controls[index]) {
+          const slider = controls[index].querySelector('input[type="range"]');
+          const numberInput = controls[index].querySelector('input[type="number"]');
+          if (slider) slider.value = baseValue;
+          if (numberInput) numberInput.value = baseValue.toFixed(3);
+        }
+        
+        this.applyJointValue(index, baseValue);
+        console.log(`✅ 关节 ${index} 已重置到 base 值: ${baseValue.toFixed(3)}`);
+      }
+    } else {
+      // 如果没有轨迹，重置到 0
+      this.jointValues[index] = 0;
+      const container = document.getElementById('joint-controls');
+      const controls = container.querySelectorAll('.joint-control');
+      if (controls[index]) {
+        const slider = controls[index].querySelector('input[type="range"]');
+        const numberInput = controls[index].querySelector('input[type="number"]');
+        if (slider) slider.value = 0;
+        if (numberInput) numberInput.value = '0.000';
+      }
+      this.applyJointValue(index, 0);
+      console.log(`✅ 关节 ${index} 已重置到 0`);
     }
   }
 }
