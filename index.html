@@ -67,8 +67,9 @@
       width: 300px;
       background: #252526;
       border-left: 1px solid #3e3e42;
-      overflow-y: auto;
       padding: 10px;
+      display: flex;
+      flex-direction: column;
     }
 
     .joint-control {
@@ -236,7 +237,7 @@
           <h3 style="margin: 0;">关节控制</h3>
           <button id="reset-joints" style="padding: 4px 12px; font-size: 12px;">重置</button>
         </div>
-        <div id="joint-controls"></div>
+        <div id="joint-controls" style="overflow-y: auto; flex: 1;"></div>
       </div>
     </div>
 
