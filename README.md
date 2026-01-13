@@ -2,6 +2,8 @@
 
 基于 Web 的机器人运动编辑工具，支持 URDF 加载、CSV 轨迹编辑、双视口对比和工程文件管理。
 
+**Other language:** [English](README.en.md)
+
 ## 🌐 在线体验
 
 [motion-editor.cyoahs.dev](https://motion-editor.cyoahs.dev) | 托管于 Cloudflare Pages
