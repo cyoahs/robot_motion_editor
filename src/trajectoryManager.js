@@ -50,6 +50,17 @@ export class TrajectoryManager {
     return this.baseTrajectory.length > 0;
   }
 
+  getKeyframes() {
+    // 返回所有关键帧的数组，按帧号排序
+    return Array.from(this.keyframes.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([frame, data]) => ({
+        frame,
+        baseValues: data.baseValues || null,
+        residuals: data.residuals || null
+      }));
+  }
+
   getFrameCount() {
     return this.baseTrajectory.length;
   }
@@ -135,7 +146,7 @@ export class TrajectoryManager {
     // 如果当前帧就是关键帧，直接返回
     if (this.keyframes.has(frameIndex)) {
       const kf = this.keyframes.get(frameIndex);
-      return kf.residual || kf; // 兼容新旧格式
+      return kf.residuals?.joints || kf.residual || kf; // 兼容新旧格式
     }
 
     // 找到前后两个关键帧进行插值
@@ -159,33 +170,24 @@ export class TrajectoryManager {
       }
     }
 
-    // 在第一个关键帧之前：从 0 插值到第一个关键帧
+    // 在第一个关键帧之前：不受影响，返回0
     if (prevIdx === -1) {
-      const firstIdx = keyframeIndices[0];
-      const kf = this.keyframes.get(firstIdx);
-      const firstResidual = kf.residual || kf;
-      
-      if (frameIndex < firstIdx) {
-        // 线性插值：从 0 到第一个关键帧
-        const t = frameIndex / firstIdx;
-        return firstResidual.map(val => val * t);
-      }
-      
+      // 第一个关键帧之前不受影响
       return new Array(this.jointCount).fill(0);
     }
 
     // 在最后一个关键帧之后：保持最后一个关键帧的值
     if (nextIdx === -1) {
       const kf = this.keyframes.get(prevIdx);
-      return kf.residual || kf;
+      return kf.residuals?.joints || kf.residual || kf;
     }
 
     // 两个关键帧之间：线性插值
     const t = (frameIndex - prevIdx) / (nextIdx - prevIdx);
     const prevKf = this.keyframes.get(prevIdx);
     const nextKf = this.keyframes.get(nextIdx);
-    const prevResidual = prevKf.residual || prevKf;
-    const nextResidual = nextKf.residual || nextKf;
+    const prevResidual = prevKf.residuals?.joints || prevKf.residual || prevKf;
+    const nextResidual = nextKf.residuals?.joints || nextKf.residual || nextKf;
     
     return prevResidual.map((prevVal, idx) => {
       const nextVal = nextResidual[idx] || 0;
@@ -203,7 +205,7 @@ export class TrajectoryManager {
     // 检查是否有任何基体残差
     const hasAnyBaseResidual = keyframeIndices.some(idx => {
       const kf = this.keyframes.get(idx);
-      return kf.baseResidual !== null && kf.baseResidual !== undefined;
+      return (kf.residuals?.base !== null && kf.residuals?.base !== undefined) || (kf.baseResidual !== null && kf.baseResidual !== undefined);
     });
     
     if (!hasAnyBaseResidual) {
@@ -213,55 +215,28 @@ export class TrajectoryManager {
     // 如果当前帧就是关键帧
     if (this.keyframes.has(frameIndex)) {
       const kf = this.keyframes.get(frameIndex);
-      return kf.baseResidual ? JSON.parse(JSON.stringify(kf.baseResidual)) : null;
+      const residual = kf.residuals?.base || kf.baseResidual;
+      return residual ? JSON.parse(JSON.stringify(residual)) : null;
     }
     
-    // 如果在第一个关键帧之前
-    if (frameIndex <= keyframeIndices[0]) {
-      const firstKeyframeIndex = keyframeIndices[0];
-      const firstKeyframe = this.keyframes.get(firstKeyframeIndex);
-      
-      if (!firstKeyframe.baseResidual) return null;
-      
-      if (frameIndex === firstKeyframeIndex) {
-        return JSON.parse(JSON.stringify(firstKeyframe.baseResidual));
-      }
-      
-      const t = frameIndex / firstKeyframeIndex;
-      
-      // 位置线性插值
-      const position = {
-        x: firstKeyframe.baseResidual.position.x * t,
-        y: firstKeyframe.baseResidual.position.y * t,
-        z: firstKeyframe.baseResidual.position.z * t
-      };
-      
-      // 四元数从单位四元数插值到目标残差
-      const qIdentity = new THREE.Quaternion(0, 0, 0, 1); // 单位四元数
-      const qTarget = new THREE.Quaternion(
-        firstKeyframe.baseResidual.quaternion.x,
-        firstKeyframe.baseResidual.quaternion.y,
-        firstKeyframe.baseResidual.quaternion.z,
-        firstKeyframe.baseResidual.quaternion.w
-      );
-      const qInterpolated = qIdentity.clone().slerp(qTarget, t);
-      
-      return {
-        position,
-        quaternion: {
-          x: qInterpolated.x,
-          y: qInterpolated.y,
-          z: qInterpolated.z,
-          w: qInterpolated.w
-        }
-      };
+    // 如果在第一个关键帧之前：不受影响
+    if (frameIndex < keyframeIndices[0]) {
+      return null; // 第一个关键帧之前不受影响
+    }
+    
+    // 如果正好是第一个关键帧
+    if (frameIndex === keyframeIndices[0]) {
+      const firstKeyframe = this.keyframes.get(keyframeIndices[0]);
+      const baseRes = firstKeyframe.residuals?.base || firstKeyframe.baseResidual;
+      return baseRes ? JSON.parse(JSON.stringify(baseRes)) : null;
     }
     
     // 如果在最后一个关键帧之后
     if (frameIndex >= keyframeIndices[keyframeIndices.length - 1]) {
       const lastKeyframe = this.keyframes.get(keyframeIndices[keyframeIndices.length - 1]);
-      if (!lastKeyframe.baseResidual) return null;
-      return JSON.parse(JSON.stringify(lastKeyframe.baseResidual));
+      const baseRes = lastKeyframe.residuals?.base || lastKeyframe.baseResidual;
+      if (!baseRes) return null;
+      return JSON.parse(JSON.stringify(baseRes));
     }
     
     // 在两个关键帧之间插值
@@ -279,18 +254,21 @@ export class TrajectoryManager {
     const prevKeyframe = this.keyframes.get(prevIndex);
     const nextKeyframe = this.keyframes.get(nextIndex);
     
+    const prevBase = prevKeyframe.residuals?.base || prevKeyframe.baseResidual;
+    const nextBase = nextKeyframe.residuals?.base || nextKeyframe.baseResidual;
+    
     // 如果两个关键帧都没有基体残差
-    if (!prevKeyframe.baseResidual && !nextKeyframe.baseResidual) {
+    if (!prevBase && !nextBase) {
       return null;
     }
     
     const t = (frameIndex - prevIndex) / (nextIndex - prevIndex);
     
-    const prev = prevKeyframe.baseResidual || {
+    const prev = prevBase || {
       position: { x: 0, y: 0, z: 0 },
       quaternion: { x: 0, y: 0, z: 0, w: 1 }
     };
-    const next = nextKeyframe.baseResidual || {
+    const next = nextBase || {
       position: { x: 0, y: 0, z: 0 },
       quaternion: { x: 0, y: 0, z: 0, w: 1 }
     };
@@ -381,7 +359,18 @@ export class TrajectoryManager {
     }
 
     const isNew = !this.keyframes.has(frameIndex);
-    this.keyframes.set(frameIndex, { residual, baseResidual });
+    
+    // 保存完整的关键帧数据：包含基值和残差
+    this.keyframes.set(frameIndex, { 
+      baseValues: {
+        joints: baseState.joints,
+        base: baseState.base
+      },
+      residuals: {
+        joints: residual,
+        base: baseResidual
+      }
+    });
     
     if (isNew) {
       console.log(`➕ 添加新关键帧 ${frameIndex}`);
@@ -498,9 +487,16 @@ export class TrajectoryManager {
     
     if (projectData.keyframes) {
       projectData.keyframes.forEach(kf => {
+        // 兼容旧格式和新格式
+        const residuals = {
+          joints: kf.residuals?.joints || kf.residual,
+          base: kf.residuals?.base || kf.baseResidual
+        };
+        const baseValues = kf.baseValues || null;
+        
         this.keyframes.set(kf.frameIndex, {
-          residual: kf.residual,
-          baseResidual: kf.baseResidual
+          baseValues: baseValues,
+          residuals: residuals
         });
       });
     }

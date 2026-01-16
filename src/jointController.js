@@ -35,6 +35,41 @@ export class JointController {
 
       const label = document.createElement('label');
       label.textContent = joint.name || `Joint ${index + 1}`;
+      label.style.cursor = 'pointer';
+      label.title = '点击切换曲线显示';
+      
+      // 添加曲线可见性指示器
+      const curveIndicator = document.createElement('span');
+      curveIndicator.style.cssText = 'display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 5px; transition: all 0.2s;';
+      curveIndicator.id = `curve-indicator-${index}`;
+      label.appendChild(curveIndicator);
+      
+      // 点击标签切换曲线可见性
+      label.addEventListener('click', () => {
+        if (this.editor.curveEditor) {
+          const curveKey = `joint_${index}`;
+          const visible = this.editor.curveEditor.toggleCurveVisibility(curveKey);
+          const color = this.editor.curveEditor.getCurveColor(curveKey);
+          if (color) {
+            curveIndicator.style.backgroundColor = visible ? color : 'transparent';
+            curveIndicator.style.border = `1px solid ${visible ? color : 'var(--border-primary)'}`;
+          }
+        }
+      });
+      
+      // 初始化指示器状态
+      setTimeout(() => {
+        if (this.editor.curveEditor) {
+          const curveKey = `joint_${index}`;
+          const visible = this.editor.curveEditor.isCurveVisible(curveKey);
+          const color = this.editor.curveEditor.getCurveColor(curveKey);
+          if (color) {
+            curveIndicator.style.backgroundColor = visible ? color : 'transparent';
+            curveIndicator.style.border = `1px solid ${visible ? color : 'var(--border-primary)'}`;
+          }
+        }
+      }, 100);
+      
       control.appendChild(label);
 
       // 创建水平布局容器
@@ -102,6 +137,23 @@ export class JointController {
     console.log(`✅ ${this.joints.length} 个关节控制器创建完成`);
   }
 
+  updateCurveIndicators() {
+    if (!this.editor.curveEditor) return;
+    
+    this.joints.forEach((joint, index) => {
+      const indicator = document.getElementById(`curve-indicator-${index}`);
+      if (indicator) {
+        const curveKey = `joint_${index}`;
+        const visible = this.editor.curveEditor.isCurveVisible(curveKey);
+        const color = this.editor.curveEditor.getCurveColor(curveKey);
+        if (color) {
+          indicator.style.backgroundColor = visible ? color : 'transparent';
+          indicator.style.border = `1px solid ${visible ? color : 'var(--border-primary)'}`;
+        }
+      }
+    });
+  }
+
   applyJointValue(index, value) {
     if (this.joints[index] && this.joints[index].joint) {
       this.joints[index].joint.setJointValue(value);
@@ -134,6 +186,11 @@ export class JointController {
         this.editor.baseController.getCurrentBaseValues() : null;
       this.editor.trajectoryManager.addKeyframe(currentFrame, currentJointValues, currentBaseValues);
       console.log(`✅ 自动更新关键帧 ${currentFrame} 的残差`);
+      
+      // 更新曲线编辑器
+      if (this.editor.curveEditor) {
+        this.editor.curveEditor.draw();
+      }
     }
   }
 

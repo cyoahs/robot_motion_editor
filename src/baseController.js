@@ -247,6 +247,11 @@ export class BaseController {
       const currentBaseValues = this.getCurrentBaseValues();
       this.editor.trajectoryManager.addKeyframe(currentFrame, currentJointValues, currentBaseValues);
       console.log(`✅ 自动更新关键帧 ${currentFrame} 的基体残差`);
+      
+      // 更新曲线编辑器
+      if (this.editor.curveEditor) {
+        this.editor.curveEditor.draw();
+      }
     }
   }
 

@@ -219,6 +219,11 @@ export class TimelineController {
     
     // 更新机器人状态
     this.editor.updateRobotState(this.currentFrame);
+    
+    // 更新曲线编辑器
+    if (this.editor.curveEditor) {
+      this.editor.curveEditor.draw();
+    }
   }
 
   getCurrentFrame() {

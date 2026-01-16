@@ -121,6 +121,11 @@ const translations = {
     loadProjectFailed: '加载工程文件失败',
     projectFileNotFound: '工程文件不存在',
     oldProjectVersion: '⚠️ 检测到旧版本工程文件！\n\n四元数运算已优化，建议：\n1. 重新加载CSV轨迹\n2. 重新创建所有关键帧\n\n否则可能出现姿态错误。',
+    
+    // 曲线编辑器
+    curves: '📈 曲线',
+    curveEditor: '📈 曲线编辑器',
+    resetDefault: '恢复默认',
   },
   en: {
     // Toolbar
@@ -242,8 +247,11 @@ const translations = {
     baseTrajectoryExported: 'Base trajectory exported',
     loadProjectFailed: 'Load project file failed',
     projectFileNotFound: 'Project file not found',
-    oldProjectVersion: '⚠️ Old project file version detected!\n\nQuaternion operations have been optimized. It is recommended to:\n1. Reload the CSV trajectory\n2. Recreate all keyframes\n\nOtherwise, pose errors may occur.',
-  }
+    oldProjectVersion: '⚠️ Old project file version detected!\n\nQuaternion operations have been optimized. It is recommended to:\n1. Reload the CSV trajectory\n2. Recreate all keyframes\n\nOtherwise, pose errors may occur.',    
+    // Curve Editor
+    curves: '📈 Curves',
+    curveEditor: '📈 Curve Editor',
+    resetDefault: 'Reset Default',  }
 };
 
 class I18n {

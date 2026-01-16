@@ -8,6 +8,7 @@ import { TimelineController } from './timelineController.js';
 import { COMVisualizer } from './comVisualizer.js';
 import { i18n } from './i18n.js';
 import { ThemeManager } from './themeManager.js';
+import { CurveEditor } from './curveEditor.js';
 
 class RobotKeyframeEditor {
   constructor() {
@@ -41,6 +42,7 @@ class RobotKeyframeEditor {
     this.jointController = null;
     this.baseController = null;
     this.timelineController = null;
+    this.curveEditor = null;
     
     // COM可视化器
     this.comVisualizerLeft = null;
@@ -177,29 +179,34 @@ class RobotKeyframeEditor {
     // 初始化时间轴控制器
     this.timelineController = new TimelineController(this);
 
+    // 初始化曲线编辑器
+    this.curveEditor = new CurveEditor(this);
+
     // 窗口大小调整
-    window.addEventListener('resize', () => {
-      const viewport = document.getElementById('viewport');
-      const fullWidth = viewport.clientWidth;
-      const fullHeight = viewport.clientHeight;
-      const halfWidth = fullWidth / 2;
-      const aspect = halfWidth / fullHeight;
-      
-      // 更新正交相机的frustum
-      this.cameraLeft.left = this.frustumSize * aspect / -2;
-      this.cameraLeft.right = this.frustumSize * aspect / 2;
-      this.cameraLeft.top = this.frustumSize / 2;
-      this.cameraLeft.bottom = this.frustumSize / -2;
-      this.cameraLeft.updateProjectionMatrix();
-      
-      this.cameraRight.left = this.frustumSize * aspect / -2;
-      this.cameraRight.right = this.frustumSize * aspect / 2;
-      this.cameraRight.top = this.frustumSize / 2;
-      this.cameraRight.bottom = this.frustumSize / -2;
-      this.cameraRight.updateProjectionMatrix();
-      
-      this.renderer.setSize(fullWidth, fullHeight);
-    });
+    window.addEventListener('resize', () => this.handleResize());
+  }
+
+  handleResize() {
+    const viewport = document.getElementById('viewport');
+    const fullWidth = viewport.clientWidth;
+    const fullHeight = viewport.clientHeight;
+    const halfWidth = fullWidth / 2;
+    const aspect = halfWidth / fullHeight;
+    
+    // 更新正交相机的frustum
+    this.cameraLeft.left = this.frustumSize * aspect / -2;
+    this.cameraLeft.right = this.frustumSize * aspect / 2;
+    this.cameraLeft.top = this.frustumSize / 2;
+    this.cameraLeft.bottom = this.frustumSize / -2;
+    this.cameraLeft.updateProjectionMatrix();
+    
+    this.cameraRight.left = this.frustumSize * aspect / -2;
+    this.cameraRight.right = this.frustumSize * aspect / 2;
+    this.cameraRight.top = this.frustumSize / 2;
+    this.cameraRight.bottom = this.frustumSize / -2;
+    this.cameraRight.updateProjectionMatrix();
+    
+    this.renderer.setSize(fullWidth, fullHeight);
   }
 
   setupEventListeners() {
@@ -473,6 +480,11 @@ class RobotKeyframeEditor {
       this.timelineController.setCurrentFrame(0);
       this.updateRobotState(0);
       
+      // 更新曲线编辑器
+      if (this.curveEditor) {
+        this.curveEditor.updateCurves();
+      }
+      
       const frameCount = this.trajectoryManager.getFrameCount();
       console.log('✅ CSV 加载成功, 帧数:', frameCount, 'FPS:', fps);
       console.log('📄 文件名:', file.name);
@@ -577,6 +589,12 @@ class RobotKeyframeEditor {
     } else {
       console.log('🔄 关键帧已存在，已更新残差');
     }
+    
+    // 通知曲线编辑器更新
+    if (this.curveEditor) {
+      this.curveEditor.updateCurves();
+      this.curveEditor.draw();
+    }
   }
 
   deleteCurrentKeyframe() {
@@ -596,6 +614,12 @@ class RobotKeyframeEditor {
       
       // 更新显示
       this.updateRobotState(currentFrame);
+      
+      // 通知曲线编辑器更新
+      if (this.curveEditor) {
+        this.curveEditor.updateCurves();
+        this.curveEditor.draw();
+      }
       
       console.log('删除关键帧:', currentFrame);
     } else {

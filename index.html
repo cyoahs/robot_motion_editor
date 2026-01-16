@@ -78,6 +78,7 @@
       background: var(--bg-secondary);
       border-bottom: 1px solid var(--border-primary);
       transition: background-color 0.3s ease, border-color 0.3s ease;
+      flex-shrink: 0;
     }
 
     .toolbar button,
@@ -110,6 +111,7 @@
     #viewport {
       flex: 1;
       position: relative;
+      min-height: 0;
     }
 
     #sidebar {
@@ -201,6 +203,7 @@
       border-top: 1px solid var(--border-primary);
       padding: 10px;
       transition: background-color 0.3s ease, border-color 0.3s ease;
+      flex-shrink: 0;
     }
 
     #keyframe-markers {
@@ -255,6 +258,7 @@
       font-size: 12px;
       color: var(--text-tertiary);
       transition: color 0.3s ease;
+      padding-bottom: 8px;
     }
 
     #status {
@@ -368,6 +372,18 @@
         <span id="current-frame" data-i18n-template="frame">帧: 0</span>
         <span id="total-time" data-i18n-template="totalTime">总时长: 0.00s</span>
         <span id="zoom-level" style="margin-left: 10px;" data-i18n-template="zoom">缩放: 1.0x</span>
+      </div>
+    </div>
+
+    <!-- 曲线编辑器 -->
+    <div id="curve-editor-container" style="background: var(--bg-secondary); border-top: 1px solid var(--border-primary); transition: all 0.3s ease; flex-shrink: 0; overflow: hidden;">
+      <div id="curve-editor-header" style="display: flex; align-items: center; padding: 8px 10px; cursor: pointer; background: var(--bg-tertiary); transition: background-color 0.3s ease;">
+        <span class="toggle-icon" style="margin-right: 8px; font-size: 12px; color: var(--text-primary);">▶</span>
+        <span style="font-size: 13px; font-weight: 500; color: var(--text-primary); flex: 1; transition: color 0.3s ease;" data-i18n="curves">📈 曲线</span>
+        <button id="curve-reset-default" style="padding: 4px 12px; font-size: 11px; background: var(--accent-primary); color: white; border: none; border-radius: 3px; cursor: pointer; transition: background-color 0.2s;" data-i18n="resetDefault">恢复默认</button>
+      </div>
+      <div id="curve-editor-content" style="display: none;">
+        <canvas id="curve-canvas" style="width: 100%; height: 200px; cursor: default; transition: background 0.3s ease;"></canvas>
       </div>
     </div>
   </div>
