@@ -5,6 +5,52 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>机器人关键帧编辑器</title>
   <style>
+    /* 浅色模式 */
+    :root[data-theme="light"] {
+      --bg-primary: #ffffff;
+      --bg-secondary: #f3f3f3;
+      --bg-tertiary: #e8e8e8;
+      --bg-input: #ffffff;
+      --border-primary: #d4d4d4;
+      --border-secondary: #c4c4c4;
+      --text-primary: #1e1e1e;
+      --text-secondary: #3c3c3c;
+      --text-tertiary: #616161;
+      --accent-primary: #0078d4;
+      --accent-hover: #106ebe;
+      --accent-info: #0078d4;
+      --success-color: #107c10;
+      --warning-color: #d13438;
+      --overlay-bg: rgba(255, 255, 255, 0.4);
+      --overlay-text: #1e1e1e;
+      --slider-track: #e0e0e0;
+      --slider-fill: #0078d4;
+      --slider-thumb: #0078d4;
+    }
+
+    /* 深色模式（默认） */
+    :root[data-theme="dark"] {
+      --bg-primary: #1e1e1e;
+      --bg-secondary: #252526;
+      --bg-tertiary: #2d2d30;
+      --bg-input: #3c3c3c;
+      --border-primary: #3e3e42;
+      --border-secondary: #4e4e52;
+      --text-primary: #d4d4d4;
+      --text-secondary: #cccccc;
+      --text-tertiary: #858585;
+      --accent-primary: #0e639c;
+      --accent-hover: #1177bb;
+      --accent-info: #007acc;
+      --success-color: #4ec9b0;
+      --warning-color: #f48771;
+      --overlay-bg: rgba(0, 0, 0, 0.4);
+      --overlay-text: #ffffff;
+      --slider-track: #3c3c3c;
+      --slider-fill: #007acc;
+      --slider-thumb: #007acc;
+    }
+
     * {
       margin: 0;
       padding: 0;
@@ -14,8 +60,9 @@
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       overflow: hidden;
-      background: #1e1e1e;
-      color: #d4d4d4;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      transition: background-color 0.3s ease, color 0.3s ease;
     }
 
     #app {
@@ -28,24 +75,26 @@
       display: flex;
       gap: 10px;
       padding: 10px;
-      background: #252526;
-      border-bottom: 1px solid #3e3e42;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-primary);
+      transition: background-color 0.3s ease, border-color 0.3s ease;
     }
 
     .toolbar button,
     .toolbar label {
       padding: 8px 16px;
-      background: #0e639c;
+      background: var(--accent-primary);
       color: white;
       border: none;
       border-radius: 4px;
       cursor: pointer;
       font-size: 14px;
+      transition: background-color 0.2s ease;
     }
 
     .toolbar button:hover,
     .toolbar label:hover {
-      background: #1177bb;
+      background: var(--accent-hover);
     }
 
     .toolbar input[type="file"] {
@@ -65,25 +114,28 @@
 
     #sidebar {
       width: 300px;
-      background: #252526;
-      border-left: 1px solid #3e3e42;
+      background: var(--bg-secondary);
+      border-left: 1px solid var(--border-primary);
       padding: 10px;
       display: flex;
       flex-direction: column;
+      transition: background-color 0.3s ease, border-color 0.3s ease;
     }
 
     .joint-control {
       margin-bottom: 10px;
       padding: 8px;
-      background: #1e1e1e;
+      background: var(--bg-primary);
       border-radius: 4px;
+      transition: background-color 0.3s ease;
     }
 
     .joint-control label {
       display: block;
       margin-bottom: 4px;
       font-size: 11px;
-      color: #cccccc;
+      color: var(--text-secondary);
+      transition: color 0.3s ease;
     }
 
     .joint-control-row {
@@ -92,26 +144,63 @@
       align-items: center;
     }
 
-    .joint-control input[type="range"] {
+    .joint-control input[type="range"],
+    input[type="range"] {
       flex: 1;
       margin: 0;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 6px;
+      border-radius: 3px;
+      background: var(--slider-track);
+      outline: none;
+      transition: background-color 0.3s ease;
+    }
+
+    .joint-control input[type="range"]::-webkit-slider-thumb,
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--slider-thumb);
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+
+    .joint-control input[type="range"]::-moz-range-thumb,
+    input[type="range"]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--slider-thumb);
+      cursor: pointer;
+      border: none;
+      transition: background-color 0.3s ease;
+    }
+
+    #reset-joints:hover {
+      background: var(--accent-hover);
     }
 
     .joint-control input[type="number"] {
       width: 70px;
       padding: 2px 4px;
-      background: #3c3c3c;
-      border: 1px solid #3e3e42;
-      color: #d4d4d4;
+      background: var(--bg-input);
+      border: 1px solid var(--border-primary);
+      color: var(--text-primary);
       border-radius: 2px;
       font-size: 11px;
+      transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
     }
 
     #timeline {
       height: 120px;
-      background: #252526;
-      border-top: 1px solid #3e3e42;
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border-primary);
       padding: 10px;
+      transition: background-color 0.3s ease, border-color 0.3s ease;
     }
 
     #keyframe-markers {
@@ -134,16 +223,17 @@
     #timeline-scrollbar {
       width: 100%;
       height: 12px;
-      background: #252526;
+      background: var(--bg-secondary);
       border-radius: 6px;
       position: relative;
       margin-top: 5px;
       cursor: pointer;
+      transition: background-color 0.3s ease;
     }
     
     #timeline-scrollbar-thumb {
       height: 100%;
-      background: #3e3e42;
+      background: var(--border-primary);
       border-radius: 6px;
       position: absolute;
       cursor: grab;
@@ -151,26 +241,28 @@
     }
     
     #timeline-scrollbar-thumb:hover {
-      background: #4e4e52;
+      background: var(--border-secondary);
     }
     
     #timeline-scrollbar-thumb:active {
       cursor: grabbing;
-      background: #5e5e62;
+      background: var(--border-secondary);
     }
 
     .timeline-info {
       display: flex;
       justify-content: space-between;
       font-size: 12px;
-      color: #858585;
+      color: var(--text-tertiary);
+      transition: color 0.3s ease;
     }
 
     #status {
       padding: 5px 10px;
       font-size: 12px;
-      background: #007acc;
+      background: var(--accent-info);
       color: white;
+      transition: background-color 0.3s ease;
     }
   </style>
 </head>
@@ -192,11 +284,14 @@
         <input type="file" id="load-project" accept=".json">
       </label>
       <button id="save-project" data-i18n="saveProject">保存工程文件</button>
-      <span id="status-text" style="margin-left: 20px; color: #858585;" data-i18n="ready">就绪</span>
-      <button id="lang-toggle" style="margin-left: auto; margin-right: 10px; padding: 8px 12px; background: #555555; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;">
+      <span id="status-text" style="margin-left: 20px; color: var(--text-tertiary); transition: color 0.3s ease;" data-i18n="ready">就绪</span>
+      <button id="theme-toggle" style="margin-left: auto; padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;" data-i18n-title="toggleTheme" title="切换主题">
+        <span id="theme-icon">🌙</span>
+      </button>
+      <button id="lang-toggle" style="margin-right: 10px; padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s;">
         EN/中
       </button>
-      <span id="security-info" style="padding: 4px 12px; background: rgba(78, 201, 176, 0.15); color: #4ec9b0; border: 1px solid #4ec9b0; border-radius: 4px; font-size: 11px; display: flex; align-items: center; gap: 5px; cursor: pointer; transition: all 0.2s;">
+      <span id="security-info" style="padding: 4px 12px; background: rgba(78, 201, 176, 0.15); color: var(--success-color); border: 1px solid var(--success-color); border-radius: 4px; font-size: 11px; display: flex; align-items: center; gap: 5px; cursor: pointer; transition: all 0.2s;">
         <span style="font-size: 14px;">🔒</span>
         <span data-i18n="dataPrivacy">本地处理，数据安全</span>
       </span>
@@ -204,45 +299,45 @@
 
     <div class="main-content">
       <div id="viewport" style="position: relative;">
-        <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: #4ec9b0; pointer-events: none;" data-i18n="baseTrajectory">原始轨迹 (Base)</div>
-        <div style="position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: #f48771; pointer-events: none;" data-i18n="editedTrajectory">编辑后 (Modified)</div>
-        <div style="position: absolute; top: 50%; left: 50%; width: 2px; height: 100%; background: #3e3e42; transform: translateX(-50%); pointer-events: none; z-index: 99;"></div>
+        <div style="position: absolute; top: 10px; left: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: var(--success-color); pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="baseTrajectory">原始轨迹 (Base)</div>
+        <div style="position: absolute; top: 10px; right: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: var(--warning-color); pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="editedTrajectory">编辑后 (Modified)</div>
+        <div style="position: absolute; top: 50%; left: 50%; width: 2px; height: 100%; background: var(--border-primary); transform: translateX(-50%); pointer-events: none; z-index: 99; transition: background-color 0.3s ease;"></div>
         
         <!-- 相机控制按钮 -->
         <div style="position: absolute; bottom: 10px; left: 10px; z-index: 100; display: flex; gap: 5px;">
-          <button id="toggle-camera-mode" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="rotate">
+          <button id="toggle-camera-mode" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="rotate">
             🔄 旋转
           </button>
-          <button id="reset-camera" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="resetCamera">
+          <button id="reset-camera" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="resetCamera">
             🔄 重置视角
           </button>
-          <button id="follow-robot" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="followOff">
+          <button id="follow-robot" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="followOff">
             🤖 跟随: 关
           </button>
-          <button id="toggle-com" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="comOn">
+          <button id="toggle-com" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="comOn">
             🎯 重心: 开
           </button>
-          <button id="refresh-footprint" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="refreshFootprint">
+          <button id="refresh-footprint" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="refreshFootprint">
             👣 刷新包络线
           </button>
-          <button id="toggle-auto-refresh" style="padding: 5px 10px; background: rgba(0,0,0,0.7); color: #d4d4d4; border: 1px solid #3e3e42; border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="autoRefreshOff">
+          <button id="toggle-auto-refresh" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="autoRefreshOff">
             ⏱️ 自动刷新: 关
           </button>
         </div>
       </div>
       <div id="sidebar">
         <!-- 基体控制 -->
-        <div style="border-bottom: 1px solid #3e3e42; margin-bottom: 10px; padding-bottom: 10px;">
-          <div id="base-control-header" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px; background: #2d2d30; border-radius: 4px;">
+        <div style="border-bottom: 1px solid var(--border-primary); margin-bottom: 10px; padding-bottom: 10px; transition: border-color 0.3s ease;">
+          <div id="base-control-header" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px; background: var(--bg-tertiary); border-radius: 4px; transition: background-color 0.3s ease;">
             <h3 style="margin: 0; font-size: 13px;" data-i18n="baseControl">▶ 基体控制 (Base)</h3>
           </div>
           <div id="base-controls" style="display: none; margin-top: 10px;"></div>
         </div>
         
         <!-- 关节控制 -->
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-          <h3 style="margin: 0;" data-i18n="jointControl">关节控制</h3>
-          <button id="reset-joints" style="padding: 4px 12px; font-size: 12px;" data-i18n="reset">重置</button>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 5px; background: var(--bg-tertiary); border-radius: 4px; transition: background-color 0.3s ease;">
+          <h3 style="margin: 0; color: var(--text-primary); transition: color 0.3s ease;" data-i18n="jointControl">关节控制</h3>
+          <button id="reset-joints" style="padding: 4px 12px; font-size: 12px; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer; transition: background-color 0.2s ease;" data-i18n="reset">重置</button>
         </div>
         <div id="joint-controls" style="overflow-y: auto; flex: 1;"></div>
       </div>
@@ -279,62 +374,62 @@
 
   <!-- 构建信息弹窗 -->
   <div id="build-info-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center;">
-    <div style="background: #252526; border: 1px solid #3e3e42; border-radius: 8px; padding: 20px; max-width: 500px; width: 90%; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);">
+    <div style="background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 8px; padding: 20px; max-width: 500px; width: 90%; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); transition: background-color 0.3s ease, border-color 0.3s ease;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-        <h3 style="margin: 0; color: #cccccc; font-size: 17px;" data-i18n="appInfo">🔒 应用信息</h3>
-        <button id="close-modal" style="background: none; border: none; color: #858585; font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px;">×</button>
+        <h3 style="margin: 0; color: var(--text-secondary); font-size: 17px; transition: color 0.3s ease;" data-i18n="appInfo">🔒 应用信息</h3>
+        <button id="close-modal" style="background: none; border: none; color: var(--text-tertiary); font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; transition: color 0.3s ease;">×</button>
       </div>
-      <div style="color: #d4d4d4; font-size: 14px; line-height: 1.6;">
-        <div style="margin-bottom: 12px; padding: 10px; background: rgba(78, 201, 176, 0.1); border-left: 3px solid #4ec9b0; border-radius: 4px;">
-          <div style="color: #4ec9b0; font-weight: bold; margin-bottom: 4px; font-size: 14px;" data-i18n="privacyTitle">✅ 隐私保护</div>
+      <div style="color: var(--text-primary); font-size: 14px; line-height: 1.6; transition: color 0.3s ease;">
+        <div style="margin-bottom: 12px; padding: 10px; background: rgba(78, 201, 176, 0.1); border-left: 3px solid var(--success-color); border-radius: 4px; transition: border-color 0.3s ease;">
+          <div style="color: var(--success-color); font-weight: bold; margin-bottom: 4px; font-size: 14px; transition: color 0.3s ease;" data-i18n="privacyTitle">✅ 隐私保护</div>
           <div style="font-size: 13px; line-height: 1.5;" data-i18n="privacyText">所有数据处理完全在您的浏览器本地完成，不会上传任何文件或数据到服务器。</div>
         </div>
         <div style="margin-bottom: 12px;">
-          <div style="color: #858585; font-size: 13px; font-weight: 500; margin-bottom: 6px;" data-i18n="hostingEnv">托管环境</div>
-          <div id="hosting-info" style="color: #cccccc; font-size: 13px; margin-bottom: 6px;" data-i18n="loading">加载中...</div>
-          <div id="deploy-details" style="font-size: 12px; color: #858585; display: none; line-height: 1.5; padding: 8px; background: rgba(255, 255, 255, 0.03); border: 1px solid #3e3e42; border-radius: 4px; position: relative;">
-            <button id="copy-hosting" style="position: absolute; top: 6px; right: 6px; background: none; border: none; color: #858585; font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 3px; transition: all 0.2s;" data-i18n-title="copyHostingTitle" title="复制托管信息">📋</button>
+          <div style="color: var(--text-tertiary); font-size: 13px; font-weight: 500; margin-bottom: 6px; transition: color 0.3s ease;" data-i18n="hostingEnv">托管环境</div>
+          <div id="hosting-info" style="color: var(--text-secondary); font-size: 13px; margin-bottom: 6px; transition: color 0.3s ease;" data-i18n="loading">加载中...</div>
+          <div id="deploy-details" style="font-size: 12px; color: var(--text-tertiary); display: none; line-height: 1.5; padding: 8px; background: var(--bg-primary); border: 1px solid var(--border-primary); border-radius: 4px; position: relative; transition: all 0.3s ease;">
+            <button id="copy-hosting" style="position: absolute; top: 6px; right: 6px; background: none; border: none; color: var(--text-tertiary); font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 3px; transition: all 0.2s;" data-i18n-title="copyHostingTitle" title="复制托管信息">📋</button>
             <div style="margin-bottom: 6px;">
-              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;" data-i18n="domain">域名</div>
-              <div id="hostname" style="font-family: monospace; color: #d4d4d4; font-size: 12px;"></div>
+              <div style="color: var(--text-tertiary); font-size: 12px; margin-bottom: 2px; transition: color 0.3s ease;" data-i18n="domain">域名</div>
+              <div id="hostname" style="font-family: monospace; color: var(--text-primary); font-size: 12px; transition: color 0.3s ease;"></div>
             </div>
             <div style="margin-bottom: 6px;">
-              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;" data-i18n="protocol">协议</div>
-              <div id="protocol" style="font-family: monospace; color: #d4d4d4; font-size: 12px;"></div>
+              <div style="color: var(--text-tertiary); font-size: 12px; margin-bottom: 2px; transition: color 0.3s ease;" data-i18n="protocol">协议</div>
+              <div id="protocol" style="font-family: monospace; color: var(--text-primary); font-size: 12px; transition: color 0.3s ease;"></div>
             </div>
             <div>
-              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;" data-i18n="userAgent">User Agent</div>
-              <div id="user-agent" style="font-family: monospace; color: #d4d4d4; font-size: 11px; word-break: break-all;"></div>
+              <div style="color: var(--text-tertiary); font-size: 12px; margin-bottom: 2px; transition: color 0.3s ease;" data-i18n="userAgent">User Agent</div>
+              <div id="user-agent" style="font-family: monospace; color: var(--text-primary); font-size: 11px; word-break: break-all; transition: color 0.3s ease;"></div>
             </div>
           </div>
         </div>
         <div style="margin-bottom: 8px;">
-          <div style="color: #858585; font-size: 13px; font-weight: 500; margin-bottom: 6px;" data-i18n="buildInfo">构建信息</div>
-          <div style="padding: 8px; background: rgba(255, 255, 255, 0.03); border: 1px solid #3e3e42; border-radius: 4px; position: relative;">
-            <button id="copy-build" style="position: absolute; top: 6px; right: 6px; background: none; border: none; color: #858585; font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 3px; transition: all 0.2s;" data-i18n-title="copyBuildTitle" title="复制构建信息">📋</button>
+          <div style="color: var(--text-tertiary); font-size: 13px; font-weight: 500; margin-bottom: 6px; transition: color 0.3s ease;" data-i18n="buildInfo">构建信息</div>
+          <div style="padding: 8px; background: var(--bg-primary); border: 1px solid var(--border-primary); border-radius: 4px; position: relative; transition: all 0.3s ease;">
+            <button id="copy-build" style="position: absolute; top: 6px; right: 6px; background: none; border: none; color: var(--text-tertiary); font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 3px; transition: all 0.2s;" data-i18n-title="copyBuildTitle" title="复制构建信息">📋</button>
             <div style="margin-bottom: 6px;">
-              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;" data-i18n="version">版本</div>
-              <div style="color: #cccccc; font-family: monospace; font-size: 12px;">
+              <div style="color: var(--text-tertiary); font-size: 12px; margin-bottom: 2px; transition: color 0.3s ease;" data-i18n="version">版本</div>
+              <div style="color: var(--text-secondary); font-family: monospace; font-size: 12px; transition: color 0.3s ease;">
                 <span id="build-version-short" data-i18n="loading">加载中...</span>
                 <span id="build-version-full" style="display: none;"></span>
               </div>
             </div>
             <div style="margin-bottom: 6px;">
-              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;" data-i18n="buildTime">时间</div>
-              <div id="build-date" style="color: #cccccc; font-size: 12px;" data-i18n="loading">加载中...</div>
+              <div style="color: var(--text-tertiary); font-size: 12px; margin-bottom: 2px; transition: color 0.3s ease;" data-i18n="buildTime">时间</div>
+              <div id="build-date" style="color: var(--text-secondary); font-size: 12px; transition: color 0.3s ease;" data-i18n="loading">加载中...</div>
             </div>
             <div style="margin-bottom: 6px;">
-              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;" data-i18n="branch">分支</div>
-              <div id="build-branch" style="color: #cccccc; font-family: monospace; font-size: 12px;" data-i18n="loading">加载中...</div>
+              <div style="color: var(--text-tertiary); font-size: 12px; margin-bottom: 2px; transition: color 0.3s ease;" data-i18n="branch">分支</div>
+              <div id="build-branch" style="color: var(--text-secondary); font-family: monospace; font-size: 12px; transition: color 0.3s ease;" data-i18n="loading">加载中...</div>
             </div>
             <div id="build-tag-container" style="display: none;">
-              <div style="color: #858585; font-size: 12px; margin-bottom: 2px;" data-i18n="tag">标签</div>
-              <div id="build-tag" style="color: #cccccc; font-family: monospace; font-size: 12px;"></div>
+              <div style="color: var(--text-tertiary); font-size: 12px; margin-bottom: 2px; transition: color 0.3s ease;" data-i18n="tag">标签</div>
+              <div id="build-tag" style="color: var(--text-secondary); font-family: monospace; font-size: 12px; transition: color 0.3s ease;"></div>
             </div>
           </div>
         </div>
-        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #3e3e42;">
-          <a id="github-link" href="https://github.com/cyoahs/robot_motion_editor" target="_blank" style="color: #4ec9b0; text-decoration: none; display: flex; align-items: center; gap: 5px; font-size: 14px;">
+        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-primary); transition: border-color 0.3s ease;">
+          <a id="github-link" href="https://github.com/cyoahs/robot_motion_editor" target="_blank" style="color: var(--success-color); text-decoration: none; display: flex; align-items: center; gap: 5px; font-size: 14px; transition: color 0.3s ease;">
             <span>📦</span>
             <span data-i18n="viewOnGitHub">在 GitHub 上查看源代码</span>
             <span style="font-size: 11px;">↗</span>

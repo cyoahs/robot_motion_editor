@@ -21,7 +21,13 @@ export class BaseController {
     const resetAllBtn = document.createElement('button');
     resetAllBtn.textContent = i18n.t('resetBaseTitle');
     resetAllBtn.title = i18n.t('resetBaseTitle');
-    resetAllBtn.style.cssText = 'margin-left: 10px; padding: 2px 8px; font-size: 11px; background: #0e639c; color: white; border: none; border-radius: 3px; cursor: pointer;';
+    resetAllBtn.style.cssText = 'margin-left: 10px; padding: 2px 8px; font-size: 11px; background: var(--accent-primary); color: white; border: none; border-radius: 3px; cursor: pointer; transition: background-color 0.2s;';
+    resetAllBtn.addEventListener('mouseenter', () => {
+      resetAllBtn.style.background = 'var(--accent-hover)';
+    });
+    resetAllBtn.addEventListener('mouseleave', () => {
+      resetAllBtn.style.background = 'var(--accent-primary)';
+    });
     resetAllBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.resetToBase();
@@ -37,11 +43,11 @@ export class BaseController {
 
     // Position 控制
     const posGroup = document.createElement('div');
-    posGroup.style.cssText = 'margin-bottom: 10px; padding: 8px; background: #1e1e1e; border-radius: 4px;';
+    posGroup.style.cssText = 'margin-bottom: 10px; padding: 8px; background: var(--bg-primary); border-radius: 4px; transition: background-color 0.3s ease;';
     
     const posLabel = document.createElement('div');
     posLabel.textContent = 'Position (xyz)';
-    posLabel.style.cssText = 'font-size: 11px; color: #cccccc; margin-bottom: 5px;';
+    posLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 5px; transition: color 0.3s ease;';
     posGroup.appendChild(posLabel);
     
     ['x', 'y', 'z'].forEach(axis => {
@@ -56,11 +62,11 @@ export class BaseController {
 
     // Quaternion 控制
     const quatGroup = document.createElement('div');
-    quatGroup.style.cssText = 'margin-bottom: 10px; padding: 8px; background: #1e1e1e; border-radius: 4px;';
+    quatGroup.style.cssText = 'margin-bottom: 10px; padding: 8px; background: var(--bg-primary); border-radius: 4px; transition: background-color 0.3s ease;';
     
     const quatLabel = document.createElement('div');
     quatLabel.textContent = 'Quaternion (xyzw)';
-    quatLabel.style.cssText = 'font-size: 11px; color: #cccccc; margin-bottom: 5px;';
+    quatLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 5px; transition: color 0.3s ease;';
     quatGroup.appendChild(quatLabel);
     
     ['x', 'y', 'z', 'w'].forEach(axis => {
@@ -84,7 +90,7 @@ export class BaseController {
     
     const labelEl = document.createElement('span');
     labelEl.textContent = label + ':';
-    labelEl.style.cssText = 'width: 20px; font-size: 11px;';
+    labelEl.style.cssText = 'width: 20px; font-size: 11px; color: var(--text-primary); transition: color 0.3s ease;';
     row.appendChild(labelEl);
     
     const slider = document.createElement('input');
@@ -101,7 +107,7 @@ export class BaseController {
     numberInput.max = max;
     numberInput.step = step;
     numberInput.value = defaultValue.toFixed(3);
-    numberInput.style.cssText = 'width: 70px; padding: 2px 4px; background: #3c3c3c; border: 1px solid #3e3e42; color: #d4d4d4; border-radius: 2px; font-size: 11px;';
+    numberInput.style.cssText = 'width: 70px; padding: 2px 4px; background: var(--bg-input); border: 1px solid var(--border-primary); color: var(--text-primary); border-radius: 2px; font-size: 11px; transition: all 0.3s ease;';
     
     // 添加重置按钮
     const resetBtn = document.createElement('button');
@@ -109,12 +115,12 @@ export class BaseController {
     const titleKey = type === 'quaternion' ? 'resetQuaternionTitle' : 
                      (axis === 'x' ? 'resetPositionXTitle' : axis === 'y' ? 'resetPositionYTitle' : 'resetPositionZTitle');
     resetBtn.title = i18n.t(titleKey);
-    resetBtn.style.cssText = 'width: 20px; height: 20px; padding: 0; font-size: 14px; background: #3c3c3c; color: #cccccc; border: 1px solid #3e3e42; border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center;';
+    resetBtn.style.cssText = 'width: 20px; height: 20px; padding: 0; font-size: 14px; background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-primary); border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;';
     resetBtn.addEventListener('mouseover', () => {
-      resetBtn.style.background = '#505050';
+      resetBtn.style.background = 'var(--bg-tertiary)';
     });
     resetBtn.addEventListener('mouseout', () => {
-      resetBtn.style.background = '#3c3c3c';
+      resetBtn.style.background = 'var(--bg-input)';
     });
     resetBtn.addEventListener('click', () => {
       if (type === 'quaternion') {

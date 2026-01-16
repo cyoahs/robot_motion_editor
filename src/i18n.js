@@ -10,6 +10,7 @@ const translations = {
     saveProject: '保存工程文件',
     ready: '就绪',
     dataPrivacy: '本地处理，数据安全',
+    toggleTheme: '切换主题',
     
     // 视口标签
     baseTrajectory: '原始轨迹 (Base)',
@@ -131,6 +132,7 @@ const translations = {
     saveProject: 'Save Project File',
     ready: 'Ready',
     dataPrivacy: 'Local Processing, Data Secure',
+    toggleTheme: 'Toggle Theme',
     
     // Viewport labels
     baseTrajectory: 'Base Trajectory (Base)',

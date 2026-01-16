@@ -83,12 +83,12 @@ export class JointController {
       const resetBtn = document.createElement('button');
       resetBtn.innerHTML = '↺';
       resetBtn.title = joint.name ? `${i18n.t('resetJointTitle').replace('{name}', joint.name)}` : `Reset Joint ${index + 1}`;
-      resetBtn.style.cssText = 'width: 20px; height: 20px; padding: 0; font-size: 14px; background: #3c3c3c; color: #cccccc; border: 1px solid #3e3e42; border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center;';
+      resetBtn.style.cssText = 'width: 20px; height: 20px; padding: 0; font-size: 14px; background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-primary); border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;';
       resetBtn.addEventListener('mouseover', () => {
-        resetBtn.style.background = '#505050';
+        resetBtn.style.background = 'var(--bg-tertiary)';
       });
       resetBtn.addEventListener('mouseout', () => {
-        resetBtn.style.background = '#3c3c3c';
+        resetBtn.style.background = 'var(--bg-input)';
       });
       resetBtn.addEventListener('click', () => {
         this.resetJoint(index);

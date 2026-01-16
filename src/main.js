@@ -7,9 +7,14 @@ import { BaseController } from './baseController.js';
 import { TimelineController } from './timelineController.js';
 import { COMVisualizer } from './comVisualizer.js';
 import { i18n } from './i18n.js';
+import { ThemeManager } from './themeManager.js';
 
 class RobotKeyframeEditor {
   constructor() {
+    // 初始化主题管理器
+    this.themeManager = new ThemeManager();
+    this.themeManager.watchSystemTheme();
+    
     // 左侧场景 (原始轨迹)
     this.sceneLeft = null;
     this.cameraLeft = null;
@@ -60,8 +65,8 @@ class RobotKeyframeEditor {
     const statusText = document.getElementById('status-text');
     if (statusText) {
       statusText.textContent = message;
-      statusText.style.color = type === 'error' ? '#f48771' : 
-                                type === 'success' ? '#4ec9b0' : '#858585';
+      statusText.style.color = type === 'error' ? 'var(--warning-color)' : 
+                                type === 'success' ? 'var(--success-color)' : 'var(--text-tertiary)';
     }
   }
 
@@ -73,6 +78,9 @@ class RobotKeyframeEditor {
     // 创建右侧场景 (编辑后轨迹)
     this.sceneRight = new THREE.Scene();
     this.sceneRight.background = new THREE.Color(0x263238);
+    
+    // 应用当前主题到场景背景
+    this.updateSceneBackgrounds(this.themeManager.getCurrentTheme());
     
     // 兼容旧代码
     this.scene = this.sceneRight;    
@@ -282,6 +290,22 @@ class RobotKeyframeEditor {
     document.getElementById('toggle-auto-refresh').addEventListener('click', () => {
       this.toggleAutoRefreshFootprint();
     });
+
+    // 主题切换
+    document.getElementById('theme-toggle').addEventListener('click', () => {
+      const newTheme = this.themeManager.toggleTheme();
+      this.updateThemeIcon(newTheme);
+      this.updateSceneBackgrounds(newTheme);
+    });
+
+    // 监听主题变化事件（比如系统主题变化）
+    window.addEventListener('themeChanged', (e) => {
+      this.updateThemeIcon(e.detail.theme);
+      this.updateSceneBackgrounds(e.detail.theme);
+    });
+
+    // 初始化主题图标
+    this.updateThemeIcon(this.themeManager.getCurrentTheme());
 
     // 键盘快捷键
     document.addEventListener('keydown', (e) => {
@@ -776,6 +800,7 @@ class RobotKeyframeEditor {
       
       button.textContent = '🤖 跟随: 开';
       button.style.background = 'rgba(78, 201, 176, 0.3)';
+      button.style.borderColor = 'rgba(78, 201, 176, 0.6)';
       console.log('🤖 开始跟随机器人');
       
       // 立即更新相机位置
@@ -786,7 +811,8 @@ class RobotKeyframeEditor {
       }
     } else {
       button.textContent = '🤖 跟随: 关';
-      button.style.background = 'rgba(0,0,0,0.7)';
+      button.style.background = 'var(--overlay-bg)';
+      button.style.borderColor = 'var(--border-primary)';
       console.log('🤖 停止跟随机器人');
     }
   }
@@ -797,7 +823,8 @@ class RobotKeyframeEditor {
     
     if (this.showCOM) {
       button.textContent = '🎯 重心: 开';
-      button.style.background = 'rgba(255, 0, 0, 0.3)';
+      button.style.background = 'rgba(255, 100, 100, 0.3)';
+      button.style.borderColor = 'rgba(255, 100, 100, 0.6)';
       
       // 立即更新COM显示
       if (this.comVisualizerLeft && this.robotLeft) {
@@ -810,7 +837,8 @@ class RobotKeyframeEditor {
       console.log('🎯 显示重心');
     } else {
       button.textContent = '🎯 重心: 关';
-      button.style.background = 'rgba(0,0,0,0.7)';
+      button.style.background = 'var(--overlay-bg)';
+      button.style.borderColor = 'var(--border-primary)';
       
       if (this.comVisualizerLeft) {
         this.comVisualizerLeft.hide();
@@ -829,13 +857,15 @@ class RobotKeyframeEditor {
     
     if (this.autoRefreshFootprint) {
       button.textContent = '⏱️ 自动刷新: 开';
-      button.style.background = 'rgba(0, 255, 0, 0.3)';
+      button.style.background = 'rgba(0, 200, 0, 0.3)';
+      button.style.borderColor = 'rgba(0, 200, 0, 0.6)';
       console.log('⏱️ 开启包络线自动刷新（2秒防抖）');
       // 立即触发一次更新
       this.scheduleFootprintUpdate();
     } else {
       button.textContent = '⏱️ 自动刷新: 关';
-      button.style.background = 'rgba(0,0,0,0.7)';
+      button.style.background = 'var(--overlay-bg)';
+      button.style.borderColor = 'var(--border-primary)';
       // 取消待执行的定时器
       if (this.footprintUpdateTimer) {
         clearTimeout(this.footprintUpdateTimer);
@@ -881,8 +911,41 @@ class RobotKeyframeEditor {
       if (this.comVisualizerRight && this.robotRight) {
         this.comVisualizerRight.updateFootprint(this.robotRight);
       }
-      this.updateStatus('地面投影包络线已刷新', 'success');
+      console.log('✅ 地面投影包络线刷新完成');
     }, 0);
+  }
+
+  /**
+   * 更新主题图标
+   */
+  updateThemeIcon(theme) {
+    const themeIcon = document.getElementById('theme-icon');
+    if (themeIcon) {
+      themeIcon.textContent = theme === 'dark' ? '🌙' : '☀️';
+    }
+  }
+
+  /**
+   * 根据主题更新场景背景颜色
+   */
+  updateSceneBackgrounds(theme) {
+    if (theme === 'light') {
+      // 浅色模式背景
+      if (this.sceneLeft) {
+        this.sceneLeft.background = new THREE.Color(0xf0f0f0);
+      }
+      if (this.sceneRight) {
+        this.sceneRight.background = new THREE.Color(0xe8e8e8);
+      }
+    } else {
+      // 深色模式背景
+      if (this.sceneLeft) {
+        this.sceneLeft.background = new THREE.Color(0x1a1a1a);
+      }
+      if (this.sceneRight) {
+        this.sceneRight.background = new THREE.Color(0x263238);
+      }
+    }
   }
 
   animate() {
