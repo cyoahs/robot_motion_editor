@@ -146,7 +146,13 @@ export class TrajectoryManager {
     // 如果当前帧就是关键帧，直接返回
     if (this.keyframes.has(frameIndex)) {
       const kf = this.keyframes.get(frameIndex);
-      return kf.residuals?.joints || kf.residual || kf; // 兼容新旧格式
+      const joints = kf.residuals?.joints || kf.residual || kf;
+      // 确保返回数组
+      if (Array.isArray(joints)) {
+        return joints;
+      }
+      console.warn(`关键帧 ${frameIndex} 的 joints 数据无效，返回零值`);
+      return new Array(this.jointCount).fill(0);
     }
 
     // 找到前后两个关键帧进行插值
@@ -179,7 +185,12 @@ export class TrajectoryManager {
     // 在最后一个关键帧之后：保持最后一个关键帧的值
     if (nextIdx === -1) {
       const kf = this.keyframes.get(prevIdx);
-      return kf.residuals?.joints || kf.residual || kf;
+      const joints = kf.residuals?.joints || kf.residual || kf;
+      if (Array.isArray(joints)) {
+        return joints;
+      }
+      console.warn(`关键帧 ${prevIdx} 的 joints 数据无效，返回零值`);
+      return new Array(this.jointCount).fill(0);
     }
 
     // 两个关键帧之间：线性插值
@@ -188,6 +199,12 @@ export class TrajectoryManager {
     const nextKf = this.keyframes.get(nextIdx);
     const prevResidual = prevKf.residuals?.joints || prevKf.residual || prevKf;
     const nextResidual = nextKf.residuals?.joints || nextKf.residual || nextKf;
+    
+    // 验证数据有效性
+    if (!Array.isArray(prevResidual) || !Array.isArray(nextResidual)) {
+      console.warn(`关键帧 ${prevIdx} 或 ${nextIdx} 的 joints 数据无效，返回零值`);
+      return new Array(this.jointCount).fill(0);
+    }
     
     return prevResidual.map((prevVal, idx) => {
       const nextVal = nextResidual[idx] || 0;
@@ -480,6 +497,11 @@ export class TrajectoryManager {
     this.baseTrajectory = [];
     this.keyframes.clear();
     
+    // 先设置基本属性（关键帧处理需要用到 jointCount）
+    this.jointCount = projectData.jointCount || 0;
+    this.originalFileName = projectData.originalFileName || '';
+    this.fps = projectData.fps || 50;
+    
     // 加载新数据
     if (projectData.baseTrajectory) {
       this.baseTrajectory = projectData.baseTrajectory;
@@ -488,9 +510,24 @@ export class TrajectoryManager {
     if (projectData.keyframes) {
       projectData.keyframes.forEach(kf => {
         // 兼容旧格式和新格式
+        let joints = kf.residuals?.joints || kf.residual;
+        let base = kf.residuals?.base || kf.baseResidual;
+        
+        // 确保 joints 是数组，如果不是或长度为0则初始化为零数组
+        if (!Array.isArray(joints) || joints.length === 0) {
+          console.warn(`关键帧 ${kf.frameIndex} 的 joints 数据无效（${Array.isArray(joints) ? '长度为0' : '非数组'}），使用零值`);
+          joints = new Array(this.jointCount).fill(0);
+        }
+        
+        // 确保 base 为 null 或有效对象
+        if (base !== null && base !== undefined && (!base.position || !base.quaternion)) {
+          console.warn(`关键帧 ${kf.frameIndex} 的 base 数据无效，设为 null`);
+          base = null;
+        }
+        
         const residuals = {
-          joints: kf.residuals?.joints || kf.residual,
-          base: kf.residuals?.base || kf.baseResidual
+          joints: joints,
+          base: base
         };
         const baseValues = kf.baseValues || null;
         
@@ -500,10 +537,6 @@ export class TrajectoryManager {
         });
       });
     }
-    
-    this.jointCount = projectData.jointCount || 0;
-    this.originalFileName = projectData.originalFileName || '';
-    this.fps = projectData.fps || 50;
     
     console.log('✅ 加载工程文件:', this.baseTrajectory.length, '帧,', this.keyframes.size, '个关键帧');
   }
