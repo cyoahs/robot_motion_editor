@@ -168,6 +168,21 @@ export class CurveEditor {
         }
       });
       
+      // 添加基体欧拉角曲线（用于可视化四元数）
+      ['x', 'y', 'z'].forEach((axis) => {
+        const key = `base_euler_${axis}`;
+        if (!this.curves.has(key)) {
+          this.curves.set(key, {
+            name: `Base Euler ${axis.toUpperCase()}`,
+            type: 'base_euler',
+            axis: axis,
+            visible: false,
+            color: this.getNextColor(),
+            data: []
+          });
+        }
+      });
+      
       this.draw();
       return;
     }
@@ -224,6 +239,21 @@ export class CurveEditor {
         });
       }
     });
+    
+    // 添加基体欧拉角曲线（用于可视化四元数）
+    ['x', 'y', 'z'].forEach((axis) => {
+      const key = `base_euler_${axis}`;
+      if (!this.curves.has(key)) {
+        this.curves.set(key, {
+          name: `Base Euler ${axis.toUpperCase()}`,
+          type: 'base_euler',
+          axis: axis,
+          visible: false, // 默认不显示
+          color: this.getNextColor(),
+          data: []
+        });
+      }
+    });
   }
 
   getNextColor() {
@@ -240,15 +270,90 @@ export class CurveEditor {
     if (curve) {
       curve.visible = !curve.visible;
       
+      // 如果显示的是非欧拉角曲线，自动隐藏欧拉角可视化
+      if (curve.visible && curve.type !== 'base_euler') {
+        this.hideQuaternionVisualization();
+      }
+      
       // 更新关节控制面板的背景色
       if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
         this.editor.jointController.updateCurveBackgrounds();
+      }
+      
+      // 更新基体控制面板的背景色
+      if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
+        this.editor.baseController.updateCurveBackgrounds();
       }
       
       this.draw();
       return curve.visible;
     }
     return false;
+  }
+  
+  /**
+   * 切换四元数欧拉角可视化
+   */
+  toggleQuaternionVisualization() {
+    const eulerX = this.curves.get('base_euler_x');
+    const eulerY = this.curves.get('base_euler_y');
+    const eulerZ = this.curves.get('base_euler_z');
+    
+    if (!eulerX || !eulerY || !eulerZ) return false;
+    
+    // 切换显示状态
+    const newVisible = !eulerX.visible;
+    eulerX.visible = newVisible;
+    eulerY.visible = newVisible;
+    eulerZ.visible = newVisible;
+    
+    // 如果显示欧拉角，自动隐藏所有其他曲线
+    if (newVisible) {
+      this.curves.forEach((curve, key) => {
+        if (curve.type !== 'base_euler') {
+          curve.visible = false;
+        }
+      });
+      
+      // 更新关节控制面板
+      if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
+        this.editor.jointController.updateCurveBackgrounds();
+      }
+    }
+    
+    // 更新基体控制面板的背景色
+    if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
+      this.editor.baseController.updateCurveBackgrounds();
+    }
+    
+    this.draw();
+    return newVisible;
+  }
+  
+  /**
+   * 隐藏四元数欧拉角可视化
+   */
+  hideQuaternionVisualization() {
+    const eulerX = this.curves.get('base_euler_x');
+    const eulerY = this.curves.get('base_euler_y');
+    const eulerZ = this.curves.get('base_euler_z');
+    
+    if (eulerX) eulerX.visible = false;
+    if (eulerY) eulerY.visible = false;
+    if (eulerZ) eulerZ.visible = false;
+    
+    // 更新基体控制面板的背景色
+    if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
+      this.editor.baseController.updateCurveBackgrounds();
+    }
+  }
+  
+  /**
+   * 检查四元数可视化是否显示
+   */
+  isQuaternionVisualizationVisible() {
+    const eulerX = this.curves.get('base_euler_x');
+    return eulerX ? eulerX.visible : false;
   }
 
   /**
@@ -303,6 +408,11 @@ export class CurveEditor {
     // 更新关节控制面板的背景颜色
     if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
       this.editor.jointController.updateCurveBackgrounds();
+    }
+    
+    // 更新基体控制面板的背景颜色
+    if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
+      this.editor.baseController.updateCurveBackgrounds();
     }
     
     this.draw();
@@ -557,28 +667,30 @@ export class CurveEditor {
       
       this.ctx.stroke();
       
-      // 绘制关键帧标记
-      keyframes.forEach((kf) => {
-        const value = this.getFrameValue(kf.frame, curve, true);
-        if (value !== null) {
-          const x = this.frameToX(kf.frame, left, width, frameCount, zoomLevel, scrollLeft);
-          const y = this.valueToY(value, top, height, minValue, maxValue);
-          
-          if (x >= left && x <= left + width) {
-            // 绘制关键帧点
-            this.ctx.fillStyle = curve.color;
-            this.ctx.beginPath();
-            this.ctx.arc(x, y, 4, 0, Math.PI * 2);
-            this.ctx.fill();
+      // 绘制关键帧标记（欧拉角曲线不显示关键帧标记，因为它们只是可视化）
+      if (curve.type !== 'base_euler') {
+        keyframes.forEach((kf) => {
+          const value = this.getFrameValue(kf.frame, curve, true);
+          if (value !== null) {
+            const x = this.frameToX(kf.frame, left, width, frameCount, zoomLevel, scrollLeft);
+            const y = this.valueToY(value, top, height, minValue, maxValue);
             
-            // 白色边框
-            this.ctx.strokeStyle = getComputedStyle(document.documentElement)
-              .getPropertyValue('--bg-secondary').trim();
-            this.ctx.lineWidth = 2;
-            this.ctx.stroke();
+            if (x >= left && x <= left + width) {
+              // 绘制关键帧点
+              this.ctx.fillStyle = curve.color;
+              this.ctx.beginPath();
+              this.ctx.arc(x, y, 4, 0, Math.PI * 2);
+              this.ctx.fill();
+              
+              // 白色边框
+              this.ctx.strokeStyle = getComputedStyle(document.documentElement)
+                .getPropertyValue('--bg-secondary').trim();
+              this.ctx.lineWidth = 2;
+              this.ctx.stroke();
+            }
           }
-        }
-      });
+        });
+      }
     });
   }
 
@@ -622,6 +734,9 @@ export class CurveEditor {
         return keyframe.baseResidual.position[curve.axis];
       }
       return 0; // 没有残差返回0
+    } else if (curve.type === 'base_euler') {
+      // 欧拉角只用于可视化，不能被编辑，返回null使其不可点击
+      return null;
     }
     return null;
   }
@@ -669,9 +784,74 @@ export class CurveEditor {
       }
       
       return baseValue;
+      
+    } else if (curve.type === 'base_euler') {
+      // 欧拉角可视化：将四元数转换为欧拉角
+      const baseState = this.editor.trajectoryManager.getBaseState(frame);
+      if (!baseState || !baseState.base || !baseState.base.quaternion) return null;
+      
+      let quat = { ...baseState.base.quaternion };
+      
+      if (includeResiduals) {
+        // 加上插值后的四元数残差
+        const residual = this.editor.trajectoryManager.getInterpolatedBaseResidual(frame);
+        if (residual && residual.quaternion) {
+          // 四元数相乘：result = base * residual
+          quat = this.multiplyQuaternions(quat, residual.quaternion);
+        }
+      }
+      
+      // 将四元数转换为欧拉角 (ZYX顺序，单位为度)
+      const euler = this.quaternionToEuler(quat);
+      return euler[curve.axis];
     }
     
     return null;
+  }
+  
+  /**
+   * 四元数相乘
+   */
+  multiplyQuaternions(q1, q2) {
+    return {
+      x: q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y,
+      y: q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x,
+      z: q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w,
+      w: q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z
+    };
+  }
+  
+  /**
+   * 四元数转欧拉角 (ZYX顺序，单位为度)
+   */
+  quaternionToEuler(quat) {
+    const { x, y, z, w } = quat;
+    
+    // Roll (x-axis rotation)
+    const sinr_cosp = 2 * (w * x + y * z);
+    const cosr_cosp = 1 - 2 * (x * x + y * y);
+    const roll = Math.atan2(sinr_cosp, cosr_cosp);
+    
+    // Pitch (y-axis rotation)
+    const sinp = 2 * (w * y - z * x);
+    let pitch;
+    if (Math.abs(sinp) >= 1) {
+      pitch = Math.sign(sinp) * Math.PI / 2; // Use 90 degrees if out of range
+    } else {
+      pitch = Math.asin(sinp);
+    }
+    
+    // Yaw (z-axis rotation)
+    const siny_cosp = 2 * (w * z + x * y);
+    const cosy_cosp = 1 - 2 * (y * y + z * z);
+    const yaw = Math.atan2(siny_cosp, cosy_cosp);
+    
+    // 转换为度
+    return {
+      x: roll * 180 / Math.PI,
+      y: pitch * 180 / Math.PI,
+      z: yaw * 180 / Math.PI
+    };
   }
 
   frameToX(frame, left, width, frameCount, zoomLevel, scrollLeft) {

@@ -224,6 +224,9 @@ export class TimelineController {
     if (this.editor.jointController && this.editor.jointController.updateKeyframeIndicators) {
       this.editor.jointController.updateKeyframeIndicators();
     }
+    if (this.editor.baseController && this.editor.baseController.updateKeyframeIndicators) {
+      this.editor.baseController.updateKeyframeIndicators();
+    }
     
     // 更新曲线编辑器
     if (this.editor.curveEditor) {

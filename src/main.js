@@ -594,6 +594,9 @@ class RobotKeyframeEditor {
     if (this.jointController && this.jointController.updateKeyframeIndicators) {
       this.jointController.updateKeyframeIndicators();
     }
+    if (this.baseController && this.baseController.updateKeyframeIndicators) {
+      this.baseController.updateKeyframeIndicators();
+    }
     
     // 通知曲线编辑器更新
     if (this.curveEditor) {
@@ -623,6 +626,9 @@ class RobotKeyframeEditor {
       // 更新关键帧指示器
       if (this.jointController && this.jointController.updateKeyframeIndicators) {
         this.jointController.updateKeyframeIndicators();
+      }
+      if (this.baseController && this.baseController.updateKeyframeIndicators) {
+        this.baseController.updateKeyframeIndicators();
       }
       
       // 通知曲线编辑器更新

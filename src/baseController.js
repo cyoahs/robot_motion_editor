@@ -41,127 +41,275 @@ export class BaseController {
     const container = document.getElementById('base-controls');
     container.innerHTML = '';
 
-    // Position 控制
-    const posGroup = document.createElement('div');
-    posGroup.style.cssText = 'margin-bottom: 10px; padding: 8px; background: var(--bg-primary); border-radius: 4px; transition: background-color 0.3s ease;';
-    
-    const posLabel = document.createElement('div');
-    posLabel.textContent = 'Position (xyz)';
-    posLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 5px; transition: color 0.3s ease;';
-    posGroup.appendChild(posLabel);
-    
+    // Position 控制 - 每个轴独立（类似关节控制）
     ['x', 'y', 'z'].forEach(axis => {
-      const row = this.createInputRow(axis.toUpperCase(), -10, 10, 0.01, (value) => {
+      const control = document.createElement('div');
+      control.className = 'joint-control'; // 复用关节控制的样式
+      control.dataset.baseAxis = `pos_${axis}`;
+      control.style.transition = 'background-color 0.2s';
+
+      const label = document.createElement('label');
+      label.style.cssText = 'cursor: pointer; display: flex; align-items: center; user-select: none;';
+      label.title = '点击切换曲线显示';
+      
+      const labelText = document.createElement('span');
+      labelText.textContent = `Position ${axis.toUpperCase()}`;
+      label.appendChild(labelText);
+      
+      // 添加关键帧状态圈圈
+      const keyframeIndicator = document.createElement('span');
+      keyframeIndicator.id = `keyframe-indicator-base-pos-${axis}`;
+      keyframeIndicator.style.cssText = `
+        display: none;
+        width: 10px;
+        height: 10px;
+        min-width: 10px;
+        min-height: 10px;
+        border-radius: 50%;
+        margin-left: 8px;
+        border: 2px solid #f4b942;
+        box-sizing: border-box;
+        flex-shrink: 0;
+      `;
+      label.appendChild(keyframeIndicator);
+      
+      // 点击label切换曲线可见性
+      label.addEventListener('click', (e) => {
+        if (this.editor.curveEditor) {
+          const curveKey = `base_pos_${axis}`;
+          const visible = this.editor.curveEditor.toggleCurveVisibility(curveKey);
+          const color = this.editor.curveEditor.getCurveColor(curveKey);
+          if (color) {
+            if (visible) {
+              control.style.backgroundColor = color + '20';
+            } else {
+              control.style.backgroundColor = '';
+            }
+          }
+        }
+      });
+      
+      // 初始化显示状态
+      setTimeout(() => {
+        if (this.editor.curveEditor) {
+          const curveKey = `base_pos_${axis}`;
+          const visible = this.editor.curveEditor.isCurveVisible(curveKey);
+          const color = this.editor.curveEditor.getCurveColor(curveKey);
+          if (color && visible) {
+            control.style.backgroundColor = color + '20';
+          }
+        }
+      }, 100);
+      
+      control.appendChild(label);
+
+      // 创建水平布局容器
+      const row = document.createElement('div');
+      row.className = 'joint-control-row';
+      
+      row.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+
+      // 滑块
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.min = -10;
+      slider.max = 10;
+      slider.step = 0.01;
+      slider.value = 0;
+      
+      slider.addEventListener('input', (e) => {
+        const value = parseFloat(e.target.value);
         this.baseValues.position[axis] = value;
+        numberInput.value = value.toFixed(3);
         this.applyBaseTransform();
-      }, 0, 'position', axis);
-      posGroup.appendChild(row);
+      });
+      
+      row.appendChild(slider);
+
+      // 数字输入
+      const numberInput = document.createElement('input');
+      numberInput.type = 'number';
+      numberInput.min = -10;
+      numberInput.max = 10;
+      numberInput.step = 0.01;
+      numberInput.value = '0.000';
+      
+      numberInput.addEventListener('change', (e) => {
+        let value = parseFloat(e.target.value);
+        value = Math.max(-10, Math.min(10, value));
+        this.baseValues.position[axis] = value;
+        slider.value = value;
+        numberInput.value = value.toFixed(3);
+        this.applyBaseTransform();
+      });
+      
+      row.appendChild(numberInput);
+
+      // 重置按钮
+      const resetBtn = document.createElement('button');
+      resetBtn.innerHTML = '↺';
+      resetBtn.title = `重置 Position ${axis.toUpperCase()}`;
+      resetBtn.style.cssText = 'width: 20px; height: 20px; padding: 0; font-size: 14px; background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-primary); border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;';
+      resetBtn.addEventListener('mouseover', () => {
+        resetBtn.style.background = 'var(--bg-tertiary)';
+      });
+      resetBtn.addEventListener('mouseout', () => {
+        resetBtn.style.background = 'var(--bg-input)';
+      });
+      resetBtn.addEventListener('click', () => {
+        this.resetPosition(axis);
+      });
+      
+      row.appendChild(resetBtn);
+      control.appendChild(row);
+      container.appendChild(control);
+    });
+
+    // Quaternion 控制 - 整体但使用类似关节的样式
+    const quatControl = document.createElement('div');
+    quatControl.className = 'joint-control';
+    quatControl.dataset.baseAxis = 'quat';
+    quatControl.style.transition = 'background-color 0.2s';
+
+    // 创建标题行容器（包含label和重置按钮）
+    const quatHeaderRow = document.createElement('div');
+    quatHeaderRow.style.cssText = 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;';
+    
+    const quatLabel = document.createElement('label');
+    quatLabel.style.cssText = 'cursor: pointer; display: flex; align-items: center; user-select: none;';
+    quatLabel.title = '点击切换四元数欧拉角可视化';
+    
+    const quatLabelText = document.createElement('span');
+    quatLabelText.textContent = 'Quaternion (Euler)';
+    quatLabel.appendChild(quatLabelText);
+    
+    // 添加关键帧状态圈圈
+    const quatKeyframeIndicator = document.createElement('span');
+    quatKeyframeIndicator.id = 'keyframe-indicator-base-quat';
+    quatKeyframeIndicator.style.cssText = `
+      display: none;
+      width: 10px;
+      height: 10px;
+      min-width: 10px;
+      min-height: 10px;
+      border-radius: 50%;
+      margin-left: 8px;
+      border: 2px solid #f4b942;
+      box-sizing: border-box;
+      flex-shrink: 0;
+    `;
+    quatLabel.appendChild(quatKeyframeIndicator);
+    
+    quatHeaderRow.appendChild(quatLabel);
+    
+    // 点击label切换欧拉角可视化
+    quatLabel.addEventListener('click', (e) => {
+      if (this.editor.curveEditor) {
+        const visible = this.editor.curveEditor.toggleQuaternionVisualization();
+        const color = this.editor.curveEditor.getCurveColor('base_euler_x');
+        if (color) {
+          if (visible) {
+            quatControl.style.backgroundColor = color + '20';
+          } else {
+            quatControl.style.backgroundColor = '';
+          }
+        }
+      }
     });
     
-    container.appendChild(posGroup);
-
-    // Quaternion 控制
-    const quatGroup = document.createElement('div');
-    quatGroup.style.cssText = 'margin-bottom: 10px; padding: 8px; background: var(--bg-primary); border-radius: 4px; transition: background-color 0.3s ease;';
+    // 初始化显示状态
+    setTimeout(() => {
+      if (this.editor.curveEditor) {
+        const visible = this.editor.curveEditor.isQuaternionVisualizationVisible();
+        const color = this.editor.curveEditor.getCurveColor('base_euler_x');
+        if (color && visible) {
+          quatControl.style.backgroundColor = color + '20';
+        }
+      }
+    }, 100);
     
-    const quatLabel = document.createElement('div');
-    quatLabel.textContent = 'Quaternion (xyzw)';
-    quatLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 5px; transition: color 0.3s ease;';
-    quatGroup.appendChild(quatLabel);
+    // 创建重置按钮（放在标题行右侧）
+    const quatResetBtn = document.createElement('button');
+    quatResetBtn.innerHTML = '↺';
+    quatResetBtn.title = '重置整个四元数';
+    quatResetBtn.style.cssText = 'width: 20px; height: 20px; padding: 0; font-size: 14px; background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-primary); border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;';
+    quatResetBtn.addEventListener('mouseover', () => {
+      quatResetBtn.style.background = 'var(--bg-tertiary)';
+    });
+    quatResetBtn.addEventListener('mouseout', () => {
+      quatResetBtn.style.background = 'var(--bg-input)';
+    });
+    quatResetBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.resetQuaternion();
+    });
     
+    quatHeaderRow.appendChild(quatResetBtn);
+    quatControl.appendChild(quatHeaderRow);
+    
+    // Quaternion 控制行
     ['x', 'y', 'z', 'w'].forEach(axis => {
-      const defaultValue = axis === 'w' ? 1 : 0;
-      const row = this.createInputRow(axis.toUpperCase(), -1, 1, 0.01, (value) => {
+      const row = document.createElement('div');
+      row.className = 'joint-control-row';
+      row.dataset.quatAxis = axis;
+      row.style.cssText = 'padding-left: 10px;';
+      
+      row.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+      
+      // 轴标签
+      const axisLabel = document.createElement('span');
+      axisLabel.textContent = axis.toUpperCase() + ':';
+      axisLabel.style.cssText = 'width: 20px; font-size: 11px; color: var(--text-primary); transition: color 0.3s ease;';
+      row.appendChild(axisLabel);
+
+      // 滑块
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.min = -1;
+      slider.max = 1;
+      slider.step = 0.01;
+      slider.value = axis === 'w' ? 1 : 0;
+      slider.style.flex = '1';
+      
+      slider.addEventListener('input', (e) => {
+        const value = parseFloat(e.target.value);
         this.baseValues.quaternion[axis] = value;
+        numberInput.value = value.toFixed(3);
         this.normalizeQuaternion();
         this.applyBaseTransform();
-      }, defaultValue, 'quaternion', axis);
-      row.dataset.quatAxis = axis;
-      quatGroup.appendChild(row);
-    });
-    
-    container.appendChild(quatGroup);
-  }
+      });
+      
+      row.appendChild(slider);
 
-  createInputRow(label, min, max, step, onChange, defaultValue = 0, type = null, axis = null) {
-    const row = document.createElement('div');
-    row.className = 'joint-control-row';
-    row.style.cssText = 'display: flex; gap: 8px; align-items: center; margin-bottom: 5px;';
-    
-    const labelEl = document.createElement('span');
-    labelEl.textContent = label + ':';
-    labelEl.style.cssText = 'width: 20px; font-size: 11px; color: var(--text-primary); transition: color 0.3s ease;';
-    row.appendChild(labelEl);
-    
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.min = min;
-    slider.max = max;
-    slider.step = step;
-    slider.value = defaultValue;
-    slider.style.flex = '1';
-    
-    const numberInput = document.createElement('input');
-    numberInput.type = 'number';
-    numberInput.min = min;
-    numberInput.max = max;
-    numberInput.step = step;
-    numberInput.value = defaultValue.toFixed(3);
-    numberInput.style.cssText = 'width: 70px; padding: 2px 4px; background: var(--bg-input); border: 1px solid var(--border-primary); color: var(--text-primary); border-radius: 2px; font-size: 11px; transition: all 0.3s ease;';
-    
-    // 添加重置按钮
-    const resetBtn = document.createElement('button');
-    resetBtn.innerHTML = '↺';
-    const titleKey = type === 'quaternion' ? 'resetQuaternionTitle' : 
-                     (axis === 'x' ? 'resetPositionXTitle' : axis === 'y' ? 'resetPositionYTitle' : 'resetPositionZTitle');
-    resetBtn.title = i18n.t(titleKey);
-    resetBtn.style.cssText = 'width: 20px; height: 20px; padding: 0; font-size: 14px; background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-primary); border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;';
-    resetBtn.addEventListener('mouseover', () => {
-      resetBtn.style.background = 'var(--bg-tertiary)';
-    });
-    resetBtn.addEventListener('mouseout', () => {
-      resetBtn.style.background = 'var(--bg-input)';
-    });
-    resetBtn.addEventListener('click', () => {
-      if (type === 'quaternion') {
-        // 重置整个四元数
-        this.resetQuaternion();
-      } else if (type === 'position') {
-        this.resetPosition(axis);
-      }
+      // 数字输入
+      const numberInput = document.createElement('input');
+      numberInput.type = 'number';
+      numberInput.min = -1;
+      numberInput.max = 1;
+      numberInput.step = 0.01;
+      numberInput.value = axis === 'w' ? '1.000' : '0.000';
+      numberInput.style.cssText = 'width: 70px; padding: 2px 4px; background: var(--bg-input); border: 1px solid var(--border-primary); color: var(--text-primary); border-radius: 2px; font-size: 11px; transition: all 0.3s ease;';
+      
+      numberInput.addEventListener('change', (e) => {
+        let value = parseFloat(e.target.value);
+        value = Math.max(-1, Math.min(1, value));
+        this.baseValues.quaternion[axis] = value;
+        slider.value = value;
+        numberInput.value = value.toFixed(3);
+        this.normalizeQuaternion();
+        this.applyBaseTransform();
+      });
+      
+      row.appendChild(numberInput);
+      
+      quatControl.appendChild(row);
     });
     
-    slider.addEventListener('input', (e) => {
-      const value = parseFloat(e.target.value);
-      numberInput.value = value.toFixed(3);
-      onChange(value);
-      // 更新COM显示
-      if (this.editor.showCOM && this.editor.comVisualizerRight && this.editor.robotRight) {
-        this.editor.comVisualizerRight.update(this.editor.robotRight);
-        // 触发包络线防抖更新
-        this.editor.scheduleFootprintUpdate();
-      }
-    });
-    
-    numberInput.addEventListener('change', (e) => {
-      let value = parseFloat(e.target.value);
-      value = Math.max(min, Math.min(max, value));
-      slider.value = value;
-      numberInput.value = value.toFixed(3);
-      onChange(value);
-      // 更新COM显示
-      if (this.editor.showCOM && this.editor.comVisualizerRight && this.editor.robotRight) {
-        this.editor.comVisualizerRight.update(this.editor.robotRight);
-        // 触发包络线防抖更新
-        this.editor.scheduleFootprintUpdate();
-      }
-    });
-    
-    row.appendChild(slider);
-    row.appendChild(numberInput);
-    row.appendChild(resetBtn);
-    
-    return row;
+    container.appendChild(quatControl);
   }
 
   toggleExpand() {
@@ -262,21 +410,18 @@ export class BaseController {
     const container = document.getElementById('base-controls');
     if (!container) return;
     
-    // 更新 position UI
+    // 更新 position UI - 使用新的独立控制结构
     ['x', 'y', 'z'].forEach(axis => {
-      const rows = container.querySelectorAll('.joint-control-row');
-      rows.forEach(row => {
-        const label = row.querySelector('span');
-        if (label && label.textContent === axis.toUpperCase() + ':') {
-          const slider = row.querySelector('input[type="range"]');
-          const numberInput = row.querySelector('input[type="number"]');
-          const value = position[axis];
-          if (slider && slider.min <= value && slider.max >= value) {
-            slider.value = value;
-            numberInput.value = value.toFixed(3);
-          }
+      const control = container.querySelector(`[data-base-axis="pos_${axis}"]`);
+      if (control) {
+        const slider = control.querySelector('input[type="range"]');
+        const numberInput = control.querySelector('input[type="number"]');
+        const value = position[axis];
+        if (slider && slider.min <= value && slider.max >= value) {
+          slider.value = value;
+          if (numberInput) numberInput.value = value.toFixed(3);
         }
-      });
+      }
     });
     
     // 更新 quaternion UI
@@ -321,18 +466,15 @@ export class BaseController {
         const baseValue = baseState.base.position[axis];
         this.baseValues.position[axis] = baseValue;
         
-        // 更新UI
+        // 更新UI - 使用新的独立控制结构
         const container = document.getElementById('base-controls');
-        const rows = container.querySelectorAll('.joint-control-row');
-        rows.forEach(row => {
-          const label = row.querySelector('span');
-          if (label && label.textContent === axis.toUpperCase() + ':') {
-            const slider = row.querySelector('input[type="range"]');
-            const numberInput = row.querySelector('input[type="number"]');
-            if (slider) slider.value = baseValue;
-            if (numberInput) numberInput.value = baseValue.toFixed(3);
-          }
-        });
+        const control = container.querySelector(`[data-base-axis="pos_${axis}"]`);
+        if (control) {
+          const slider = control.querySelector('input[type="range"]');
+          const numberInput = control.querySelector('input[type="number"]');
+          if (slider) slider.value = baseValue;
+          if (numberInput) numberInput.value = baseValue.toFixed(3);
+        }
         
         this.applyBaseTransform();
         console.log(`✅ Position ${axis} 已重置到 base 值: ${baseValue.toFixed(3)}`);
@@ -364,6 +506,111 @@ export class BaseController {
         
         this.applyBaseTransform();
         console.log('✅ Quaternion 已重置到 base 值');
+      }
+    }
+  }
+  
+  updateCurveBackgrounds() {
+    // 更新position控制的背景色
+    ['x', 'y', 'z'].forEach(axis => {
+      const control = document.querySelector(`[data-base-axis="pos_${axis}"]`);
+      if (control && this.editor.curveEditor) {
+        const curveKey = `base_pos_${axis}`;
+        const visible = this.editor.curveEditor.isCurveVisible(curveKey);
+        const color = this.editor.curveEditor.getCurveColor(curveKey);
+        if (color && visible) {
+          control.style.backgroundColor = color + '20';
+        } else {
+          control.style.backgroundColor = '';
+        }
+      }
+    });
+    
+    // 更新quaternion控制的背景色
+    const quatControl = document.querySelector('[data-base-axis="quat"]');
+    if (quatControl && this.editor.curveEditor) {
+      const visible = this.editor.curveEditor.isQuaternionVisualizationVisible();
+      const color = this.editor.curveEditor.getCurveColor('base_euler_x');
+      if (color && visible) {
+        quatControl.style.backgroundColor = color + '20';
+      } else {
+        quatControl.style.backgroundColor = '';
+      }
+    }
+  }
+  
+  updateKeyframeIndicators() {
+    if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
+      // 隐藏所有indicator
+      ['x', 'y', 'z'].forEach(axis => {
+        const indicator = document.getElementById(`keyframe-indicator-base-pos-${axis}`);
+        if (indicator) indicator.style.display = 'none';
+      });
+      const quatIndicator = document.getElementById('keyframe-indicator-base-quat');
+      if (quatIndicator) quatIndicator.style.display = 'none';
+      return;
+    }
+    
+    const currentFrame = this.editor.timelineController.getCurrentFrame();
+    const keyframes = this.editor.trajectoryManager.getKeyframes();
+    
+    // 检查position各轴
+    ['x', 'y', 'z'].forEach(axis => {
+      const indicator = document.getElementById(`keyframe-indicator-base-pos-${axis}`);
+      if (!indicator) return;
+      
+      let hasAnyResidual = false;
+      let isOnKeyframe = false;
+      
+      for (let i = 0; i < keyframes.length; i++) {
+        if (keyframes[i].frame === currentFrame) {
+          isOnKeyframe = true;
+        }
+        if (keyframes[i].baseResidual && keyframes[i].baseResidual.position &&
+            Math.abs(keyframes[i].baseResidual.position[axis] || 0) > 0.001) {
+          hasAnyResidual = true;
+        }
+      }
+      
+      if (isOnKeyframe && hasAnyResidual) {
+        indicator.style.display = 'inline-block';
+        indicator.style.backgroundColor = '#f4b942';
+      } else if (hasAnyResidual) {
+        indicator.style.display = 'inline-block';
+        indicator.style.backgroundColor = 'transparent';
+      } else {
+        indicator.style.display = 'none';
+      }
+    });
+    
+    // 检查quaternion
+    const quatIndicator = document.getElementById('keyframe-indicator-base-quat');
+    if (quatIndicator) {
+      let hasAnyResidual = false;
+      let isOnKeyframe = false;
+      
+      for (let i = 0; i < keyframes.length; i++) {
+        if (keyframes[i].frame === currentFrame) {
+          isOnKeyframe = true;
+        }
+        if (keyframes[i].baseResidual && keyframes[i].baseResidual.quaternion) {
+          const q = keyframes[i].baseResidual.quaternion;
+          // 检查是否为非单位四元数（有旋转残差）
+          if (Math.abs(q.x) > 0.001 || Math.abs(q.y) > 0.001 || 
+              Math.abs(q.z) > 0.001 || Math.abs(q.w - 1) > 0.001) {
+            hasAnyResidual = true;
+          }
+        }
+      }
+      
+      if (isOnKeyframe && hasAnyResidual) {
+        quatIndicator.style.display = 'inline-block';
+        quatIndicator.style.backgroundColor = '#f4b942';
+      } else if (hasAnyResidual) {
+        quatIndicator.style.display = 'inline-block';
+        quatIndicator.style.backgroundColor = 'transparent';
+      } else {
+        quatIndicator.style.display = 'none';
       }
     }
   }
