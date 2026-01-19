@@ -177,19 +177,12 @@ export class CurveEditor {
       this.editor.jointController.joints.forEach((joint, index) => {
         const key = `joint_${index}`;
         
-        // 检查是否有残差或基值
+        // 检查是否有残差
         let hasResidual = false;
-        let hasData = false;
         for (const kf of keyframes) {
-          if (kf.residuals && kf.residuals.joints && 
-              Math.abs(kf.residuals.joints[index] || 0) > 0.001) {
+          if (kf.residual && Math.abs(kf.residual[index] || 0) > 0.001) {
             hasResidual = true;
-            hasData = true;
             break;
-          }
-          if (kf.baseValues && kf.baseValues.joints && 
-              kf.baseValues.joints[index] !== undefined) {
-            hasData = true;
           }
         }
         
@@ -210,19 +203,13 @@ export class CurveEditor {
     ['x', 'y', 'z'].forEach((axis, index) => {
       const key = `base_pos_${axis}`;
       
-      // 检查是否有残差或基值
+      // 检查是否有残差
       let hasResidual = false;
-      let hasData = false;
       for (const kf of keyframes) {
-        if (kf.residuals && kf.residuals.base && kf.residuals.base.position &&
-            Math.abs(kf.residuals.base.position[axis] || 0) > 0.001) {
+        if (kf.baseResidual && kf.baseResidual.position &&
+            Math.abs(kf.baseResidual.position[axis] || 0) > 0.001) {
           hasResidual = true;
-          hasData = true;
           break;
-        }
-        if (kf.baseValues && kf.baseValues.base && kf.baseValues.base.position &&
-            kf.baseValues.base.position[axis] !== undefined) {
-          hasData = true;
         }
       }
       
@@ -623,25 +610,18 @@ export class CurveEditor {
 
   getKeyframeValue(keyframe, curve) {
     if (curve.type === 'joint') {
-      // 优先使用残差，如果没有则使用基值
-      if (keyframe.residuals?.joints?.[curve.index] !== undefined) {
-        const baseValue = keyframe.baseValues?.joints?.[curve.index] || 0;
-        const residual = keyframe.residuals.joints[curve.index];
-        return baseValue + residual;
-      } else if (keyframe.baseValues?.joints?.[curve.index] !== undefined) {
-        return keyframe.baseValues.joints[curve.index];
+      // 使用正确的数据结构：residual 是关节残差数组
+      if (keyframe.residual && keyframe.residual[curve.index] !== undefined) {
+        return keyframe.residual[curve.index];
       }
-      console.log(`No value for joint ${curve.index}:`, keyframe);
+      return 0; // 没有残差返回0
     } else if (curve.type === 'base_position') {
-      // 优先使用残差，如果没有则使用基值
-      if (keyframe.residuals?.base?.position?.[curve.axis] !== undefined) {
-        const baseValue = keyframe.baseValues?.base?.position?.[curve.axis] || 0;
-        const residual = keyframe.residuals.base.position[curve.axis];
-        return baseValue + residual;
-      } else if (keyframe.baseValues?.base?.position?.[curve.axis] !== undefined) {
-        return keyframe.baseValues.base.position[curve.axis];
+      // 使用正确的数据结构：baseResidual.position
+      if (keyframe.baseResidual && keyframe.baseResidual.position && 
+          keyframe.baseResidual.position[curve.axis] !== undefined) {
+        return keyframe.baseResidual.position[curve.axis];
       }
-      console.log(`No value for base ${curve.axis}:`, keyframe);
+      return 0; // 没有残差返回0
     }
     return null;
   }
@@ -866,23 +846,41 @@ export class CurveEditor {
     const range = point.maxValue - point.minValue;
     const newValue = point.minValue + normalized * range;
     
-    // 更新残差
+    // 更新残差 - 直接使用 residual 和 baseResidual
+    const frameIndex = point.keyframe.frame;
+    
     if (curve.type === 'joint') {
-      const baseValue = keyframe.baseValues?.joints?.[curve.index] || 0;
-      const newResidual = newValue - baseValue;
+      // 对于关节，newValue 就是残差值
+      if (!point.keyframe.residual) {
+        point.keyframe.residual = new Array(this.editor.trajectoryManager.jointCount).fill(0);
+      }
+      point.keyframe.residual[curve.index] = newValue;
       
-      if (!keyframe.residuals) keyframe.residuals = {};
-      if (!keyframe.residuals.joints) keyframe.residuals.joints = [];
-      keyframe.residuals.joints[curve.index] = newResidual;
+      // 更新 trajectoryManager 中的数据
+      this.editor.trajectoryManager.keyframes.get(frameIndex).residual[curve.index] = newValue;
       
     } else if (curve.type === 'base_position') {
-      const baseValue = keyframe.baseValues?.base?.position?.[curve.axis] || 0;
-      const newResidual = newValue - baseValue;
+      // 对于基体位置，newValue 就是残差值
+      if (!point.keyframe.baseResidual) {
+        point.keyframe.baseResidual = {
+          position: { x: 0, y: 0, z: 0 },
+          quaternion: { x: 0, y: 0, z: 0, w: 1 }
+        };
+      }
+      if (!point.keyframe.baseResidual.position) {
+        point.keyframe.baseResidual.position = { x: 0, y: 0, z: 0 };
+      }
+      point.keyframe.baseResidual.position[curve.axis] = newValue;
       
-      if (!keyframe.residuals) keyframe.residuals = {};
-      if (!keyframe.residuals.base) keyframe.residuals.base = {};
-      if (!keyframe.residuals.base.position) keyframe.residuals.base.position = {};
-      keyframe.residuals.base.position[curve.axis] = newResidual;
+      // 更新 trajectoryManager 中的数据
+      const kf = this.editor.trajectoryManager.keyframes.get(frameIndex);
+      if (!kf.baseResidual) {
+        kf.baseResidual = {
+          position: { x: 0, y: 0, z: 0 },
+          quaternion: { x: 0, y: 0, z: 0, w: 1 }
+        };
+      }
+      kf.baseResidual.position[curve.axis] = newValue;
     }
     
     // 更新时间轴控制器以触发机器人更新

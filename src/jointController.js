@@ -46,7 +46,18 @@ export class JointController {
       // 添加关键帧状态圈圈
       const keyframeIndicator = document.createElement('span');
       keyframeIndicator.id = `keyframe-indicator-${index}`;
-      keyframeIndicator.style.cssText = 'display: none; width: 8px; height: 8px; border-radius: 50%; margin-left: 6px; border: 1.5px solid var(--accent-warning);';
+      keyframeIndicator.style.cssText = `
+        display: none;
+        width: 10px;
+        height: 10px;
+        min-width: 10px;
+        min-height: 10px;
+        border-radius: 50%;
+        margin-left: 8px;
+        border: 2px solid #f4b942;
+        box-sizing: border-box;
+        flex-shrink: 0;
+      `;
       label.appendChild(keyframeIndicator);
       
       // 点击label切换曲线可见性
@@ -165,6 +176,8 @@ export class JointController {
     const currentFrame = this.editor.timelineController.getCurrentFrame();
     const keyframes = this.editor.trajectoryManager.getKeyframes();
     
+    let totalVisible = 0;
+    
     this.joints.forEach((joint, index) => {
       const indicator = document.getElementById(`keyframe-indicator-${index}`);
       if (!indicator) return;
@@ -172,30 +185,71 @@ export class JointController {
       // 检查这个关节在所有关键帧中是否有残差
       let hasAnyResidual = false;
       let isOnKeyframe = false;
+      let currentKeyframeIndex = -1;
       
-      for (const kf of keyframes) {
-        if (kf.residual && Math.abs(kf.residual[index] || 0) > 0.001) {
+      // 找到当前帧在关键帧列表中的位置
+      for (let i = 0; i < keyframes.length; i++) {
+        if (keyframes[i].frame === currentFrame) {
+          isOnKeyframe = true;
+          currentKeyframeIndex = i;
+          break;
+        }
+      }
+      
+      if (isOnKeyframe) {
+        // 在关键帧上，检查前后各一个关键帧
+        const prevKeyframe = currentKeyframeIndex > 0 ? keyframes[currentKeyframeIndex - 1] : null;
+        const nextKeyframe = currentKeyframeIndex < keyframes.length - 1 ? keyframes[currentKeyframeIndex + 1] : null;
+        
+        // 检查前一个关键帧
+        if (prevKeyframe && prevKeyframe.residual && Math.abs(prevKeyframe.residual[index] || 0) > 0.001) {
           hasAnyResidual = true;
-          if (kf.frame === currentFrame) {
-            isOnKeyframe = true;
+        }
+        // 检查后一个关键帧
+        if (nextKeyframe && nextKeyframe.residual && Math.abs(nextKeyframe.residual[index] || 0) > 0.001) {
+          hasAnyResidual = true;
+        }
+        // 检查当前关键帧
+        if (keyframes[currentKeyframeIndex].residual && Math.abs(keyframes[currentKeyframeIndex].residual[index] || 0) > 0.001) {
+          hasAnyResidual = true;
+        }
+      } else {
+        // 不在关键帧上，检查所有关键帧
+        for (const kf of keyframes) {
+          if (kf.residual && Math.abs(kf.residual[index] || 0) > 0.001) {
+            hasAnyResidual = true;
+            break;
           }
         }
       }
       
       if (hasAnyResidual) {
         indicator.style.display = 'inline-block';
+        totalVisible++;
         if (isOnKeyframe) {
-          // 实心圈：在关键帧上且有残差
-          indicator.style.backgroundColor = 'var(--accent-warning)';
+          // 实心圈：在关键帧上 且 该关节在当前/前/后关键帧中有残差
+          indicator.style.backgroundColor = '#f4b942';
+          indicator.style.borderColor = '#f4b942';
+          if (index === 0) {
+            console.log(`  关节${index} 圈圈样式: 实心 (display=${indicator.style.display}, bg=${indicator.style.backgroundColor})`);
+          }
         } else {
-          // 空心圈：有残差但不在关键帧上
+          // 空心圈：不在关键帧上 但 该关节在某些关键帧中有残差
           indicator.style.backgroundColor = 'transparent';
+          indicator.style.borderColor = '#f4b942';
+          if (index === 0) {
+            console.log(`  关节${index} 圈圈样式: 空心 (display=${indicator.style.display}, border=${indicator.style.borderColor})`);
+          }
         }
       } else {
         // 完全没有残差：不显示圈圈
         indicator.style.display = 'none';
       }
     });
+    
+    if (totalVisible > 0) {
+      console.log(`✅ 更新关键帧指示器: 显示 ${totalVisible} 个圈圈 (当前帧: ${currentFrame}, 总关键帧: ${keyframes.length})`);
+    }
   }
   
   updateCurveBackgrounds() {
