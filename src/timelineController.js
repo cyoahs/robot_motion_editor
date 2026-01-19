@@ -220,6 +220,11 @@ export class TimelineController {
     // 更新机器人状态
     this.editor.updateRobotState(this.currentFrame);
     
+    // 更新关键帧指示器
+    if (this.editor.jointController && this.editor.jointController.updateKeyframeIndicators) {
+      this.editor.jointController.updateKeyframeIndicators();
+    }
+    
     // 更新曲线编辑器
     if (this.editor.curveEditor) {
       this.editor.curveEditor.draw();

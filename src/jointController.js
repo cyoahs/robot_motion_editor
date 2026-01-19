@@ -32,40 +32,48 @@ export class JointController {
       console.log(`  - 创建关节 ${index}: ${joint.name}`);
       const control = document.createElement('div');
       control.className = 'joint-control';
+      control.dataset.jointIndex = index;
+      control.style.transition = 'background-color 0.2s';
 
       const label = document.createElement('label');
-      label.textContent = joint.name || `Joint ${index + 1}`;
-      label.style.cursor = 'pointer';
+      label.style.cssText = 'cursor: pointer; display: flex; align-items: center; user-select: none;';
       label.title = '点击切换曲线显示';
       
-      // 添加曲线可见性指示器
-      const curveIndicator = document.createElement('span');
-      curveIndicator.style.cssText = 'display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 5px; transition: all 0.2s;';
-      curveIndicator.id = `curve-indicator-${index}`;
-      label.appendChild(curveIndicator);
+      const labelText = document.createElement('span');
+      labelText.textContent = joint.name || `Joint ${index + 1}`;
+      label.appendChild(labelText);
       
-      // 点击标签切换曲线可见性
-      label.addEventListener('click', () => {
+      // 添加关键帧状态圈圈
+      const keyframeIndicator = document.createElement('span');
+      keyframeIndicator.id = `keyframe-indicator-${index}`;
+      keyframeIndicator.style.cssText = 'display: none; width: 8px; height: 8px; border-radius: 50%; margin-left: 6px; border: 1.5px solid var(--accent-warning);';
+      label.appendChild(keyframeIndicator);
+      
+      // 点击label切换曲线可见性
+      label.addEventListener('click', (e) => {
         if (this.editor.curveEditor) {
           const curveKey = `joint_${index}`;
           const visible = this.editor.curveEditor.toggleCurveVisibility(curveKey);
           const color = this.editor.curveEditor.getCurveColor(curveKey);
           if (color) {
-            curveIndicator.style.backgroundColor = visible ? color : 'transparent';
-            curveIndicator.style.border = `1px solid ${visible ? color : 'var(--border-primary)'}`;
+            // 更新背景色
+            if (visible) {
+              control.style.backgroundColor = color + '20'; // 20% 透明度
+            } else {
+              control.style.backgroundColor = '';
+            }
           }
         }
       });
       
-      // 初始化指示器状态
+      // 初始化显示状态
       setTimeout(() => {
         if (this.editor.curveEditor) {
           const curveKey = `joint_${index}`;
           const visible = this.editor.curveEditor.isCurveVisible(curveKey);
           const color = this.editor.curveEditor.getCurveColor(curveKey);
-          if (color) {
-            curveIndicator.style.backgroundColor = visible ? color : 'transparent';
-            curveIndicator.style.border = `1px solid ${visible ? color : 'var(--border-primary)'}`;
+          if (color && visible) {
+            control.style.backgroundColor = color + '20';
           }
         }
       }, 100);
@@ -75,6 +83,11 @@ export class JointController {
       // 创建水平布局容器
       const row = document.createElement('div');
       row.className = 'joint-control-row';
+      
+      // 阻止row内的点击事件冒泡到control
+      row.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
 
       // 滑块
       const slider = document.createElement('input');
@@ -137,19 +150,69 @@ export class JointController {
     console.log(`✅ ${this.joints.length} 个关节控制器创建完成`);
   }
 
-  updateCurveIndicators() {
+  updateKeyframeIndicators() {
+    if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
+      // 没有轨迹时隐藏所有圈圈
+      this.joints.forEach((joint, index) => {
+        const indicator = document.getElementById(`keyframe-indicator-${index}`);
+        if (indicator) {
+          indicator.style.display = 'none';
+        }
+      });
+      return;
+    }
+    
+    const currentFrame = this.editor.timelineController.getCurrentFrame();
+    const keyframes = this.editor.trajectoryManager.getKeyframes();
+    
+    this.joints.forEach((joint, index) => {
+      const indicator = document.getElementById(`keyframe-indicator-${index}`);
+      if (!indicator) return;
+      
+      // 检查这个关节在所有关键帧中是否有残差
+      let hasAnyResidual = false;
+      let isOnKeyframe = false;
+      
+      for (const kf of keyframes) {
+        if (kf.residual && Math.abs(kf.residual[index] || 0) > 0.001) {
+          hasAnyResidual = true;
+          if (kf.frame === currentFrame) {
+            isOnKeyframe = true;
+          }
+        }
+      }
+      
+      if (hasAnyResidual) {
+        indicator.style.display = 'inline-block';
+        if (isOnKeyframe) {
+          // 实心圈：在关键帧上且有残差
+          indicator.style.backgroundColor = 'var(--accent-warning)';
+        } else {
+          // 空心圈：有残差但不在关键帧上
+          indicator.style.backgroundColor = 'transparent';
+        }
+      } else {
+        // 完全没有残差：不显示圈圈
+        indicator.style.display = 'none';
+      }
+    });
+  }
+  
+  updateCurveBackgrounds() {
     if (!this.editor.curveEditor) return;
     
     this.joints.forEach((joint, index) => {
-      const indicator = document.getElementById(`curve-indicator-${index}`);
-      if (indicator) {
-        const curveKey = `joint_${index}`;
-        const visible = this.editor.curveEditor.isCurveVisible(curveKey);
-        const color = this.editor.curveEditor.getCurveColor(curveKey);
-        if (color) {
-          indicator.style.backgroundColor = visible ? color : 'transparent';
-          indicator.style.border = `1px solid ${visible ? color : 'var(--border-primary)'}`;
-        }
+      const control = document.querySelector(`.joint-control[data-joint-index="${index}"]`);
+      if (!control) return;
+      
+      const curveKey = `joint_${index}`;
+      const visible = this.editor.curveEditor.isCurveVisible(curveKey);
+      const color = this.editor.curveEditor.getCurveColor(curveKey);
+      
+      if (color && visible) {
+        control.style.backgroundColor = color + '20';
+      } else {
+        control.style.backgroundColor = '';
       }
     });
   }
@@ -187,6 +250,9 @@ export class JointController {
       this.editor.trajectoryManager.addKeyframe(currentFrame, currentJointValues, currentBaseValues);
       console.log(`✅ 自动更新关键帧 ${currentFrame} 的残差`);
       
+      // 更新关键帧指示器
+      this.updateKeyframeIndicators();
+      
       // 更新曲线编辑器
       if (this.editor.curveEditor) {
         this.editor.curveEditor.draw();
@@ -212,6 +278,9 @@ export class JointController {
       
       this.applyJointValue(index, value);
     });
+    
+    // 更新关键帧指示器
+    this.updateKeyframeIndicators();
   }
 
   getCurrentJointValues() {

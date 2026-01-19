@@ -590,6 +590,11 @@ class RobotKeyframeEditor {
       console.log('🔄 关键帧已存在，已更新残差');
     }
     
+    // 更新关键帧指示器
+    if (this.jointController && this.jointController.updateKeyframeIndicators) {
+      this.jointController.updateKeyframeIndicators();
+    }
+    
     // 通知曲线编辑器更新
     if (this.curveEditor) {
       this.curveEditor.updateCurves();
@@ -614,6 +619,11 @@ class RobotKeyframeEditor {
       
       // 更新显示
       this.updateRobotState(currentFrame);
+      
+      // 更新关键帧指示器
+      if (this.jointController && this.jointController.updateKeyframeIndicators) {
+        this.jointController.updateKeyframeIndicators();
+      }
       
       // 通知曲线编辑器更新
       if (this.curveEditor) {

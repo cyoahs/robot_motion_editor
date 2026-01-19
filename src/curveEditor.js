@@ -252,6 +252,12 @@ export class CurveEditor {
     const curve = this.curves.get(curveKey);
     if (curve) {
       curve.visible = !curve.visible;
+      
+      // 更新关节控制面板的背景色
+      if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
+        this.editor.jointController.updateCurveBackgrounds();
+      }
+      
       this.draw();
       return curve.visible;
     }
@@ -289,16 +295,15 @@ export class CurveEditor {
       
       if (curve.type === 'joint') {
         for (const kf of keyframes) {
-          if (kf.residuals && kf.residuals.joints && 
-              Math.abs(kf.residuals.joints[curve.index] || 0) > 0.001) {
+          if (kf.residual && Math.abs(kf.residual[curve.index] || 0) > 0.001) {
             hasResidual = true;
             break;
           }
         }
       } else if (curve.type === 'base_position') {
         for (const kf of keyframes) {
-          if (kf.residuals && kf.residuals.base && kf.residuals.base.position &&
-              Math.abs(kf.residuals.base.position[curve.axis] || 0) > 0.001) {
+          if (kf.baseResidual && kf.baseResidual.position &&
+              Math.abs(kf.baseResidual.position[curve.axis] || 0) > 0.001) {
             hasResidual = true;
             break;
           }
@@ -308,25 +313,12 @@ export class CurveEditor {
       curve.visible = hasResidual;
     });
     
-    // 更新关节控制面板的指示器
-    if (this.editor.jointController && this.editor.jointController.updateCurveIndicators) {
-      this.editor.jointController.updateCurveIndicators();
+    // 更新关节控制面板的背景颜色
+    if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
+      this.editor.jointController.updateCurveBackgrounds();
     }
     
     this.draw();
-  }
-
-  /**
-   * 切换曲线可见性
-   */
-  toggleCurveVisibility(curveKey) {
-    const curve = this.curves.get(curveKey);
-    if (curve) {
-      curve.visible = !curve.visible;
-      this.draw();
-      return curve.visible;
-    }
-    return false;
   }
 
   /**
