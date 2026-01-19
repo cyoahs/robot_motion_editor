@@ -559,25 +559,46 @@ export class BaseController {
       const indicator = document.getElementById(`keyframe-indicator-base-pos-${axis}`);
       if (!indicator) return;
       
-      let hasAnyResidual = false;
-      let isOnKeyframe = false;
+      let hasAdjacentResidual = false;  // i-1, i, i+1 有残差
+      let hasOtherResidual = false;     // 其他关键帧有残差
+      let currentKeyframeIndex = -1;
       
+      // 找到当前帧在关键帧列表中的位置
       for (let i = 0; i < keyframes.length; i++) {
         if (keyframes[i].frame === currentFrame) {
-          isOnKeyframe = true;
-        }
-        if (keyframes[i].baseResidual && keyframes[i].baseResidual.position &&
-            Math.abs(keyframes[i].baseResidual.position[axis] || 0) > 0.001) {
-          hasAnyResidual = true;
+          currentKeyframeIndex = i;
+          break;
         }
       }
       
-      if (isOnKeyframe && hasAnyResidual) {
+      // 遍历所有关键帧，分类检查残差
+      for (let i = 0; i < keyframes.length; i++) {
+        const hasResidual = keyframes[i].baseResidual && 
+                           keyframes[i].baseResidual.position &&
+                           Math.abs(keyframes[i].baseResidual.position[axis] || 0) > 0.001;
+        
+        if (!hasResidual) continue;
+        
+        // 判断是否在相邻范围内（i-1, i, i+1）
+        if (currentKeyframeIndex >= 0 && 
+            i >= currentKeyframeIndex - 1 && 
+            i <= currentKeyframeIndex + 1) {
+          hasAdjacentResidual = true;
+        } else {
+          hasOtherResidual = true;
+        }
+      }
+      
+      if (hasAdjacentResidual) {
+        // 实心圈：i-1、i 或 i+1 有残差
         indicator.style.display = 'inline-block';
         indicator.style.backgroundColor = '#f4b942';
-      } else if (hasAnyResidual) {
+        indicator.style.borderColor = '#f4b942';
+      } else if (hasOtherResidual) {
+        // 空心圈：其他关键帧有残差
         indicator.style.display = 'inline-block';
         indicator.style.backgroundColor = 'transparent';
+        indicator.style.borderColor = '#f4b942';
       } else {
         indicator.style.display = 'none';
       }
@@ -586,29 +607,53 @@ export class BaseController {
     // 检查quaternion
     const quatIndicator = document.getElementById('keyframe-indicator-base-quat');
     if (quatIndicator) {
-      let hasAnyResidual = false;
-      let isOnKeyframe = false;
+      let hasAdjacentResidual = false;  // i-1, i, i+1 有残差
+      let hasOtherResidual = false;     // 其他关键帧有残差
+      let currentKeyframeIndex = -1;
       
+      // 找到当前帧在关键帧列表中的位置
       for (let i = 0; i < keyframes.length; i++) {
         if (keyframes[i].frame === currentFrame) {
-          isOnKeyframe = true;
-        }
-        if (keyframes[i].baseResidual && keyframes[i].baseResidual.quaternion) {
-          const q = keyframes[i].baseResidual.quaternion;
-          // 检查是否为非单位四元数（有旋转残差）
-          if (Math.abs(q.x) > 0.001 || Math.abs(q.y) > 0.001 || 
-              Math.abs(q.z) > 0.001 || Math.abs(q.w - 1) > 0.001) {
-            hasAnyResidual = true;
-          }
+          currentKeyframeIndex = i;
+          break;
         }
       }
       
-      if (isOnKeyframe && hasAnyResidual) {
+      const checkQuatResidual = (kf) => {
+        if (kf.baseResidual && kf.baseResidual.quaternion) {
+          const q = kf.baseResidual.quaternion;
+          return Math.abs(q.x) > 0.001 || Math.abs(q.y) > 0.001 || 
+                 Math.abs(q.z) > 0.001 || Math.abs(q.w - 1) > 0.001;
+        }
+        return false;
+      };
+      
+      // 遍历所有关键帧，分类检查残差
+      for (let i = 0; i < keyframes.length; i++) {
+        const hasResidual = checkQuatResidual(keyframes[i]);
+        
+        if (!hasResidual) continue;
+        
+        // 判断是否在相邻范围内（i-1, i, i+1）
+        if (currentKeyframeIndex >= 0 && 
+            i >= currentKeyframeIndex - 1 && 
+            i <= currentKeyframeIndex + 1) {
+          hasAdjacentResidual = true;
+        } else {
+          hasOtherResidual = true;
+        }
+      }
+      
+      if (hasAdjacentResidual) {
+        // 实心圈：i-1、i 或 i+1 有残差
         quatIndicator.style.display = 'inline-block';
         quatIndicator.style.backgroundColor = '#f4b942';
-      } else if (hasAnyResidual) {
+        quatIndicator.style.borderColor = '#f4b942';
+      } else if (hasOtherResidual) {
+        // 空心圈：其他关键帧有残差
         quatIndicator.style.display = 'inline-block';
         quatIndicator.style.backgroundColor = 'transparent';
+        quatIndicator.style.borderColor = '#f4b942';
       } else {
         quatIndicator.style.display = 'none';
       }

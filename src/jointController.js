@@ -182,67 +182,49 @@ export class JointController {
       const indicator = document.getElementById(`keyframe-indicator-${index}`);
       if (!indicator) return;
       
-      // 检查这个关节在所有关键帧中是否有残差
-      let hasAnyResidual = false;
-      let isOnKeyframe = false;
+      let hasAdjacentResidual = false;  // i-1, i, i+1 有残差
+      let hasOtherResidual = false;     // 其他关键帧有残差
       let currentKeyframeIndex = -1;
       
       // 找到当前帧在关键帧列表中的位置
       for (let i = 0; i < keyframes.length; i++) {
         if (keyframes[i].frame === currentFrame) {
-          isOnKeyframe = true;
           currentKeyframeIndex = i;
           break;
         }
       }
       
-      if (isOnKeyframe) {
-        // 在关键帧上，检查前后各一个关键帧
-        const prevKeyframe = currentKeyframeIndex > 0 ? keyframes[currentKeyframeIndex - 1] : null;
-        const nextKeyframe = currentKeyframeIndex < keyframes.length - 1 ? keyframes[currentKeyframeIndex + 1] : null;
+      // 遍历所有关键帧，分类检查残差
+      for (let i = 0; i < keyframes.length; i++) {
+        const hasResidual = keyframes[i].residual && 
+                           Math.abs(keyframes[i].residual[index] || 0) > 0.001;
         
-        // 检查前一个关键帧
-        if (prevKeyframe && prevKeyframe.residual && Math.abs(prevKeyframe.residual[index] || 0) > 0.001) {
-          hasAnyResidual = true;
-        }
-        // 检查后一个关键帧
-        if (nextKeyframe && nextKeyframe.residual && Math.abs(nextKeyframe.residual[index] || 0) > 0.001) {
-          hasAnyResidual = true;
-        }
-        // 检查当前关键帧
-        if (keyframes[currentKeyframeIndex].residual && Math.abs(keyframes[currentKeyframeIndex].residual[index] || 0) > 0.001) {
-          hasAnyResidual = true;
-        }
-      } else {
-        // 不在关键帧上，检查所有关键帧
-        for (const kf of keyframes) {
-          if (kf.residual && Math.abs(kf.residual[index] || 0) > 0.001) {
-            hasAnyResidual = true;
-            break;
-          }
+        if (!hasResidual) continue;
+        
+        // 判断是否在相邻范围内（i-1, i, i+1）
+        if (currentKeyframeIndex >= 0 && 
+            i >= currentKeyframeIndex - 1 && 
+            i <= currentKeyframeIndex + 1) {
+          hasAdjacentResidual = true;
+        } else {
+          hasOtherResidual = true;
         }
       }
       
-      if (hasAnyResidual) {
+      if (hasAdjacentResidual) {
+        // 实心圈：i-1、i 或 i+1 有残差
         indicator.style.display = 'inline-block';
+        indicator.style.backgroundColor = '#f4b942';
+        indicator.style.borderColor = '#f4b942';
         totalVisible++;
-        if (isOnKeyframe) {
-          // 实心圈：在关键帧上 且 该关节在当前/前/后关键帧中有残差
-          indicator.style.backgroundColor = '#f4b942';
-          indicator.style.borderColor = '#f4b942';
-          if (index === 0) {
-            console.log(`  关节${index} 圈圈样式: 实心 (display=${indicator.style.display}, bg=${indicator.style.backgroundColor})`);
-          }
-        } else {
-          // 空心圈：不在关键帧上 但 该关节在某些关键帧中有残差
-          indicator.style.backgroundColor = 'transparent';
-          indicator.style.borderColor = '#f4b942';
-          if (index === 0) {
-            console.log(`  关节${index} 圈圈样式: 空心 (display=${indicator.style.display}, border=${indicator.style.borderColor})`);
-          }
-        }
+      } else if (hasOtherResidual) {
+        // 空心圈：其他关键帧有残差
+        indicator.style.display = 'inline-block';
+        indicator.style.backgroundColor = 'transparent';
+        indicator.style.borderColor = '#f4b942';
+        totalVisible++;
       } else {
-        // 完全没有残差：不显示圈圈
+        // 不显示：完全没有残差
         indicator.style.display = 'none';
       }
     });
