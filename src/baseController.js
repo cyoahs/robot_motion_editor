@@ -388,18 +388,26 @@ export class BaseController {
       return;
     }
     
+    // 防止递归调用
+    if (this.editor.isUpdatingKeyframe) {
+      return;
+    }
+    
     const currentFrame = this.editor.timelineController.getCurrentFrame();
     
     if (this.editor.trajectoryManager.keyframes.has(currentFrame)) {
+      this.editor.isUpdatingKeyframe = true;
+      
       const currentJointValues = this.editor.jointController.getCurrentJointValues();
       const currentBaseValues = this.getCurrentBaseValues();
       this.editor.trajectoryManager.addKeyframe(currentFrame, currentJointValues, currentBaseValues);
-      console.log(`✅ 自动更新关键帧 ${currentFrame} 的基体残差`);
       
-      // 更新曲线编辑器
+      // 使用防抖版本更新曲线编辑器，避免短时间内多次绘制
       if (this.editor.curveEditor) {
-        this.editor.curveEditor.draw();
+        this.editor.curveEditor.drawDebounced();
       }
+      
+      this.editor.isUpdatingKeyframe = false;
     }
   }
 

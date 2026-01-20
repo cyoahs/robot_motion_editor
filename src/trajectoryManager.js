@@ -364,12 +364,6 @@ export class TrajectoryManager {
     const isNew = !this.keyframes.has(frameIndex);
     this.keyframes.set(frameIndex, { residual, baseResidual });
     
-    if (isNew) {
-      console.log(`➕ 添加新关键帧 ${frameIndex}`);
-    } else {
-      console.log(`🔄 更新关键帧 ${frameIndex}`);
-    }
-    
     return isNew;
   }
 

@@ -75,47 +75,6 @@ export class COMVisualizer {
     robot.traverse((child) => {
       linkCount++;
       
-      // 调试：检查第一个link的结构
-      if (linkCount <= 3) {
-        console.log(`🔍 Link ${linkCount}:`, {
-          name: child.name,
-          type: child.type,
-          hasUrdfNode: !!child.urdfNode,
-          isURDFLink: child.isURDFLink,
-        });
-        
-        // 尝试直接访问可能的属性
-        if (child.urdfNode) {
-          console.log('  直接访问测试:');
-          console.log('    urdfNode.inertial:', child.urdfNode.inertial);
-          console.log('    urdfNode.mass:', child.urdfNode.mass);
-        }
-        
-        // 检查child本身是否有inertial属性
-        console.log('  child.inertial:', child.inertial);
-        console.log('  child.mass:', child.mass);
-        
-        // 尝试获取所有属性（包括不可枚举的）
-        if (child.urdfNode) {
-          const allProps = Object.getOwnPropertyNames(child.urdfNode);
-          console.log('  所有属性名:', allProps);
-          
-          // 使用for...in遍历
-          const propsViaForIn = [];
-          for (let key in child.urdfNode) {
-            propsViaForIn.push(key);
-          }
-          console.log('  for...in属性:', propsViaForIn);
-          
-          // 尝试直接访问已知属性
-          console.log('  尝试已知属性:');
-          console.log('    .name:', child.urdfNode.name);
-          console.log('    .type:', child.urdfNode.type);
-          console.log('    .parent:', child.urdfNode.parent);
-          console.log('    .children:', child.urdfNode.children);
-        }
-      }
-      
       // 尝试多种方式访问inertial信息
       let inertial = null;
       let mass = 0;
@@ -176,16 +135,12 @@ export class COMVisualizer {
       }
     });
 
-    console.log(`🎯 COM计算: 遍历${linkCount}个link, 找到${massCount}个有质量的link, 总质量=${totalMass.toFixed(3)}kg`);
-
     if (totalMass > 0) {
       comPosition.divideScalar(totalMass);
-      console.log(`🎯 COM位置(质量加权): (${comPosition.x.toFixed(3)}, ${comPosition.y.toFixed(3)}, ${comPosition.z.toFixed(3)})`);
       return comPosition;
     }
 
     // 如果没有质量信息，使用几何中心作为近似
-    console.log('⚠️ 未找到质量信息，使用几何中心作为近似');
     return this.calculateGeometricCenter(robot);
   }
 
@@ -193,15 +148,11 @@ export class COMVisualizer {
     const bbox = new THREE.Box3().setFromObject(robot);
     
     if (bbox.isEmpty()) {
-      console.warn('🎯 无法计算边界框');
       return null;
     }
     
     const center = new THREE.Vector3();
     bbox.getCenter(center);
-    
-    console.log(`🎯 几何中心位置: (${center.x.toFixed(3)}, ${center.y.toFixed(3)}, ${center.z.toFixed(3)})`);
-    console.log(`🎯 边界框: min(${bbox.min.x.toFixed(3)}, ${bbox.min.y.toFixed(3)}, ${bbox.min.z.toFixed(3)}), max(${bbox.max.x.toFixed(3)}, ${bbox.max.y.toFixed(3)}, ${bbox.max.z.toFixed(3)})`);
     
     return center;
   }
@@ -239,15 +190,11 @@ export class COMVisualizer {
     });
     
     if (points2D.length === 0) {
-      console.log('👣 未找到低于0.1m的mesh');
       return null;
     }
     
-    console.log(`👣 收集到${points2D.length}个投影点`);
-    
     // 计算2D凸包
     const hull = this.convexHull2D(points2D);
-    console.log(`👣 凸包包含${hull.length}个点`);
     
     return hull;
   }
@@ -296,11 +243,9 @@ export class COMVisualizer {
   }
 
   update(robot) {
-    console.log('🎯 开始更新COM显示...');
     const com = this.calculateCOM(robot);
     
     if (com) {
-      console.log('🎯 更新可视化元素位置');
       // 更新重心标记位置
       this.comMarker.position.copy(com);
 
@@ -316,17 +261,12 @@ export class COMVisualizer {
       this.comLine.geometry.computeBoundingSphere();
 
       this.show();
-      console.log('🎯 COM显示已更新');
     } else {
-      console.warn('🎯 COM为空，隐藏显示');
       this.hide();
     }
   }
   
   updateFootprint(robot) {
-    console.log('👣 开始计算地面投影包络线...');
-    const startTime = performance.now();
-    
     const footprint = this.calculateFootprint(robot);
     if (footprint && footprint.length > 0) {
       const positions = new Float32Array(footprint.length * 3);
@@ -338,12 +278,8 @@ export class COMVisualizer {
       this.footprintLine.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       this.footprintLine.geometry.computeBoundingSphere();
       this.footprintLine.visible = true;
-      
-      const elapsed = performance.now() - startTime;
-      console.log(`👣 地面投影包络线已更新 (耗时: ${elapsed.toFixed(2)}ms)`);
     } else {
       this.footprintLine.visible = false;
-      console.log('👣 未找到地面投影数据');
     }
   }
 

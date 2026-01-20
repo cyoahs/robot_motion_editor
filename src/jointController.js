@@ -162,6 +162,8 @@ export class JointController {
   }
 
   updateKeyframeIndicators() {
+    const t0 = performance.now();
+    
     if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
       // 没有轨迹时隐藏所有圈圈
       this.joints.forEach((joint, index) => {
@@ -229,9 +231,8 @@ export class JointController {
       }
     });
     
-    if (totalVisible > 0) {
-      console.log(`✅ 更新关键帧指示器: 显示 ${totalVisible} 个圈圈 (当前帧: ${currentFrame}, 总关键帧: ${keyframes.length})`);
-    }
+    const t1 = performance.now();
+    console.log(`⏱️ updateKeyframeIndicators 耗时: ${(t1-t0).toFixed(2)}ms`);
   }
   
   updateCurveBackgrounds() {
@@ -276,23 +277,40 @@ export class JointController {
       return;
     }
     
+    // 防止递归调用
+    if (this.editor.isUpdatingKeyframe) {
+      return;
+    }
+    
     const currentFrame = this.editor.timelineController.getCurrentFrame();
     
     // 如果当前帧是关键帧，自动更新
     if (this.editor.trajectoryManager.keyframes.has(currentFrame)) {
+      const t0 = performance.now();
+      this.editor.isUpdatingKeyframe = true;
+      
+      const t1 = performance.now();
       const currentJointValues = this.getCurrentJointValues();
+      const t2 = performance.now();
       const currentBaseValues = this.editor.baseController ? 
         this.editor.baseController.getCurrentBaseValues() : null;
+      const t3 = performance.now();
       this.editor.trajectoryManager.addKeyframe(currentFrame, currentJointValues, currentBaseValues);
-      console.log(`✅ 自动更新关键帧 ${currentFrame} 的残差`);
+      const t4 = performance.now();
       
       // 更新关键帧指示器
       this.updateKeyframeIndicators();
+      const t5 = performance.now();
       
-      // 更新曲线编辑器
+      // 使用防抖版本更新曲线编辑器，避免短时间内多次绘制
       if (this.editor.curveEditor) {
-        this.editor.curveEditor.draw();
+        this.editor.curveEditor.drawDebounced();
       }
+      const t6 = performance.now();
+      
+      console.log(`⏱️ autoUpdateKeyframe 耗时: 总=${(t6-t0).toFixed(2)}ms | 获取joint=${(t2-t1).toFixed(2)}ms | 获取base=${(t3-t2).toFixed(2)}ms | 添加关键帧=${(t4-t3).toFixed(2)}ms | 更新指示器=${(t5-t4).toFixed(2)}ms | 调度绘制=${(t6-t5).toFixed(2)}ms`);
+      
+      this.editor.isUpdatingKeyframe = false;
     }
   }
 

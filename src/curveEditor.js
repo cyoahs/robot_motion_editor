@@ -24,6 +24,10 @@ export class CurveEditor {
     this.draggingPoint = null; // {curveKey, keyframeIndex}
     this.hoveredPoint = null;
     
+    // 防抖定时器，用于优化绘制性能
+    this.drawDebounceTimer = null;
+    this.drawDebounceDelay = 16; // ~60fps
+    
     this.setupUI();
     this.setupEventListeners();
   }
@@ -438,6 +442,8 @@ export class CurveEditor {
    * 绘制曲线
    */
   draw() {
+    const drawStart = performance.now();
+    
     if (!this.isExpanded || !this.ctx) return;
     
     const width = this.canvas.width / (window.devicePixelRatio || 1);
@@ -459,15 +465,7 @@ export class CurveEditor {
     const frameCount = this.editor.trajectoryManager.getFrameCount();
     const keyframes = this.editor.trajectoryManager.getKeyframes();
     
-    console.log('Drawing curves:', {
-      frameCount,
-      keyframesCount: keyframes.length,
-      curvesCount: this.curves.size,
-      isExpanded: this.isExpanded
-    });
-    
     if (keyframes.length === 0) {
-      console.log('No keyframes to draw');
       this.drawNoData();
       return;
     }
@@ -505,6 +503,23 @@ export class CurveEditor {
     
     // 绘制坐标轴
     this.drawAxes(plotLeft, plotTop, plotWidth, plotHeight);
+    
+    const drawEnd = performance.now();
+    console.log(`⏱️ curveEditor.draw() 耗时: ${(drawEnd - drawStart).toFixed(2)}ms`);
+  }
+  
+  /**
+   * 防抖版本的draw方法，用于频繁更新场景
+   * 在短时间内多次调用只会执行最后一次
+   */
+  drawDebounced() {
+    if (this.drawDebounceTimer) {
+      clearTimeout(this.drawDebounceTimer);
+    }
+    this.drawDebounceTimer = setTimeout(() => {
+      this.draw();
+      this.drawDebounceTimer = null;
+    }, this.drawDebounceDelay);
   }
 
   drawNoData() {

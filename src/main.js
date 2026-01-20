@@ -44,6 +44,9 @@ class RobotKeyframeEditor {
     this.timelineController = null;
     this.curveEditor = null;
     
+    // 防止递归更新的标志
+    this.isUpdatingKeyframe = false;
+    
     // COM可视化器
     this.comVisualizerLeft = null;
     this.comVisualizerRight = null;
