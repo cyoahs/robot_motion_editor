@@ -772,6 +772,11 @@ class RobotKeyframeEditor {
         const keyframes = Array.from(this.trajectoryManager.keyframes.keys());
         this.timelineController.updateKeyframeMarkers(keyframes);
         
+        // 更新插值模式按钮显示
+        if (this.curveEditor) {
+          this.curveEditor.updateInterpolationButton();
+        }
+        
         // 更新到第一帧
         this.updateRobotState(0);
         this.timelineController.setCurrentFrame(0);

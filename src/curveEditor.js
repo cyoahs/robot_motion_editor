@@ -48,10 +48,21 @@ export class CurveEditor {
   setupEventListeners() {
     // 展开/折叠
     document.getElementById('curve-editor-header').addEventListener('click', (e) => {
-      if (!e.target.closest('button')) {
+      // 不盔听 toggle switch 和按钮的点击
+      if (!e.target.closest('button') && !e.target.closest('label') && !e.target.closest('input')) {
         this.toggleExpand();
       }
     });
+    
+    // 插值模式 Toggle Switch
+    const interpolationToggle = document.getElementById('interpolation-mode-toggle');
+    if (interpolationToggle) {
+      interpolationToggle.addEventListener('change', (e) => {
+        this.toggleInterpolationMode();
+      });
+      // 初始化 toggle 显示
+      this.updateInterpolationButton();
+    }
     
     // 恢复默认按钮
     document.getElementById('curve-reset-default').addEventListener('click', () => {
@@ -122,6 +133,37 @@ export class CurveEditor {
         this.editor.handleResize();
       }
     }, 50);
+  }
+
+  /**
+   * 切换插值模式
+   */
+  toggleInterpolationMode() {
+    const currentMode = this.editor.trajectoryManager.getInterpolationMode();
+    const newMode = currentMode === 'linear' ? 'bezier' : 'linear';
+    this.editor.trajectoryManager.setInterpolationMode(newMode);
+    this.updateInterpolationButton();
+    
+    // 重新绘制曲线和更新机器人状态
+    this.draw();
+    if (this.editor.timelineController) {
+      const currentFrame = this.editor.timelineController.getCurrentFrame();
+      this.editor.updateRobotState(currentFrame);
+    }
+  }
+
+  /**
+   * 更新插值模式按钮显示
+   */
+  updateInterpolationButton() {
+    const toggle = document.getElementById('interpolation-mode-toggle');
+    if (!toggle) return;
+    
+    const mode = this.editor.trajectoryManager.getInterpolationMode();
+    const isBezier = mode === 'bezier';
+    
+    // 更新 checkbox 状态（CSS 会自动处理样式）
+    toggle.checked = isBezier;
   }
 
   /**

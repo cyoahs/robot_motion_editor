@@ -268,6 +268,49 @@
       color: white;
       transition: background-color 0.3s ease;
     }
+    
+    /* Toggle Switch 样式 - 大方形按钮 */
+    .interpolation-toggle-container {
+      position: relative;
+      display: inline-flex;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-primary);
+      border-radius: 4px;
+      padding: 2px;
+      cursor: pointer;
+    }
+    
+    .interpolation-toggle-container input {
+      display: none;
+    }
+    
+    .interpolation-toggle-option {
+      padding: 4px 12px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      background: transparent;
+      border-radius: 3px;
+      transition: all 0.2s;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    
+    .interpolation-toggle-container input:not(:checked) ~ .interpolation-toggle-option:first-of-type,
+    .interpolation-toggle-container input:checked ~ .interpolation-toggle-option:last-of-type {
+      background: var(--accent-primary);
+      color: white;
+      font-weight: 500;
+    }
+    
+    .interpolation-toggle-option:hover {
+      background: var(--bg-tertiary);
+    }
+    
+    .interpolation-toggle-container input:not(:checked) ~ .interpolation-toggle-option:first-of-type:hover,
+    .interpolation-toggle-container input:checked ~ .interpolation-toggle-option:last-of-type:hover {
+      background: var(--accent-hover);
+    }
   </style>
 </head>
 <body>
@@ -380,6 +423,14 @@
       <div id="curve-editor-header" style="display: flex; align-items: center; padding: 8px 10px; cursor: pointer; background: var(--bg-tertiary); transition: background-color 0.3s ease;">
         <span class="toggle-icon" style="margin-right: 8px; font-size: 12px; color: var(--text-primary);">▶</span>
         <span style="font-size: 13px; font-weight: 500; color: var(--text-primary); flex: 1; transition: color 0.3s ease;" data-i18n="curves">📈 曲线</span>
+        
+        <!-- 插值模式 Toggle Switch -->
+        <label class="interpolation-toggle-container" style="margin-right: 8px;">
+          <input type="checkbox" id="interpolation-mode-toggle">
+          <span class="interpolation-toggle-option" data-i18n="interpolationLinear">线性</span>
+          <span class="interpolation-toggle-option" data-i18n="interpolationBezier">贝塞尔</span>
+        </label>
+        
         <button id="curve-reset-default" style="padding: 4px 12px; font-size: 11px; background: var(--accent-primary); color: white; border: none; border-radius: 3px; cursor: pointer; transition: background-color 0.2s;" data-i18n="resetDefault">恢复默认</button>
       </div>
       <div id="curve-editor-content" style="display: none;">

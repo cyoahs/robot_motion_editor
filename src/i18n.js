@@ -27,6 +27,13 @@ const translations = {
     autoRefreshOn: '⏱️ 自动刷新: 开',
     autoRefreshOff: '⏱️ 自动刷新: 关',
     
+    // 曲线编辑器
+    curves: '📈 曲线',
+    resetDefault: '恢复默认',
+    interpolationLinear: '线性',
+    interpolationBezier: '贝塞尔',
+    interpolationMode: '插值模式',
+    
     // 基体控制
     baseControl: '▶ 基体控制 (Base)',
     jointControl: '关节控制',
@@ -153,6 +160,13 @@ const translations = {
     refreshFootprint: '👣 Refresh Footprint',
     autoRefreshOn: '⏱️ Auto Refresh: On',
     autoRefreshOff: '⏱️ Auto Refresh: Off',
+    
+    // Curve editor
+    curves: '📈 Curves',
+    resetDefault: 'Reset Default',
+    interpolationLinear: 'Linear',
+    interpolationBezier: 'Bezier',
+    interpolationMode: 'Interpolation',
     
     // Base control
     baseControl: '▶ Base Control (Base)',

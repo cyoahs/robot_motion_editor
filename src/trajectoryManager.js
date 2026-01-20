@@ -20,6 +20,7 @@ export class TrajectoryManager {
     this.jointCount = 0;
     this.originalFileName = ''; // 原始CSV文件名
     this.fps = 50; // 默认帧率
+    this.interpolationMode = 'linear'; // 插值模式: 'linear' 或 'bezier'
   }
 
   parseCSV(csvText, fileName = '') {
@@ -194,16 +195,20 @@ export class TrajectoryManager {
       return kf.residual || kf;
     }
 
-    // 两个关键帧之间：线性插值
+    // 两个关键帧之间：根据插值模式进行插值
     const t = (frameIndex - prevIdx) / (nextIdx - prevIdx);
     const prevKf = this.keyframes.get(prevIdx);
     const nextKf = this.keyframes.get(nextIdx);
     const prevResidual = prevKf.residual || prevKf;
     const nextResidual = nextKf.residual || nextKf;
     
+    // 选择插值方法
+    const interpolatedT = this.interpolationMode === 'bezier' ? 
+      this.cubicBezierEase(t) : t;
+    
     return prevResidual.map((prevVal, idx) => {
       const nextVal = nextResidual[idx] || 0;
-      return prevVal + (nextVal - prevVal) * t;
+      return prevVal + (nextVal - prevVal) * interpolatedT;
     });
   }
 
@@ -266,6 +271,9 @@ export class TrajectoryManager {
     }
     
     const t = (frameIndex - prevIndex) / (nextIndex - prevIndex);
+    // 应用插值模式
+    const interpolatedT = this.interpolationMode === 'bezier' ? 
+      this.cubicBezierEase(t) : t;
     
     const prev = prevBase || {
       position: { x: 0, y: 0, z: 0 },
@@ -276,14 +284,14 @@ export class TrajectoryManager {
       quaternion: { x: 0, y: 0, z: 0, w: 1 }
     };
     
-    // 位置线性插值
+    // 位置插值（使用贝塞尔或线性）
     const interpolatedPosition = {
-      x: prev.position.x + (next.position.x - prev.position.x) * t,
-      y: prev.position.y + (next.position.y - prev.position.y) * t,
-      z: prev.position.z + (next.position.z - prev.position.z) * t
+      x: prev.position.x + (next.position.x - prev.position.x) * interpolatedT,
+      y: prev.position.y + (next.position.y - prev.position.y) * interpolatedT,
+      z: prev.position.z + (next.position.z - prev.position.z) * interpolatedT
     };
     
-    // 四元数球面线性插值 (SLERP)
+    // 四元数球面线性插值 (SLERP) - 使用插值后的 t 值
     const qPrev = new THREE.Quaternion(
       prev.quaternion.x,
       prev.quaternion.y,
@@ -298,7 +306,7 @@ export class TrajectoryManager {
     );
     
     // 使用SLERP插值
-    const qInterpolated = qPrev.clone().slerp(qNext, t);
+    const qInterpolated = qPrev.clone().slerp(qNext, interpolatedT);
     
     return {
       position: interpolatedPosition,
@@ -439,12 +447,13 @@ export class TrajectoryManager {
     }));
 
     return {
-      version: '2.0', // 升级：使用Three.js Quaternion运算
+      version: '2.1', // 升级：支持贝塞尔曲线插值
       baseTrajectory: this.baseTrajectory,
       keyframes: keyframesArray,
       jointCount: this.jointCount,
       originalFileName: this.originalFileName,
-      fps: this.fps || 50
+      fps: this.fps || 50,
+      interpolationMode: this.interpolationMode || 'linear'
     };
   }
 
@@ -469,6 +478,8 @@ export class TrajectoryManager {
     this.jointCount = projectData.jointCount || 0;
     this.originalFileName = projectData.originalFileName || '';
     this.fps = projectData.fps || 50;
+    // 加载插值模式（兼容旧版本，默认为线性）
+    this.interpolationMode = projectData.interpolationMode || 'linear';
     
     // 加载基础轨迹数据
     if (projectData.baseTrajectory) {
@@ -508,6 +519,39 @@ export class TrajectoryManager {
     }
     
     console.log('✅ 加载工程文件:', this.baseTrajectory.length, '帧,', this.keyframes.size, '个关键帧');
+  }
+
+  /**
+   * 三次贝塞尔缓动函数 - ease-in-out 效果
+   * 参考 CSS cubic-bezier(0.42, 0, 0.58, 1)
+   * @param {number} t - 输入值 [0, 1]
+   * @returns {number} - 输出值 [0, 1]
+   */
+  cubicBezierEase(t) {
+    // 使用 ease-in-out 曲线: P0(0,0), P1(0.42, 0), P2(0.58, 1), P3(1,1)
+    // 简化的三次贝塞尔公式
+    return t * t * (3 - 2 * t); // smoothstep 函数，等效于 ease-in-out
+  }
+
+  /**
+   * 设置插值模式
+   * @param {string} mode - 'linear' 或 'bezier'
+   */
+  setInterpolationMode(mode) {
+    if (mode !== 'linear' && mode !== 'bezier') {
+      console.warn('无效的插值模式:', mode);
+      return;
+    }
+    this.interpolationMode = mode;
+    console.log('✅ 插值模式已设置为:', mode === 'linear' ? '线性' : '贝塞尔曲线');
+  }
+
+  /**
+   * 获取当前插值模式
+   * @returns {string} - 'linear' 或 'bezier'
+   */
+  getInterpolationMode() {
+    return this.interpolationMode;
   }
 
   clearAll() {
