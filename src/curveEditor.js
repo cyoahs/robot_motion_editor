@@ -28,8 +28,27 @@ export class CurveEditor {
     this.drawDebounceTimer = null;
     this.drawDebounceDelay = 16; // ~60fps
     
+    // CSS 变量缓存 (Safari 性能优化)
+    this.cachedStyles = {};
+    this.cacheStyles();
+    
     this.setupUI();
     this.setupEventListeners();
+  }
+  
+  /**
+   * 缓存常用的 CSS 变量值，避免频繁调用 getComputedStyle (Safari 优化)
+   */
+  cacheStyles() {
+    const root = getComputedStyle(document.documentElement);
+    this.cachedStyles = {
+      bgPrimary: root.getPropertyValue('--bg-primary').trim(),
+      textTertiary: root.getPropertyValue('--text-tertiary').trim(),
+      borderPrimary: root.getPropertyValue('--border-primary').trim(),
+      warningColor: root.getPropertyValue('--warning-color').trim(),
+      accentInfo: root.getPropertyValue('--accent-info').trim(),
+      bgSecondary: root.getPropertyValue('--bg-secondary').trim()
+    };
   }
 
   setupUI() {
@@ -106,6 +125,9 @@ export class CurveEditor {
     // 重置和缩放上下文以匹配设备像素比
     this.ctx = this.canvas.getContext('2d');
     this.ctx.scale(dpr, dpr);
+    
+    // 重新缓存样式 (主题可能变化)
+    this.cacheStyles();
     
     this.draw();
   }
@@ -495,8 +517,7 @@ export class CurveEditor {
     this.ctx.clearRect(0, 0, width, height);
     
     // 绘制背景
-    this.ctx.fillStyle = getComputedStyle(document.documentElement)
-      .getPropertyValue('--bg-secondary').trim();
+    this.ctx.fillStyle = this.cachedStyles.bgPrimary;
     this.ctx.fillRect(0, 0, width, height);
     
     if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
@@ -568,8 +589,7 @@ export class CurveEditor {
     const width = this.canvas.width / (window.devicePixelRatio || 1);
     const height = this.canvas.height / (window.devicePixelRatio || 1);
     
-    this.ctx.fillStyle = getComputedStyle(document.documentElement)
-      .getPropertyValue('--text-tertiary').trim();
+    this.ctx.fillStyle = this.cachedStyles.textTertiary;
     this.ctx.font = '14px sans-serif';
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
@@ -577,8 +597,7 @@ export class CurveEditor {
   }
 
   drawGrid(left, top, width, height, frameCount, zoomLevel, scrollLeft) {
-    this.ctx.strokeStyle = getComputedStyle(document.documentElement)
-      .getPropertyValue('--border-primary').trim();
+    this.ctx.strokeStyle = this.cachedStyles.borderPrimary;
     this.ctx.lineWidth = 0.5;
     this.ctx.setLineDash([2, 2]);
     
@@ -596,8 +615,7 @@ export class CurveEditor {
   }
 
   drawKeyframeLines(keyframes, left, top, width, height, frameCount, zoomLevel, scrollLeft) {
-    this.ctx.strokeStyle = getComputedStyle(document.documentElement)
-      .getPropertyValue('--warning-color').trim();
+    this.ctx.strokeStyle = this.cachedStyles.warningColor;
     this.ctx.globalAlpha = 0.3;
     this.ctx.lineWidth = 1;
     this.ctx.setLineDash([5, 5]);
@@ -620,8 +638,7 @@ export class CurveEditor {
     const x = this.frameToX(currentFrame, left, width, frameCount, zoomLevel, scrollLeft);
     
     if (x >= left && x <= left + width) {
-      this.ctx.strokeStyle = getComputedStyle(document.documentElement)
-        .getPropertyValue('--accent-info').trim();
+      this.ctx.strokeStyle = this.cachedStyles.accentInfo;
       this.ctx.lineWidth = 2;
       this.ctx.beginPath();
       this.ctx.moveTo(x, top);
@@ -631,15 +648,21 @@ export class CurveEditor {
   }
 
   drawCurves(left, top, width, height, frameCount, keyframes, zoomLevel, scrollLeft) {
-    // 找到所有可见曲线的值域
+    // 计算可见帧范围 (只计算屏幕上实际显示的部分)
+    const visibleFrameStart = Math.max(0, this.xToFrame(left, left, width, frameCount, zoomLevel, scrollLeft));
+    const visibleFrameEnd = Math.min(frameCount - 1, this.xToFrame(left + width, left, width, frameCount, zoomLevel, scrollLeft));
+    
+    // 找到所有可见曲线的值域 (仅在可见范围内采样)
     let minValue = Infinity;
     let maxValue = -Infinity;
     
     this.curves.forEach((curve, key) => {
       if (!curve.visible) return;
       
-      // 遍历所有帧来计算值域
-      for (let frame = 0; frame < frameCount; frame += Math.max(1, Math.floor(frameCount / 500))) {
+      // 只遍历可见帧范围来计算值域
+      const step = Math.max(1, Math.floor((visibleFrameEnd - visibleFrameStart) / 200));
+      for (let frame = visibleFrameStart; frame <= visibleFrameEnd; frame += step) {
+        // 一次调用获取两个值,减少函数调用开销
         const baseValue = this.getFrameValue(frame, curve, false);
         const modifiedValue = this.getFrameValue(frame, curve, true);
         
@@ -670,28 +693,28 @@ export class CurveEditor {
     this.curves.forEach((curve, key) => {
       if (!curve.visible) return;
       
+      // 根据可见帧范围动态调整采样步长
+      const visibleFrameCount = visibleFrameEnd - visibleFrameStart;
+      const step = Math.max(1, Math.floor(visibleFrameCount / 500)); // 最多500个采样点
+      
       // 绘制原始轨迹（绿色，较细）
-      this.ctx.strokeStyle = '#4ec9b0'; // 绿色
+      this.ctx.strokeStyle = '#4ec9b0';
       this.ctx.lineWidth = 1;
       this.ctx.globalAlpha = 0.5;
       this.ctx.beginPath();
       
       let firstPoint = true;
-      const step = Math.max(1, Math.floor(frameCount / 1000)); // 采样步长
-      
-      for (let frame = 0; frame < frameCount; frame += step) {
-        const value = this.getFrameValue(frame, curve, false); // 原始值
+      for (let frame = visibleFrameStart; frame <= visibleFrameEnd; frame += step) {
+        const value = this.getFrameValue(frame, curve, false);
         if (value !== null) {
           const x = this.frameToX(frame, left, width, frameCount, zoomLevel, scrollLeft);
           const y = this.valueToY(value, top, height, minValue, maxValue);
           
-          if (x >= left - 10 && x <= left + width + 10) {
-            if (firstPoint) {
-              this.ctx.moveTo(x, y);
-              firstPoint = false;
-            } else {
-              this.ctx.lineTo(x, y);
-            }
+          if (firstPoint) {
+            this.ctx.moveTo(x, y);
+            firstPoint = false;
+          } else {
+            this.ctx.lineTo(x, y);
           }
         }
       }
@@ -705,19 +728,17 @@ export class CurveEditor {
       this.ctx.beginPath();
       
       firstPoint = true;
-      for (let frame = 0; frame < frameCount; frame += step) {
-        const value = this.getFrameValue(frame, curve, true); // 编辑后的值
+      for (let frame = visibleFrameStart; frame <= visibleFrameEnd; frame += step) {
+        const value = this.getFrameValue(frame, curve, true);
         if (value !== null) {
           const x = this.frameToX(frame, left, width, frameCount, zoomLevel, scrollLeft);
           const y = this.valueToY(value, top, height, minValue, maxValue);
           
-          if (x >= left - 10 && x <= left + width + 10) {
-            if (firstPoint) {
-              this.ctx.moveTo(x, y);
-              firstPoint = false;
-            } else {
-              this.ctx.lineTo(x, y);
-            }
+          if (firstPoint) {
+            this.ctx.moveTo(x, y);
+            firstPoint = false;
+          } else {
+            this.ctx.lineTo(x, y);
           }
         }
       }
@@ -740,8 +761,7 @@ export class CurveEditor {
               this.ctx.fill();
               
               // 白色边框
-              this.ctx.strokeStyle = getComputedStyle(document.documentElement)
-                .getPropertyValue('--bg-secondary').trim();
+              this.ctx.strokeStyle = this.cachedStyles.bgSecondary;
               this.ctx.lineWidth = 2;
               this.ctx.stroke();
             }
@@ -752,8 +772,7 @@ export class CurveEditor {
   }
 
   drawValueLabels(left, top, height, minValue, maxValue) {
-    this.ctx.fillStyle = getComputedStyle(document.documentElement)
-      .getPropertyValue('--text-tertiary').trim();
+    this.ctx.fillStyle = this.cachedStyles.textTertiary;
     this.ctx.font = '10px monospace';
     this.ctx.textAlign = 'right';
     this.ctx.textBaseline = 'middle';
@@ -767,8 +786,7 @@ export class CurveEditor {
   }
 
   drawAxes(left, top, width, height) {
-    this.ctx.strokeStyle = getComputedStyle(document.documentElement)
-      .getPropertyValue('--border-primary').trim();
+    this.ctx.strokeStyle = this.cachedStyles.borderPrimary;
     this.ctx.lineWidth = 1;
     
     // 绘制四边框
@@ -941,6 +959,40 @@ export class CurveEditor {
     
     // 映射到曲线画布
     return left + (posInSlider / slider.offsetWidth) * width;
+  }
+  
+  /**
+   * 将画布 x 坐标转换为帧号 (frameToX 的逆运算)
+   * 用于计算可见帧范围
+   */
+  xToFrame(x, left, width, frameCount, zoomLevel, scrollLeft) {
+    const timelineController = this.editor.timelineController;
+    if (!timelineController) {
+      return Math.round(((x - left) / width) * Math.max(frameCount - 1, 1));
+    }
+    
+    const slider = document.getElementById('timeline-slider');
+    if (!slider) {
+      return Math.round(((x - left) / width) * Math.max(frameCount - 1, 1));
+    }
+    
+    // 计算thumb的有效范围
+    const oldValue = slider.value;
+    slider.value = 0;
+    const thumbPos0 = timelineController.getThumbPosition(slider);
+    slider.value = slider.max;
+    const thumbPosMax = timelineController.getThumbPosition(slider);
+    slider.value = oldValue;
+    
+    const effectiveWidth = thumbPosMax - thumbPos0;
+    const offset = thumbPos0;
+    
+    // 从画布坐标映射回slider位置
+    const posInSlider = ((x - left) / width) * slider.offsetWidth;
+    
+    // 从slider位置计算帧号
+    const ratio = (posInSlider - offset) / effectiveWidth;
+    return Math.round(ratio * Math.max(frameCount - 1, 1));
   }
 
   valueToY(value, top, height, minValue, maxValue) {
