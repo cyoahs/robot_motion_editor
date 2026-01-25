@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { i18n } from './i18n.js';
 
 export class BaseController {
@@ -17,11 +18,28 @@ export class BaseController {
     const header = document.getElementById('base-control-header');
     const headerTitle = header.querySelector('h3');
     
+    // 添加自动对齐按钮
+    const alignBtn = document.createElement('button');
+    alignBtn.textContent = '平移对齐';
+    alignBtn.title = '自动调整XYZ，让高度最低的link与原始轨迹对齐';
+    alignBtn.style.cssText = 'margin-left: 10px; padding: 2px 8px; font-size: 11px; background: var(--success-color); color: white; border: none; border-radius: 3px; cursor: pointer; transition: background-color 0.2s;';
+    alignBtn.addEventListener('mouseenter', () => {
+      alignBtn.style.opacity = '0.8';
+    });
+    alignBtn.addEventListener('mouseleave', () => {
+      alignBtn.style.opacity = '1';
+    });
+    alignBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.alignLowestLink();
+    });
+    header.appendChild(alignBtn);
+    
     // 添加全局重置按钮
     const resetAllBtn = document.createElement('button');
-    resetAllBtn.textContent = i18n.t('resetBaseTitle');
+    resetAllBtn.textContent = '重置';
     resetAllBtn.title = i18n.t('resetBaseTitle');
-    resetAllBtn.style.cssText = 'margin-left: 10px; padding: 2px 8px; font-size: 11px; background: var(--accent-primary); color: white; border: none; border-radius: 3px; cursor: pointer; transition: background-color 0.2s;';
+    resetAllBtn.style.cssText = 'margin-left: 5px; padding: 2px 8px; font-size: 11px; background: var(--accent-primary); color: white; border: none; border-radius: 3px; cursor: pointer; transition: background-color 0.2s;';
     resetAllBtn.addEventListener('mouseenter', () => {
       resetAllBtn.style.background = 'var(--accent-hover)';
     });
@@ -463,6 +481,85 @@ export class BaseController {
         console.log('✅ 基体已重置到 CSV base 值');
       }
     }
+  }
+  
+  /**
+   * 自动对齐最低link - 调整XYZ使得编辑后轨迹中高度最低的link与原始轨迹对齐
+   */
+  alignLowestLink() {
+    if (!this.editor.robotLeft || !this.editor.robotRight) {
+      console.warn('未加载机器人模型');
+      return;
+    }
+    
+    // 找到左侧（原始轨迹）机器人中高度最低的link
+    let lowestLinkLeft = null;
+    let lowestHeightLeft = Infinity;
+    
+    this.editor.robotLeft.traverse((child) => {
+      if (child.isURDFLink) {
+        const worldPos = new THREE.Vector3();
+        child.getWorldPosition(worldPos);
+        if (worldPos.z < lowestHeightLeft) {
+          lowestHeightLeft = worldPos.z;
+          lowestLinkLeft = child;
+        }
+      }
+    });
+    
+    if (!lowestLinkLeft) {
+      console.warn('未找到最低link');
+      return;
+    }
+    
+    // 找到右侧（编辑后轨迹）机器人中对应的link（同名）
+    let correspondingLinkRight = null;
+    this.editor.robotRight.traverse((child) => {
+      if (child.isURDFLink && child.name === lowestLinkLeft.name) {
+        correspondingLinkRight = child;
+      }
+    });
+    
+    if (!correspondingLinkRight) {
+      console.warn('未找到对应的右侧link');
+      return;
+    }
+    
+    // 获取两个link的世界坐标位置
+    const leftPos = new THREE.Vector3();
+    lowestLinkLeft.getWorldPosition(leftPos);
+    
+    const rightPos = new THREE.Vector3();
+    correspondingLinkRight.getWorldPosition(rightPos);
+    
+    // 计算XYZ方向的偏移量
+    const offsetX = leftPos.x - rightPos.x;
+    const offsetY = leftPos.y - rightPos.y;
+    const offsetZ = leftPos.z - rightPos.z;
+    
+    // 应用偏移到基座位置
+    this.baseValues.position.x += offsetX;
+    this.baseValues.position.y += offsetY;
+    this.baseValues.position.z += offsetZ;
+    
+    // 更新UI
+    const container = document.getElementById('base-controls');
+    ['x', 'y', 'z'].forEach(axis => {
+      const control = container.querySelector(`[data-base-axis="pos_${axis}"]`);
+      if (control) {
+        const slider = control.querySelector('input[type="range"]');
+        const numberInput = control.querySelector('input[type="number"]');
+        const value = this.baseValues.position[axis];
+        if (slider) slider.value = value;
+        if (numberInput) numberInput.value = value.toFixed(3);
+      }
+    });
+    
+    // 应用变换
+    this.applyBaseTransform();
+    
+    console.log(`✅ 已对齐最低link: ${lowestLinkLeft.name}`);
+    console.log(`   偏移: X=${offsetX.toFixed(3)}m, Y=${offsetY.toFixed(3)}m, Z=${offsetZ.toFixed(3)}m`);
   }
 
   resetPosition(axis) {
