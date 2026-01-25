@@ -60,8 +60,123 @@ export class CurveEditor {
     }
     this.ctx = this.canvas.getContext('2d');
     
+    // 创建RPY按钮
+    this.createRPYButtons();
+    
     // 设置画布大小
     this.resizeCanvas();
+  }
+  
+  /**
+   * 创建RPY按钮
+   */
+  createRPYButtons() {
+    const container = document.getElementById('rpy-buttons-container');
+    if (!container) return;
+    
+    container.style.display = 'none'; // 默认隐藏
+    container.style.flexDirection = 'row';
+    
+    const axes = [
+      { key: 'base_euler_x', label: 'Roll', axis: 'x' },
+      { key: 'base_euler_y', label: 'Pitch', axis: 'y' },
+      { key: 'base_euler_z', label: 'Yaw', axis: 'z' }
+    ];
+    
+    axes.forEach(({ key, label }) => {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      btn.dataset.curveKey = key;
+      btn.style.cssText = `
+        padding: 2px 8px;
+        font-size: 11px;
+        background: var(--bg-input);
+        color: var(--text-secondary);
+        border: 1px solid var(--border-primary);
+        border-radius: 3px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      `;
+      
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const curve = this.curves.get(key);
+        if (curve) {
+          curve.visible = !curve.visible;
+          this.updateRPYButtonStyle(btn, curve.visible);
+          this.draw();
+        }
+      });
+      
+      btn.addEventListener('mouseenter', () => {
+        btn.style.background = 'var(--bg-tertiary)';
+      });
+      
+      btn.addEventListener('mouseleave', () => {
+        const curve = this.curves.get(key);
+        this.updateRPYButtonStyle(btn, curve ? curve.visible : false);
+      });
+      
+      container.appendChild(btn);
+    });
+  }
+  
+  /**
+   * 更新RPY按钮样式
+   */
+  updateRPYButtonStyle(btn, isVisible) {
+    const curveKey = btn.dataset.curveKey;
+    const curve = this.curves.get(curveKey);
+    
+    if (isVisible && curve) {
+      btn.style.background = curve.color;
+      btn.style.color = '#ffffff';
+      btn.style.borderColor = curve.color;
+    } else {
+      btn.style.background = 'var(--bg-input)';
+      btn.style.color = 'var(--text-secondary)';
+      btn.style.borderColor = 'var(--border-primary)';
+    }
+  }
+  
+  /**
+   * 更新RPY按钮显示状态
+   */
+  updateRPYButtons() {
+    const container = document.getElementById('rpy-buttons-container');
+    if (!container) return;
+    
+    // 检查是否有任何欧拉角曲线可见
+    const eulerX = this.curves.get('base_euler_x');
+    const eulerY = this.curves.get('base_euler_y');
+    const eulerZ = this.curves.get('base_euler_z');
+    
+    const hasEulerVisible = (eulerX && eulerX.visible) || 
+                            (eulerY && eulerY.visible) || 
+                            (eulerZ && eulerZ.visible);
+    
+    // 检查是否有其他曲线可见
+    let hasOtherVisible = false;
+    this.curves.forEach((curve, key) => {
+      if (curve.visible && curve.type !== 'base_euler') {
+        hasOtherVisible = true;
+      }
+    });
+    
+    // 只在显示欧拉角且没有其他曲线时显示RPY按钮
+    if (hasEulerVisible && !hasOtherVisible) {
+      container.style.display = 'flex';
+      
+      // 更新每个按钮的样式
+      const buttons = container.querySelectorAll('button');
+      buttons.forEach(btn => {
+        const curveKey = btn.dataset.curveKey;
+        const curve = this.curves.get(curveKey);
+        this.updateRPYButtonStyle(btn, curve ? curve.visible : false);
+      });
+    } else {
+      container.style.display = 'none';
+    }
   }
 
   setupEventListeners() {
@@ -339,8 +454,25 @@ export class CurveEditor {
     const curve = this.curves.get(curveKey);
     if (!curve) return false;
     
+    const isEulerCurve = curve.type === 'base_euler';
+    
     if (shiftKey) {
-      // Shift+点击：切换当前曲线，不影响其他曲线
+      // Shift+点击：切换当前曲线，但要确保欧拉角和其他曲线不混合
+      if (isEulerCurve) {
+        // 如果是欧拉角曲线，先隐藏所有非欧拉角曲线
+        this.curves.forEach((c) => {
+          if (c.type !== 'base_euler') {
+            c.visible = false;
+          }
+        });
+      } else {
+        // 如果是其他曲线，先隐藏所有欧拉角曲线
+        this.curves.forEach((c) => {
+          if (c.type === 'base_euler') {
+            c.visible = false;
+          }
+        });
+      }
       curve.visible = !curve.visible;
     } else {
       // 普通点击：只显示当前曲线，隐藏其他所有曲线
@@ -351,6 +483,9 @@ export class CurveEditor {
       // 切换当前曲线状态
       curve.visible = !wasVisible;
     }
+    
+    // 更新RPY按钮
+    this.updateRPYButtons();
     
     // 更新关节控制面板的背景色
     if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
@@ -379,21 +514,21 @@ export class CurveEditor {
     
     if (shiftKey) {
       // Shift+点击：切换欧拉角曲线，不影响其他曲线
-      const newVisible = !eulerX.visible;
+      const newVisible = !eulerX.visible && !eulerY.visible;
       eulerX.visible = newVisible;
       eulerY.visible = newVisible;
-      eulerZ.visible = newVisible;
+      eulerZ.visible = false; // Yaw默认不显示
     } else {
       // 普通点击：只显示欧拉角曲线，隐藏其他所有曲线
-      const wasVisible = eulerX.visible;
+      const wasVisible = eulerX.visible || eulerY.visible;
       this.curves.forEach((curve) => {
         curve.visible = false;
       });
-      // 切换欧拉角曲线状态
+      // 切换欧拉角曲线状态 - 默认只显示Roll和Pitch
       const newVisible = !wasVisible;
-      eulerX.visible = newVisible;
-      eulerY.visible = newVisible;
-      eulerZ.visible = newVisible;
+      eulerX.visible = newVisible; // Roll
+      eulerY.visible = newVisible; // Pitch
+      eulerZ.visible = false; // Yaw默认不显示
       
       // 更新关节控制面板
       if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
@@ -405,6 +540,9 @@ export class CurveEditor {
     if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
       this.editor.baseController.updateCurveBackgrounds();
     }
+    
+    // 更新RPY按钮
+    this.updateRPYButtons();
     
     this.draw();
     return eulerX.visible;
