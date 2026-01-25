@@ -75,6 +75,41 @@ class RobotKeyframeEditor {
     }
   }
 
+  /**
+   * 更新当前文件名显示
+   * @param {string} fileName - 文件名
+   * @param {string} type - 文件类型 ('csv' 或 'project')
+   */
+  updateCurrentFileName(fileName, type = 'csv') {
+    const fileNameElement = document.getElementById('current-file-name');
+    const fileNameText = document.getElementById('file-name-text');
+    
+    if (fileNameElement && fileNameText && fileName) {
+      const icon = type === 'project' ? '📦' : '📄';
+      fileNameElement.querySelector('span').textContent = icon;
+      
+      // 如果文件名太长，显示缩略版本
+      const maxLength = 30;
+      const displayName = fileName.length > maxLength 
+        ? fileName.substring(0, maxLength - 3) + '...' 
+        : fileName;
+      
+      fileNameText.textContent = displayName;
+      fileNameText.title = fileName; // 鼠标悬停显示完整文件名
+      fileNameElement.style.display = 'flex';
+    }
+  }
+
+  /**
+   * 清除文件名显示
+   */
+  clearCurrentFileName() {
+    const fileNameElement = document.getElementById('current-file-name');
+    if (fileNameElement) {
+      fileNameElement.style.display = 'none';
+    }
+  }
+
   init() {
     // 创建左侧场景 (原始轨迹)
     this.sceneLeft = new THREE.Scene();
@@ -492,6 +527,9 @@ class RobotKeyframeEditor {
       console.log('✅ CSV 加载成功, 帧数:', frameCount, 'FPS:', fps);
       console.log('📄 文件名:', file.name);
       this.updateStatus(i18n.t('csvLoadSuccess', { frames: frameCount, fps: fps }), 'success');
+      
+      // 更新文件名显示
+      this.updateCurrentFileName(file.name, 'csv');
     } catch (error) {
       console.error('CSV 加载失败:', error);
       this.updateStatus(i18n.t('csvLoadFailed'), 'error');
@@ -786,6 +824,9 @@ class RobotKeyframeEditor {
       
       console.log('✅ 工程文件已加载:', file.name);
       this.updateStatus(i18n.t('projectLoaded'), 'success');
+      
+      // 更新文件名显示
+      this.updateCurrentFileName(file.name, 'project');
     } catch (error) {
       console.error('❌ 加载工程文件失败:', error);
       alert('加载工程文件失败: ' + error.message);

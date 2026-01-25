@@ -331,6 +331,10 @@
         <input type="file" id="load-project" accept=".json">
       </label>
       <button id="save-project" data-i18n="saveProject">保存工程文件</button>
+      <span id="current-file-name" style="margin-left: 20px; color: var(--accent-info); font-weight: 500; font-size: 13px; transition: color 0.3s ease; display: none; align-items: center; gap: 5px;">
+        <span style="font-size: 14px;">📄</span>
+        <span id="file-name-text"></span>
+      </span>
       <span id="status-text" style="margin-left: 20px; color: var(--text-tertiary); transition: color 0.3s ease;" data-i18n="ready">就绪</span>
       <button id="theme-toggle" style="margin-left: auto; padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;" data-i18n-title="toggleTheme" title="切换主题">
         <span id="theme-icon">🌙</span>
