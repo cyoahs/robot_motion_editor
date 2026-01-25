@@ -77,7 +77,7 @@ export class BaseController {
       label.addEventListener('click', (e) => {
         if (this.editor.curveEditor) {
           const curveKey = `base_pos_${axis}`;
-          const visible = this.editor.curveEditor.toggleCurveVisibility(curveKey);
+          const visible = this.editor.curveEditor.toggleCurveVisibility(curveKey, e.shiftKey);
           const color = this.editor.curveEditor.getCurveColor(curveKey);
           if (color) {
             if (visible) {
@@ -207,7 +207,7 @@ export class BaseController {
     // 点击label切换欧拉角可视化
     quatLabel.addEventListener('click', (e) => {
       if (this.editor.curveEditor) {
-        const visible = this.editor.curveEditor.toggleQuaternionVisualization();
+        const visible = this.editor.curveEditor.toggleQuaternionVisualization(e.shiftKey);
         const color = this.editor.curveEditor.getCurveColor('base_euler_x');
         if (color) {
           if (visible) {

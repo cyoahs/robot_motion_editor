@@ -274,7 +274,7 @@ export class CurveEditor {
             name: joint.name || `Joint ${index + 1}`,
             type: 'joint',
             index: index,
-            visible: hasResidual, // 默认显示有残差的曲线
+            visible: false, // 默认不显示
             color: this.getNextColor(),
             data: []
           });
@@ -301,7 +301,7 @@ export class CurveEditor {
           name: `Base Position ${axis.toUpperCase()}`,
           type: 'base_position',
           axis: axis,
-          visible: hasResidual,
+          visible: false, // 默认不显示
           color: this.getNextColor(),
           data: []
         });
@@ -332,56 +332,68 @@ export class CurveEditor {
 
   /**
    * 切换曲线可见性
+   * @param {string} curveKey - 曲线键名
+   * @param {boolean} shiftKey - 是否按住Shift键（多选模式）
    */
-  toggleCurveVisibility(curveKey) {
+  toggleCurveVisibility(curveKey, shiftKey = false) {
     const curve = this.curves.get(curveKey);
-    if (curve) {
+    if (!curve) return false;
+    
+    if (shiftKey) {
+      // Shift+点击：切换当前曲线，不影响其他曲线
       curve.visible = !curve.visible;
-      
-      // 如果显示的是非欧拉角曲线，自动隐藏欧拉角可视化
-      if (curve.visible && curve.type !== 'base_euler') {
-        this.hideQuaternionVisualization();
-      }
-      
-      // 更新关节控制面板的背景色
-      if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
-        this.editor.jointController.updateCurveBackgrounds();
-      }
-      
-      // 更新基体控制面板的背景色
-      if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
-        this.editor.baseController.updateCurveBackgrounds();
-      }
-      
-      this.draw();
-      return curve.visible;
+    } else {
+      // 普通点击：只显示当前曲线，隐藏其他所有曲线
+      const wasVisible = curve.visible;
+      this.curves.forEach((c) => {
+        c.visible = false;
+      });
+      // 切换当前曲线状态
+      curve.visible = !wasVisible;
     }
-    return false;
+    
+    // 更新关节控制面板的背景色
+    if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
+      this.editor.jointController.updateCurveBackgrounds();
+    }
+    
+    // 更新基体控制面板的背景色
+    if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
+      this.editor.baseController.updateCurveBackgrounds();
+    }
+    
+    this.draw();
+    return curve.visible;
   }
   
   /**
    * 切换四元数欧拉角可视化
+   * @param {boolean} shiftKey - 是否按住Shift键（多选模式）
    */
-  toggleQuaternionVisualization() {
+  toggleQuaternionVisualization(shiftKey = false) {
     const eulerX = this.curves.get('base_euler_x');
     const eulerY = this.curves.get('base_euler_y');
     const eulerZ = this.curves.get('base_euler_z');
     
     if (!eulerX || !eulerY || !eulerZ) return false;
     
-    // 切换显示状态
-    const newVisible = !eulerX.visible;
-    eulerX.visible = newVisible;
-    eulerY.visible = newVisible;
-    eulerZ.visible = newVisible;
-    
-    // 如果显示欧拉角，自动隐藏所有其他曲线
-    if (newVisible) {
-      this.curves.forEach((curve, key) => {
-        if (curve.type !== 'base_euler') {
-          curve.visible = false;
-        }
+    if (shiftKey) {
+      // Shift+点击：切换欧拉角曲线，不影响其他曲线
+      const newVisible = !eulerX.visible;
+      eulerX.visible = newVisible;
+      eulerY.visible = newVisible;
+      eulerZ.visible = newVisible;
+    } else {
+      // 普通点击：只显示欧拉角曲线，隐藏其他所有曲线
+      const wasVisible = eulerX.visible;
+      this.curves.forEach((curve) => {
+        curve.visible = false;
       });
+      // 切换欧拉角曲线状态
+      const newVisible = !wasVisible;
+      eulerX.visible = newVisible;
+      eulerY.visible = newVisible;
+      eulerZ.visible = newVisible;
       
       // 更新关节控制面板
       if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
@@ -395,7 +407,7 @@ export class CurveEditor {
     }
     
     this.draw();
-    return newVisible;
+    return eulerX.visible;
   }
   
   /**

@@ -64,7 +64,7 @@ export class JointController {
       label.addEventListener('click', (e) => {
         if (this.editor.curveEditor) {
           const curveKey = `joint_${index}`;
-          const visible = this.editor.curveEditor.toggleCurveVisibility(curveKey);
+          const visible = this.editor.curveEditor.toggleCurveVisibility(curveKey, e.shiftKey);
           const color = this.editor.curveEditor.getCurveColor(curveKey);
           if (color) {
             // 更新背景色
