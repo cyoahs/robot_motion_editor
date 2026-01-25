@@ -9,6 +9,7 @@ import { COMVisualizer } from './comVisualizer.js';
 import { i18n } from './i18n.js';
 import { ThemeManager } from './themeManager.js';
 import { CurveEditor } from './curveEditor.js';
+import { AxisGizmo } from './axisGizmo.js';
 
 class RobotKeyframeEditor {
   constructor() {
@@ -51,6 +52,9 @@ class RobotKeyframeEditor {
     this.comVisualizerLeft = null;
     this.comVisualizerRight = null;
     this.showCOM = true; // 默认显示COM
+    
+    // 坐标轴指示器
+    this.axisGizmo = null;
     
     // 相机控制状态
     this.cameraMode = 'rotate'; // 'rotate' 或 'pan'
@@ -219,6 +223,9 @@ class RobotKeyframeEditor {
 
     // 初始化曲线编辑器
     this.curveEditor = new CurveEditor(this);
+    
+    // 初始化坐标轴指示器（右侧视口）
+    this.axisGizmo = new AxisGizmo(this, this.cameraRight, this.controls, 'right');
 
     // 窗口大小调整
     window.addEventListener('resize', () => this.handleResize());
@@ -1068,6 +1075,12 @@ class RobotKeyframeEditor {
     this.renderer.setScissor(halfWidth, 0, halfWidth, fullHeight);
     this.renderer.setScissorTest(true);
     this.renderer.render(this.sceneRight, this.cameraRight);
+    
+    // 渲染坐标轴指示器
+    if (this.axisGizmo) {
+      this.axisGizmo.update();
+      this.axisGizmo.render(this.renderer);
+    }
   }
 }
 
