@@ -855,7 +855,7 @@ class RobotKeyframeEditor {
         MIDDLE: THREE.MOUSE.DOLLY,
         RIGHT: THREE.MOUSE.PAN
       };
-      document.getElementById('toggle-camera-mode').textContent = '↔️ 平移';
+      document.getElementById('toggle-camera-mode').textContent = i18n.t('pan');
       console.log('📷 相机模式: 平移');
     } else {
       this.cameraMode = 'rotate';
@@ -867,7 +867,7 @@ class RobotKeyframeEditor {
         MIDDLE: THREE.MOUSE.DOLLY,
         RIGHT: THREE.MOUSE.PAN
       };
-      document.getElementById('toggle-camera-mode').textContent = '🔄 旋转';
+      document.getElementById('toggle-camera-mode').textContent = i18n.t('rotate');
       console.log('📷 相机模式: 旋转');
     }
   }
@@ -894,7 +894,7 @@ class RobotKeyframeEditor {
         console.log('📷 跟随模式下自动切换到旋转模式');
       }
       
-      button.textContent = '🤖 跟随: 开';
+      button.textContent = i18n.t('followOn');
       button.style.background = 'rgba(78, 201, 176, 0.3)';
       button.style.borderColor = 'rgba(78, 201, 176, 0.6)';
       console.log('🤖 开始跟随机器人');
@@ -906,7 +906,7 @@ class RobotKeyframeEditor {
         this.controls.update();
       }
     } else {
-      button.textContent = '🤖 跟随: 关';
+      button.textContent = i18n.t('followOff');
       button.style.background = 'var(--overlay-bg)';
       button.style.borderColor = 'var(--border-primary)';
       console.log('🤖 停止跟随机器人');
@@ -918,7 +918,7 @@ class RobotKeyframeEditor {
     const button = document.getElementById('toggle-com');
     
     if (this.showCOM) {
-      button.textContent = '🎯 重心: 开';
+      button.textContent = i18n.t('comOn');
       button.style.background = 'rgba(255, 100, 100, 0.3)';
       button.style.borderColor = 'rgba(255, 100, 100, 0.6)';
       
@@ -932,7 +932,7 @@ class RobotKeyframeEditor {
       
       console.log('🎯 显示重心');
     } else {
-      button.textContent = '🎯 重心: 关';
+      button.textContent = i18n.t('comOff');
       button.style.background = 'var(--overlay-bg)';
       button.style.borderColor = 'var(--border-primary)';
       
@@ -952,14 +952,14 @@ class RobotKeyframeEditor {
     const button = document.getElementById('toggle-auto-refresh');
     
     if (this.autoRefreshFootprint) {
-      button.textContent = '⏱️ 自动刷新: 开';
+      button.textContent = i18n.t('autoRefreshOn');
       button.style.background = 'rgba(0, 200, 0, 0.3)';
       button.style.borderColor = 'rgba(0, 200, 0, 0.6)';
       console.log('⏱️ 开启包络线自动刷新（2秒防抖）');
       // 立即触发一次更新
       this.scheduleFootprintUpdate();
     } else {
-      button.textContent = '⏱️ 自动刷新: 关';
+      button.textContent = i18n.t('autoRefreshOff');
       button.style.background = 'var(--overlay-bg)';
       button.style.borderColor = 'var(--border-primary)';
       // 取消待执行的定时器

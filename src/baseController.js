@@ -20,8 +20,8 @@ export class BaseController {
     
     // 添加自动对齐按钮
     const alignBtn = document.createElement('button');
-    alignBtn.textContent = '平移对齐';
-    alignBtn.title = '自动调整XYZ，让高度最低的link与原始轨迹对齐';
+    alignBtn.textContent = i18n.t('alignLowest');
+    alignBtn.title = i18n.t('alignLowestTitle');
     alignBtn.style.cssText = 'margin-left: 10px; padding: 2px 8px; font-size: 11px; background: var(--success-color); color: white; border: none; border-radius: 3px; cursor: pointer; transition: background-color 0.2s;';
     alignBtn.addEventListener('mouseenter', () => {
       alignBtn.style.opacity = '0.8';
@@ -37,7 +37,7 @@ export class BaseController {
     
     // 添加全局重置按钮
     const resetAllBtn = document.createElement('button');
-    resetAllBtn.textContent = '重置';
+    resetAllBtn.textContent = i18n.t('reset');
     resetAllBtn.title = i18n.t('resetBaseTitle');
     resetAllBtn.style.cssText = 'margin-left: 5px; padding: 2px 8px; font-size: 11px; background: var(--accent-primary); color: white; border: none; border-radius: 3px; cursor: pointer; transition: background-color 0.2s;';
     resetAllBtn.addEventListener('mouseenter', () => {
@@ -200,7 +200,7 @@ export class BaseController {
     quatLabel.title = '点击切换四元数欧拉角可视化';
     
     const quatLabelText = document.createElement('span');
-    quatLabelText.textContent = 'Quaternion (Euler)';
+    quatLabelText.textContent = i18n.t('quaternion') + ' (Euler)';
     quatLabel.appendChild(quatLabelText);
     
     // 添加关键帧状态圈圈
@@ -337,10 +337,10 @@ export class BaseController {
     
     if (this.isExpanded) {
       container.style.display = 'block';
-      header.querySelector('h3').textContent = '▼ 基体控制 (Base)';
+      header.querySelector('h3').textContent = '▼ ' + i18n.t('baseControl').substring(2);
     } else {
-      container.style.display = 'none';
-      header.querySelector('h3').textContent = '▶ 基体控制 (Base)';
+      content.style.display = 'none';
+      header.querySelector('h3').textContent = i18n.t('baseControl');
     }
   }
 

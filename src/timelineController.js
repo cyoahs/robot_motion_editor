@@ -349,7 +349,7 @@ export class TimelineController {
     
     this.isPlaying = true;
     const playBtn = document.getElementById('play-pause');
-    if (playBtn) playBtn.textContent = '⏸ 暂停';
+    if (playBtn) playBtn.textContent = i18n.t('pause');
     
     const frameTime = 1000 / this.fps;
     this.playInterval = setInterval(() => {
@@ -366,7 +366,7 @@ export class TimelineController {
     
     this.isPlaying = false;
     const playBtn = document.getElementById('play-pause');
-    if (playBtn) playBtn.textContent = '▶ 播放';
+    if (playBtn) playBtn.textContent = i18n.t('play');
     
     if (this.playInterval) {
       clearInterval(this.playInterval);

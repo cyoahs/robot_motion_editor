@@ -18,6 +18,7 @@ const translations = {
     
     // 相机控制按钮
     rotate: '🔄 旋转',
+    pan: '↔️ 平移',
     resetCamera: '🔄 重置视角',
     followOn: '🤖 跟随: 开',
     followOff: '🤖 跟随: 关',
@@ -38,6 +39,8 @@ const translations = {
     baseControl: '▶ 基体控制 (Base)',
     jointControl: '关节控制',
     reset: '重置',
+    alignLowest: '平移对齐',
+    alignLowestTitle: '自动调整XYZ，让高度最低的link与原始轨迹对齐',
     
     // 时间轴
     addKeyframe: '添加关键帧',
@@ -152,6 +155,7 @@ const translations = {
     
     // Camera control buttons
     rotate: '🔄 Rotate',
+    pan: '↔️ Pan',
     resetCamera: '🔄 Reset View',
     followOn: '🤖 Follow: On',
     followOff: '🤖 Follow: Off',
@@ -172,6 +176,8 @@ const translations = {
     baseControl: '▶ Base Control (Base)',
     jointControl: 'Joint Control',
     reset: 'Reset',
+    alignLowest: 'Align Lowest',
+    alignLowestTitle: 'Auto-adjust XYZ to align the lowest link with the base trajectory',
     
     // Timeline
     addKeyframe: 'Add Keyframe',
