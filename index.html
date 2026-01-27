@@ -336,13 +336,13 @@
         <span id="file-name-text"></span>
       </span>
       <span id="status-text" style="margin-left: 20px; color: var(--text-tertiary); transition: color 0.3s ease;" data-i18n="ready">就绪</span>
-      <button id="help-button" style="padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;" data-i18n-title="userGuide" title="使用说明">
+      <button id="help-button" style="margin-left: auto; padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;" data-i18n-title="userGuide" title="使用说明">
         <span>❓</span>
       </button>
       <button id="theme-toggle" style="padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;" data-i18n-title="toggleTheme" title="切换主题">
         <span id="theme-icon">🌙</span>
       </button>
-      <button id="lang-toggle" style="margin-left: auto; margin-right: 10px; padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s;">
+      <button id="lang-toggle" style="margin-right: 10px; padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s;">
         EN/中
       </button>
       <span id="security-info" style="padding: 4px 12px; background: rgba(78, 201, 176, 0.15); color: var(--success-color); border: 1px solid var(--success-color); border-radius: 4px; font-size: 11px; display: flex; align-items: center; gap: 5px; cursor: pointer; transition: all 0.2s;">
@@ -476,10 +476,10 @@
         <div style="margin-bottom: 20px;">
           <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="coreFeatures">核心功能</h4>
           <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
-            <li style="margin-bottom: 8px;" data-i18n="helpFeature1"><strong>双视口对比</strong>：左侧显示原始轨迹，右侧显示编辑结果，相机同步</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpFeature2"><strong>曲线编辑器</strong>：可视化关节和基体随时间的变化曲线，支持贝塞尔插值</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpFeature3"><strong>动力学可视化</strong>：实时显示重心位置和支撑多边形投影</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpFeature4"><strong>工程保存/加载</strong>：保存完整工程状态（URDF、轨迹、关键帧、编辑历史）</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature1">双视口对比：左侧显示原始轨迹，右侧显示编辑结果，相机同步</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature2">曲线编辑器：可视化关节和基体随时间的变化曲线，支持贝塞尔插值</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature3">动力学可视化：实时显示重心位置和支撑多边形投影</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature4">工程保存/加载：保存完整工程状态（URDF、轨迹、关键帧、编辑历史）</li>
           </ul>
         </div>
 
@@ -487,10 +487,10 @@
         <div style="margin-bottom: 20px;">
           <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="quickFeatures">快捷功能</h4>
           <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
-            <li style="margin-bottom: 8px;" data-i18n="helpQuick1"><strong>平移对齐</strong>：基座控制中的"平移对齐"按钮可自动调整XYZ，使编辑后机器人的最低点与原始轨迹对齐</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpQuick2"><strong>坐标轴指示器</strong>：右下角的3D轴指示器，点击X/Y/Z轴可快速切换到对应的正交视角</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpQuick3"><strong>相机跟随</strong>：开启跟随模式后，相机会自动跟随机器人移动</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpQuick4"><strong>重心显示</strong>：实时显示机器人重心位置和地面投影包络线</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick1">平移对齐：基座控制中的"平移对齐"按钮可自动调整XYZ，使编辑后机器人的最低点与原始轨迹对齐</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick2">坐标轴指示器：右下角的3D轴指示器，点击X/Y/Z轴可快速切换到对应的正交视角</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick3">相机跟随：开启跟随模式后，相机会自动跟随机器人移动</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick4">重心显示：实时显示机器人重心位置和地面投影包络线</li>
           </ul>
         </div>
 
