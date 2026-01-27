@@ -336,10 +336,13 @@
         <span id="file-name-text"></span>
       </span>
       <span id="status-text" style="margin-left: 20px; color: var(--text-tertiary); transition: color 0.3s ease;" data-i18n="ready">就绪</span>
-      <button id="theme-toggle" style="margin-left: auto; padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;" data-i18n-title="toggleTheme" title="切换主题">
+      <button id="help-button" style="padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;" data-i18n-title="userGuide" title="使用说明">
+        <span>❓</span>
+      </button>
+      <button id="theme-toggle" style="padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;" data-i18n-title="toggleTheme" title="切换主题">
         <span id="theme-icon">🌙</span>
       </button>
-      <button id="lang-toggle" style="margin-right: 10px; padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s;">
+      <button id="lang-toggle" style="margin-left: auto; margin-right: 10px; padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s;">
         EN/中
       </button>
       <span id="security-info" style="padding: 4px 12px; background: rgba(78, 201, 176, 0.15); color: var(--success-color); border: 1px solid var(--success-color); border-radius: 4px; font-size: 11px; display: flex; align-items: center; gap: 5px; cursor: pointer; transition: all 0.2s;">
@@ -444,6 +447,58 @@
       </div>
       <div id="curve-editor-content" style="display: none;">
         <canvas id="curve-canvas" style="width: 100%; height: 200px; cursor: default; transition: background 0.3s ease;"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 使用说明弹窗 -->
+  <div id="help-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center;">
+    <div style="background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 8px; padding: 20px; max-width: 700px; max-height: 80vh; width: 90%; overflow-y: auto; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); transition: background-color 0.3s ease, border-color 0.3s ease;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h3 style="margin: 0; color: var(--text-secondary); font-size: 17px; transition: color 0.3s ease;" data-i18n="userGuide">📖 使用说明</h3>
+        <button id="close-help-modal" style="background: none; border: none; color: var(--text-tertiary); font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; transition: color 0.3s ease;">×</button>
+      </div>
+      <div style="color: var(--text-primary); font-size: 14px; line-height: 1.6; transition: color 0.3s ease;">
+        
+        <!-- 基本流程 -->
+        <div style="margin-bottom: 20px;">
+          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="basicWorkflow">基本流程</h4>
+          <ol style="margin: 0; padding-left: 20px; color: var(--text-primary);">
+            <li style="margin-bottom: 8px;" data-i18n="helpStep1">加载 URDF：选择包含 URDF 和 mesh 文件的文件夹</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpStep2">加载轨迹：加载 CSV 文件（前 7 列为 base xyz + 四元数 xyzw，后续为关节角度）</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpStep3">编辑关键帧：点击自由度名称显示曲线，调整参数后添加关键帧（Shift+点击多选曲线）</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpStep4">保存工程：保存完整的编辑状态（支持加载恢复）</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpStep5">导出轨迹：导出融合后的 CSV 轨迹</li>
+          </ol>
+        </div>
+
+        <!-- 核心功能 -->
+        <div style="margin-bottom: 20px;">
+          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="coreFeatures">核心功能</h4>
+          <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature1"><strong>双视口对比</strong>：左侧显示原始轨迹，右侧显示编辑结果，相机同步</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature2"><strong>曲线编辑器</strong>：可视化关节和基体随时间的变化曲线，支持贝塞尔插值</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature3"><strong>动力学可视化</strong>：实时显示重心位置和支撑多边形投影</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature4"><strong>工程保存/加载</strong>：保存完整工程状态（URDF、轨迹、关键帧、编辑历史）</li>
+          </ul>
+        </div>
+
+        <!-- 快捷功能 -->
+        <div style="margin-bottom: 20px;">
+          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="quickFeatures">快捷功能</h4>
+          <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick1"><strong>平移对齐</strong>：基座控制中的"平移对齐"按钮可自动调整XYZ，使编辑后机器人的最低点与原始轨迹对齐</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick2"><strong>坐标轴指示器</strong>：右下角的3D轴指示器，点击X/Y/Z轴可快速切换到对应的正交视角</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick3"><strong>相机跟随</strong>：开启跟随模式后，相机会自动跟随机器人移动</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick4"><strong>重心显示</strong>：实时显示机器人重心位置和地面投影包络线</li>
+          </ul>
+        </div>
+
+        <!-- 提示 -->
+        <div style="padding: 10px; background: rgba(78, 201, 176, 0.1); border-left: 3px solid var(--success-color); border-radius: 4px; transition: border-color 0.3s ease;">
+          <div style="color: var(--success-color); font-weight: bold; margin-bottom: 4px; font-size: 14px; transition: color 0.3s ease;" data-i18n="helpTip">💡 提示</div>
+          <div style="font-size: 13px; line-height: 1.5;" data-i18n="helpTipText">所有数据处理完全在浏览器本地完成，不会上传任何文件或数据到服务器</div>
+        </div>
       </div>
     </div>
   </div>

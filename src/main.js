@@ -1278,6 +1278,41 @@ function initBuildInfoModal() {
   });
 }
 
+// 初始化使用说明弹窗
+function initHelpModal() {
+  const helpButton = document.getElementById('help-button');
+  const modal = document.getElementById('help-modal');
+  const closeBtn = document.getElementById('close-help-modal');
+  
+  if (!helpButton || !modal) return;
+  
+  // 点击帮助按钮打开modal
+  helpButton.addEventListener('click', () => {
+    modal.style.display = 'flex';
+  });
+  
+  // 关闭modal
+  const closeModal = () => {
+    modal.style.display = 'none';
+  };
+  
+  closeBtn.addEventListener('click', closeModal);
+  
+  // 点击背景关闭
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      closeModal();
+    }
+  });
+  
+  // ESC键关闭
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modal.style.display === 'flex') {
+      closeModal();
+    }
+  });
+}
+
 // 初始化多语言系统
 function initI18n() {
   // 保存原始文本模板
@@ -1367,3 +1402,4 @@ function initI18n() {
 
 initI18n();
 initBuildInfoModal();
+initHelpModal();

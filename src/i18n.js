@@ -136,6 +136,27 @@ const translations = {
     curves: '📈 曲线',
     curveEditor: '📈 曲线编辑器',
     resetDefault: '恢复默认',
+    
+    // 使用说明
+    userGuide: '📖 使用说明',
+    basicWorkflow: '基本流程',
+    coreFeatures: '核心功能',
+    quickFeatures: '快捷功能',
+    helpStep1: '加载 URDF：选择包含 URDF 和 mesh 文件的文件夹',
+    helpStep2: '加载轨迹：加载 CSV 文件（前 7 列为 base xyz + 四元数 xyzw，后续为关节角度）',
+    helpStep3: '编辑关键帧：点击自由度名称显示曲线，调整参数后添加关键帧（Shift+点击多选曲线）',
+    helpStep4: '保存工程：保存完整的编辑状态（支持加载恢复）',
+    helpStep5: '导出轨迹：导出融合后的 CSV 轨迹',
+    helpFeature1: '双视口对比：左侧显示原始轨迹，右侧显示编辑结果，相机同步',
+    helpFeature2: '曲线编辑器：可视化关节和基体随时间的变化曲线，支持贝塞尔插值',
+    helpFeature3: '动力学可视化：实时显示重心位置和支撑多边形投影',
+    helpFeature4: '工程保存/加载：保存完整工程状态（URDF、轨迹、关键帧、编辑历史）',
+    helpQuick1: '平移对齐：基座控制中的"平移对齐"按钮可自动调整XYZ，使编辑后机器人的最低点与原始轨迹对齐',
+    helpQuick2: '坐标轴指示器：右下角的3D轴指示器，点击X/Y/Z轴可快速切换到对应的正交视角',
+    helpQuick3: '相机跟随：开启跟随模式后，相机会自动跟随机器人移动',
+    helpQuick4: '重心显示：实时显示机器人重心位置和地面投影包络线',
+    helpTip: '💡 提示',
+    helpTipText: '所有数据处理完全在浏览器本地完成，不会上传任何文件或数据到服务器',
   },
   en: {
     // Toolbar
@@ -271,7 +292,29 @@ const translations = {
     // Curve Editor
     curves: '📈 Curves',
     curveEditor: '📈 Curve Editor',
-    resetDefault: 'Reset Default',  }
+    resetDefault: 'Reset Default',
+    
+    // User Guide
+    userGuide: '📖 User Guide',
+    basicWorkflow: 'Basic Workflow',
+    coreFeatures: 'Core Features',
+    quickFeatures: 'Quick Features',
+    helpStep1: 'Load URDF: Select a folder containing URDF and mesh files',
+    helpStep2: 'Load Trajectory: Load a CSV file (first 7 columns: base xyz + quaternion xyzw, followed by joint angles)',
+    helpStep3: 'Edit Keyframes: Click DOF names to show curves, adjust parameters and add keyframes (Shift+click for multiple curves)',
+    helpStep4: 'Save Project: Save the complete editing state (can be loaded to restore)',
+    helpStep5: 'Export Trajectory: Export the combined CSV trajectory',
+    helpFeature1: 'Dual-Viewport Comparison: Original trajectory on the left, edited results on the right with synchronized camera',
+    helpFeature2: 'Curve Editor: Visualize joint and base changes over time with Bezier interpolation support',
+    helpFeature3: 'Dynamics Visualization: Real-time display of center of mass position and contact polygon projection',
+    helpFeature4: 'Project Save/Load: Save complete project state (URDF, trajectories, keyframes, edit history)',
+    helpQuick1: 'Align Lowest: The "Align Lowest" button in base control auto-adjusts XYZ to align the edited robot\'s lowest point with the base trajectory',
+    helpQuick2: 'Axis Gizmo: The 3D axis indicator in the bottom-right corner allows quick switching to orthogonal views by clicking X/Y/Z axes',
+    helpQuick3: 'Follow Robot: When follow mode is enabled, the camera automatically follows the robot movement',
+    helpQuick4: 'COM Display: Real-time display of robot center of mass and ground projection footprint',
+    helpTip: '💡 Tip',
+    helpTipText: 'All data processing is completed locally in your browser. No files or data will be uploaded to any server',
+  }
 };
 
 class I18n {
