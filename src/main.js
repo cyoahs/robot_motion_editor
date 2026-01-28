@@ -10,6 +10,7 @@ import { i18n } from './i18n.js';
 import { ThemeManager } from './themeManager.js';
 import { CurveEditor } from './curveEditor.js';
 import { AxisGizmo } from './axisGizmo.js';
+import { VideoExporter } from './videoExporter.js';
 
 class RobotKeyframeEditor {
   constructor() {
@@ -55,6 +56,9 @@ class RobotKeyframeEditor {
     
     // 坐标轴指示器
     this.axisGizmo = null;
+    
+    // 视频导出器
+    this.videoExporter = null;
     
     // 相机控制状态
     this.cameraMode = 'rotate'; // 'rotate' 或 'pan'
@@ -301,6 +305,14 @@ class RobotKeyframeEditor {
     // 导出原始轨迹
     document.getElementById('export-base-trajectory').addEventListener('click', () => {
       this.exportBaseTrajectory();
+    });
+
+    // 导出视频
+    document.getElementById('export-video').addEventListener('click', () => {
+      if (!this.videoExporter) {
+        this.videoExporter = new VideoExporter(this);
+      }
+      this.videoExporter.startExport();
     });
 
     // 保存工程文件
