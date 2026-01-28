@@ -617,6 +617,9 @@ export class VideoExporter {
     this.isPaused = false;
     this.recordedChunks = [];
     this.startTime = null; // 重置开始时间
+    this.recordingDuration = 0; // 录制时长(毫秒)
+    this.recordingStartTime = null; // MediaRecorder开始时间
+    this.recordingDuration = 0; // 录制时长(毫秒)
     
     // 监听页面可见性
     const visibilityHandler = () => {
@@ -720,6 +723,8 @@ export class VideoExporter {
       
       // 停止录制
       this.updateProgress(100, 100, 'encoding');
+      // 根据实际帧数和帧率计算精确duration（毫秒）
+      this.recordingDuration = (totalFrames / this.fps) * 1000;
       await this.stopRecording();
       
       // 恢复原始状态
@@ -981,9 +986,62 @@ export class VideoExporter {
   }
 
   /**
+   * 修复WebM文件的duration元数据
+   */
+  async fixWebmDuration(blob, durationMs) {
+    const buffer = await blob.arrayBuffer();
+    const view = new DataView(buffer);
+    
+    // 查找Duration元素ID (0x4489)
+    let durationOffset = -1;
+    for (let i = 0; i < view.byteLength - 10; i++) {
+      // 查找Segment > Info > Duration的模式
+      if (view.getUint8(i) === 0x44 && view.getUint8(i + 1) === 0x89) {
+        durationOffset = i;
+        break;
+      }
+    }
+    
+    if (durationOffset === -1) {
+      console.warn('Duration element not found in WebM');
+      return blob;
+    }
+    
+    // Duration是一个float (4字节或8字节)
+    // 跳过ID (2字节) 和 Size (1字节，通常是0x84表示4字节数据)
+    const sizeOffset = durationOffset + 2;
+    const size = view.getUint8(sizeOffset);
+    
+    if (size === 0x84) {
+      // 4字节float
+      const valueOffset = sizeOffset + 1;
+      const uint8 = new Uint8Array(buffer);
+      const durationFloat = new Float32Array([durationMs])[0];
+      const durationBytes = new Uint8Array(new Float32Array([durationFloat]).buffer);
+      uint8[valueOffset] = durationBytes[3];
+      uint8[valueOffset + 1] = durationBytes[2];
+      uint8[valueOffset + 2] = durationBytes[1];
+      uint8[valueOffset + 3] = durationBytes[0];
+      console.log('Fixed WebM duration:', durationMs, 'ms');
+    } else if (size === 0x88) {
+      // 8字节double
+      const valueOffset = sizeOffset + 1;
+      const uint8 = new Uint8Array(buffer);
+      const durationDouble = new Float64Array([durationMs])[0];
+      const durationBytes = new Uint8Array(new Float64Array([durationDouble]).buffer);
+      for (let i = 0; i < 8; i++) {
+        uint8[valueOffset + i] = durationBytes[7 - i];
+      }
+      console.log('Fixed WebM duration:', durationMs, 'ms');
+    }
+    
+    return new Blob([buffer], { type: blob.type });
+  }
+
+  /**
    * 保存视频文件
    */
-  saveVideo(chunks) {
+  async saveVideo(chunks) {
     // 检测实际的视频类型
     const mimeType = this.mediaRecorder.mimeType || 'video/webm';
     const isMP4 = mimeType.includes('mp4');
@@ -993,7 +1051,12 @@ export class VideoExporter {
     console.log('Total chunks:', chunks.length);
     console.log('Total size:', chunks.reduce((sum, c) => sum + c.size, 0), 'bytes');
     
-    const blob = new Blob(chunks, { type: mimeType });
+    let blob = new Blob(chunks, { type: mimeType });
+    
+    // 修复WebM文件的duration
+    if (!isMP4 && this.recordingDuration > 0) {
+      blob = await this.fixWebmDuration(blob, this.recordingDuration);
+    }
     const url = URL.createObjectURL(blob);
     
     // 获取文件名
