@@ -60,6 +60,11 @@ class RobotKeyframeEditor {
     // 视频导出器
     this.videoExporter = null;
     
+    // 文件名存储
+    this.currentURDFFolder = '';
+    this.currentURDFFile = '';
+    this.currentProjectFile = '';
+    
     // 相机控制状态
     this.cameraMode = 'rotate'; // 'rotate' 或 'pan'
     this.followRobot = false;
@@ -416,6 +421,14 @@ class RobotKeyframeEditor {
     console.log(`文件数量: ${files.length}`);
     this.updateStatus(i18n.t('loadingURDFFolder'), 'info');
     
+    // 保存URDF文件名
+    const urdfFile = Array.from(files).find(f => f.name.endsWith('.urdf'));
+    if (urdfFile) {
+      this.currentURDFFile = urdfFile.name;
+      this.currentURDFFolder = urdfFile.webkitRelativePath ? 
+        urdfFile.webkitRelativePath.split('/')[0] : '';
+    }
+    
     try {
       console.log('🔄 调用 urdfLoader.loadFromFolder()...');
       await this.urdfLoader.loadFromFolder(files);
@@ -504,6 +517,10 @@ class RobotKeyframeEditor {
 
   async loadCSV(file) {
     this.updateStatus(i18n.t('loadingCSVFile'), 'info');
+    
+    // 保存轨迹文件名
+    this.trajectoryManager.currentFile = file.name;
+    
     try {
       const text = await file.text();
       
@@ -806,6 +823,9 @@ class RobotKeyframeEditor {
   async loadProject(event) {
     const file = event.target.files[0];
     if (!file) return;
+    
+    // 保存工程文件名
+    this.currentProjectFile = file.name;
 
     try {
       const text = await file.text();

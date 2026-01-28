@@ -261,7 +261,7 @@ export class VideoExporter {
         color: var(--text-secondary);
         font-size: 18px;
       `;
-      title.textContent = '⚙️ ' + i18n.t('selectFPS');
+      title.textContent = '⚙️ ' + (i18n.t('videoOptions') || '视频选项');
       
       // 选项1：使用CSV帧率
       const option1 = document.createElement('div');
@@ -390,6 +390,64 @@ export class VideoExporter {
       
       formatSection.appendChild(formatOptionsContainer);
       
+      // 视频选项（Overlay和元数据）
+      const optionsSection = document.createElement('div');
+      optionsSection.style.cssText = `
+        margin-bottom: 20px;
+        padding: 15px;
+        background: var(--bg-secondary);
+        border-radius: 6px;
+        border: 1px solid var(--border-secondary);
+      `;
+      
+      const optionsTitle = document.createElement('div');
+      optionsTitle.style.cssText = `
+        color: var(--text-secondary); 
+        font-weight: bold; 
+        margin-bottom: 10px;
+      `;
+      optionsTitle.textContent = i18n.t('videoOptions') || '视频选项';
+      optionsSection.appendChild(optionsTitle);
+      
+      const optionsContainer = document.createElement('div');
+      optionsContainer.style.cssText = `
+        display: flex; 
+        flex-direction: column;
+        gap: 8px;
+      `;
+      
+      // 时间帧数选项
+      const timeFrameLabel = document.createElement('label');
+      timeFrameLabel.style.cssText = `
+        cursor: pointer; 
+        display: flex; 
+        align-items: center; 
+        gap: 8px;
+        padding: 5px;
+      `;
+      timeFrameLabel.innerHTML = `
+        <input type="checkbox" id="add-time-frame" checked style="cursor: pointer;">
+        <span style="color: var(--text-primary);">${i18n.t('addOverlay') || '添加时间和帧数标记'}</span>
+      `;
+      optionsContainer.appendChild(timeFrameLabel);
+      
+      // 详细信息选项
+      const detailsLabel = document.createElement('label');
+      detailsLabel.style.cssText = `
+        cursor: pointer; 
+        display: flex; 
+        align-items: center; 
+        gap: 8px;
+        padding: 5px;
+      `;
+      detailsLabel.innerHTML = `
+        <input type="checkbox" id="add-details" style="cursor: pointer;">
+        <span style="color: var(--text-primary);">添加详细信息（URDF/轨迹/工程等）</span>
+      `;
+      optionsContainer.appendChild(detailsLabel);
+      
+      optionsSection.appendChild(optionsContainer);
+      
       // 按钮容器
       const buttonContainer = document.createElement('div');
       buttonContainer.style.cssText = `
@@ -431,6 +489,7 @@ export class VideoExporter {
       content.appendChild(option1);
       content.appendChild(option2);
       content.appendChild(formatSection);
+      content.appendChild(optionsSection);
       content.appendChild(buttonContainer);
       dialog.appendChild(content);
       document.body.appendChild(dialog);
@@ -465,8 +524,15 @@ export class VideoExporter {
       confirmBtn.addEventListener('click', () => {
         const selectedFPS = radio1.checked ? csvFPS : parseInt(customInput.value) || 30;
         const selectedFormat = Array.from(formatRadios).find(r => r.checked)?.value || 'mp4';
+        const addTimeFrame = document.getElementById('add-time-frame').checked;
+        const addDetails = document.getElementById('add-details').checked;
         document.body.removeChild(dialog);
-        resolve({ fps: selectedFPS, format: selectedFormat });
+        resolve({ 
+          fps: selectedFPS, 
+          format: selectedFormat,
+          addTimeFrame: addTimeFrame,
+          addDetails: addDetails
+        });
       });
       
       // 取消按钮
@@ -512,6 +578,24 @@ export class VideoExporter {
     
     this.fps = exportOptions.fps;
     this.selectedFormat = exportOptions.format;
+    this.addTimeFrame = exportOptions.addTimeFrame;
+    this.addDetails = exportOptions.addDetails;
+    
+    // 保存导出信息用于详细overlay
+    this.exportInfo = {
+      urdfFolder: this.editor.currentURDFFolder || '',
+      urdfFile: this.editor.currentURDFFile || '',
+      trajectoryFile: this.editor.trajectoryManager.currentFile || '',
+      projectFile: this.editor.currentProjectFile || '',
+      exportTime: new Date().toLocaleString('zh-CN', { 
+        year: 'numeric', 
+        month: '2-digit', 
+        day: '2-digit', 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit' 
+      })
+    };
     
     this.isExporting = true;
     this.recordedChunks = [];
@@ -557,7 +641,8 @@ export class VideoExporter {
         await new Promise(resolve => requestAnimationFrame(resolve));
         
         // 捕获当前帧并绘制到canvas（流式编码会自动捕获）
-        this.captureFrameToCanvas();
+        const currentTime = i / this.fps;
+        this.captureFrameToCanvas(i, totalFrames, currentTime, duration);
         
         // 请求MediaRecorder捕获帧
         const track = this.stream.getVideoTracks()[0];
@@ -615,7 +700,7 @@ export class VideoExporter {
   /**
    * 捕获当前帧到canvas（用于流式编码）
    */
-  captureFrameToCanvas() {
+  captureFrameToCanvas(currentFrame, totalFrames, currentTime, totalTime) {
     const renderer = this.editor.renderer;
     const canvasWidth = this.canvas.width;
     const canvasHeight = this.canvas.height;
@@ -651,10 +736,96 @@ export class VideoExporter {
     // 复制到录制canvas
     this.ctx.drawImage(renderer.domElement, 0, 0);
     
+    // 添加overlay文字
+    if ((this.addTimeFrame || this.addDetails) && currentFrame !== undefined) {
+      this.drawOverlay(currentFrame, totalFrames, currentTime, totalTime);
+    }
+    
     // 恢复原始渲染器大小
     renderer.setSize(originalWidth, originalHeight, false);
     
     // 不返回ImageData，MediaRecorder会自动从 canvas stream 捕获
+  }
+
+  /**
+   * 在视频上绘制overlay文字
+   */
+  drawOverlay(currentFrame, totalFrames, currentTime, totalTime) {
+    const ctx = this.ctx;
+    const canvasWidth = this.canvas.width;
+    const canvasHeight = this.canvas.height;
+    
+    // 设置字体和样式 - 使用常规字体
+    const fontSize = Math.round(canvasHeight / 45);
+    ctx.font = `${fontSize}px sans-serif`;
+    ctx.fillStyle = '#000000';
+    
+    const padding = Math.round(fontSize * 0.8);
+    const lineHeight = fontSize * 1.3;
+    
+    // 如果添加详细信息，显示四个角
+    if (this.addDetails) {
+      // 左上角：详细信息
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      let y = padding;
+      if (this.exportInfo.urdfFolder || this.exportInfo.urdfFile) {
+        const urdfPath = this.exportInfo.urdfFolder ? 
+          `${this.exportInfo.urdfFolder}/${this.exportInfo.urdfFile}` : 
+          this.exportInfo.urdfFile;
+        ctx.fillText(`URDF: ${urdfPath}`, padding, y);
+        y += lineHeight;
+      }
+      if (this.exportInfo.trajectoryFile) {
+        ctx.fillText(`Trajectory: ${this.exportInfo.trajectoryFile}`, padding, y);
+        y += lineHeight;
+      }
+      if (this.exportInfo.projectFile) {
+        ctx.fillText(`Project: ${this.exportInfo.projectFile}`, padding, y);
+        y += lineHeight;
+      }
+      if (this.exportInfo.exportTime) {
+        ctx.fillText(`Export: ${this.exportInfo.exportTime}`, padding, y);
+      }
+      
+      // 右上角：时间和帧数（两行）
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'top';
+      const timeText = `Time: ${currentTime.toFixed(2)}s / ${totalTime.toFixed(2)}s`;
+      const frameText = `Frame: ${currentFrame + 1} / ${totalFrames}`;
+      ctx.fillText(timeText, canvasWidth - padding, padding);
+      ctx.fillText(frameText, canvasWidth - padding, padding + lineHeight);
+      
+      // 左下角：Base Trajectory
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('Base Trajectory', padding, canvasHeight - padding);
+      
+      // 右下角：Modified Trajectory
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('Modified Trajectory', canvasWidth - padding, canvasHeight - padding);
+    }
+    // 如果只添加时间帧数，显示三个角（无左上角）
+    else if (this.addTimeFrame) {
+      // 右上角：时间和帧数（两行）
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'top';
+      const timeText = `Time: ${currentTime.toFixed(2)}s / ${totalTime.toFixed(2)}s`;
+      const frameText = `Frame: ${currentFrame + 1} / ${totalFrames}`;
+      ctx.fillText(timeText, canvasWidth - padding, padding);
+      ctx.fillText(frameText, canvasWidth - padding, padding + lineHeight);
+      
+      // 左下角：Base Trajectory
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('Base Trajectory', padding, canvasHeight - padding);
+      
+      // 右下角：Modified Trajectory
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('Modified Trajectory', canvasWidth - padding, canvasHeight - padding);
+    }
   }
 
   /**
