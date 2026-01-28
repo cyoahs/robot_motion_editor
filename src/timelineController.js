@@ -1,3 +1,5 @@
+import { i18n } from './i18n.js';
+
 export class TimelineController {
   constructor(editor) {
     this.editor = editor;

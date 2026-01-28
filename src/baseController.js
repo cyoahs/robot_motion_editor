@@ -339,7 +339,7 @@ export class BaseController {
       container.style.display = 'block';
       header.querySelector('h3').textContent = '▼ ' + i18n.t('baseControl').substring(2);
     } else {
-      content.style.display = 'none';
+      container.style.display = 'none';
       header.querySelector('h3').textContent = i18n.t('baseControl');
     }
   }
