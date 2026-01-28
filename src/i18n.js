@@ -4,6 +4,8 @@ const translations = {
     // 工具栏
     loadURDF: '加载 URDF 文件夹',
     loadCSV: '加载 CSV 轨迹',
+    export: '导出数据',
+    project: '工程文件',
     exportTrajectory: '导出编辑轨迹',
     exportBaseTrajectory: '导出原始轨迹',
     exportVideo: '导出视频',
@@ -190,8 +192,8 @@ const translations = {
   en: {
     // Toolbar
     loadURDF: 'Load URDF Folder',
-    loadCSV: 'Load CSV Trajectory',
-    exportTrajectory: 'Export Edited Trajectory',
+    loadCSV: 'Load CSV Trajectory',    export: 'Export Data',
+    project: 'Project Files',    exportTrajectory: 'Export Edited Trajectory',
     exportBaseTrajectory: 'Export Base Trajectory',
     exportVideo: 'Export Video',
     stopRecording: 'Stop Recording',

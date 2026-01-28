@@ -98,6 +98,77 @@
       background: var(--accent-hover);
     }
 
+    /* 下拉菜单样式 */
+    .dropdown {
+      position: relative;
+      display: inline-block;
+    }
+
+    .dropdown-toggle {
+      padding: 8px 16px;
+      background: var(--accent-primary);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dropdown-toggle:hover {
+      background: var(--accent-hover);
+    }
+
+    .dropdown-menu {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      margin-top: 4px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-secondary);
+      border-radius: 8px;
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+      min-width: 200px;
+      z-index: 1000;
+      display: none;
+      flex-direction: column;
+      padding: 8px 0;
+      transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+
+    .dropdown-menu.show {
+      display: flex;
+    }
+
+    .dropdown-menu .dropdown-item {
+      padding: 10px 16px;
+      color: var(--text-primary);
+      text-decoration: none;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.15s ease;
+      border: none;
+      background: transparent;
+      text-align: left;
+      width: 100%;
+      border-radius: 4px;
+      display: block;
+      margin: 2px 6px;
+      width: calc(100% - 12px);
+    }
+
+    .dropdown-menu .dropdown-item:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .dropdown-menu .dropdown-item input[type="file"] {
+      display: none;
+    }
+
     .toolbar input[type="file"] {
       display: none;
     }
@@ -324,14 +395,29 @@
         加载 CSV 轨迹
         <input type="file" id="csv-file" accept=".csv">
       </label>
-      <button id="export-trajectory" data-i18n="exportTrajectory">导出编辑轨迹</button>
-      <button id="export-base-trajectory" data-i18n="exportBaseTrajectory">导出原始轨迹</button>
-      <button id="export-video" data-i18n="exportVideo">🎥 导出视频</button>
-      <label for="load-project" data-i18n="loadProject">
-        加载工程文件
-        <input type="file" id="load-project" accept=".json">
-      </label>
-      <button id="save-project" data-i18n="saveProject">保存工程文件</button>
+      
+      <!-- 导出下拉菜单 -->
+      <div class="dropdown">
+        <button class="dropdown-toggle" data-i18n="export">导出</button>
+        <div class="dropdown-menu">
+          <button class="dropdown-item" id="export-trajectory" data-i18n="exportTrajectory">导出编辑轨迹</button>
+          <button class="dropdown-item" id="export-base-trajectory" data-i18n="exportBaseTrajectory">导出原始轨迹</button>
+          <button class="dropdown-item" id="export-video" data-i18n="exportVideo">🎥 导出视频</button>
+        </div>
+      </div>
+      
+      <!-- 工程文件下拉菜单 -->
+      <div class="dropdown">
+        <button class="dropdown-toggle" data-i18n="project">工程</button>
+        <div class="dropdown-menu">
+          <label class="dropdown-item" for="load-project" data-i18n="loadProject">
+            加载工程文件
+            <input type="file" id="load-project" accept=".json">
+          </label>
+          <button class="dropdown-item" id="save-project" data-i18n="saveProject">保存工程文件</button>
+        </div>
+      </div>
+      
       <span id="current-file-name" style="margin-left: 20px; color: var(--accent-info); font-weight: 500; font-size: 13px; transition: color 0.3s ease; display: none; align-items: center; gap: 5px;">
         <span style="font-size: 14px;">📄</span>
         <span id="file-name-text"></span>

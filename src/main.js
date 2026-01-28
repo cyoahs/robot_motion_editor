@@ -1415,3 +1415,48 @@ function initI18n() {
 initI18n();
 initBuildInfoModal();
 initHelpModal();
+
+// 初始化下拉菜单
+function initDropdowns() {
+  const dropdowns = document.querySelectorAll('.dropdown');
+  
+  dropdowns.forEach(dropdown => {
+    const toggle = dropdown.querySelector('.dropdown-toggle');
+    const menu = dropdown.querySelector('.dropdown-menu');
+    
+    if (!toggle || !menu) return;
+    
+    // 点击切换下拉菜单
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      
+      // 关闭其他下拉菜单
+      document.querySelectorAll('.dropdown-menu.show').forEach(otherMenu => {
+        if (otherMenu !== menu) {
+          otherMenu.classList.remove('show');
+        }
+      });
+      
+      // 切换当前菜单
+      menu.classList.toggle('show');
+    });
+    
+    // 点击菜单项后关闭菜单
+    menu.querySelectorAll('.dropdown-item').forEach(item => {
+      item.addEventListener('click', () => {
+        menu.classList.remove('show');
+      });
+    });
+  });
+  
+  // 点击外部关闭所有下拉菜单
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.dropdown')) {
+      document.querySelectorAll('.dropdown-menu.show').forEach(menu => {
+        menu.classList.remove('show');
+      });
+    }
+  });
+}
+
+initDropdowns();
