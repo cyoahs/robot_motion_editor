@@ -9,6 +9,7 @@ export class VideoExporter {
   constructor(editor) {
     this.editor = editor;
     this.isExporting = false;
+    this.isPaused = false;
     this.canvas = null;
     this.ctx = null;
     this.stream = null;
@@ -101,6 +102,20 @@ export class VideoExporter {
     `;
     this.timeText.textContent = i18n.t('estimating') + '...';
     
+    // 浏览器提示信息
+    const browserTip = document.createElement('div');
+    browserTip.style.cssText = `
+      color: #ff9800;
+      font-size: 12px;
+      margin-bottom: 15px;
+      padding: 10px;
+      background: rgba(255, 152, 0, 0.1);
+      border-radius: 4px;
+      text-align: center;
+      line-height: 1.5;
+    `;
+    browserTip.innerHTML = `⚠️ ${i18n.t('keepTabVisible') || '请保持此标签页在前台<br>切换标签页会导致导出暂停'}`;
+    
     // 进度条容器
     const progressContainer = document.createElement('div');
     progressContainer.style.cssText = `
@@ -144,6 +159,7 @@ export class VideoExporter {
     content.appendChild(title);
     content.appendChild(this.progressText);
     content.appendChild(this.timeText);
+    content.appendChild(browserTip);
     content.appendChild(progressContainer);
     content.appendChild(cancelBtn);
     this.progressModal.appendChild(content);
@@ -598,8 +614,47 @@ export class VideoExporter {
     };
     
     this.isExporting = true;
+    this.isPaused = false;
     this.recordedChunks = [];
     this.startTime = null; // 重置开始时间
+    
+    // 监听页面可见性
+    const visibilityHandler = () => {
+      if (document.hidden && this.isExporting) {
+        this.isPaused = true;
+        // 显示警告
+        if (this.progressModal) {
+          let warning = this.progressModal.querySelector('.visibility-warning');
+          if (!warning) {
+            warning = document.createElement('div');
+            warning.className = 'visibility-warning';
+            warning.style.cssText = `
+              color: #ff9800;
+              font-weight: bold;
+              margin-top: 15px;
+              padding: 10px;
+              background: rgba(255, 152, 0, 0.1);
+              border-radius: 4px;
+              text-align: center;
+            `;
+            warning.textContent = '⚠️ 请保持此标签页可见，否则导出会暂停';
+            this.progressModal.querySelector('div').appendChild(warning);
+          }
+          warning.style.display = 'block';
+        }
+      } else if (!document.hidden && this.isPaused) {
+        this.isPaused = false;
+        // 隐藏警告
+        if (this.progressModal) {
+          const warning = this.progressModal.querySelector('.visibility-warning');
+          if (warning) {
+            warning.style.display = 'none';
+          }
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', visibilityHandler);
+    this.visibilityHandler = visibilityHandler;
     
     try {
       this.initCanvas();
@@ -631,16 +686,20 @@ export class VideoExporter {
           break;
         }
         
+        // 如果页面不可见，等待直到可见
+        while (this.isPaused && this.isExporting) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        if (!this.isExporting) break;
+        
         // 计算对应的帧索引
         const frameIndex = Math.round((i / this.fps) * this.editor.trajectoryManager.fps);
         
         // 更新时间轴
         this.editor.timelineController.setCurrentFrame(frameIndex);
         
-        // 等待一帧以确保渲染完成
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        
-        // 捕获当前帧并绘制到canvas（流式编码会自动捕获）
+        // 直接捕获当前帧并绘制到canvas（不使用requestAnimationFrame，避免标签页切换导致暂停）
         const currentTime = i / this.fps;
         this.captureFrameToCanvas(i, totalFrames, currentTime, duration);
         
@@ -654,6 +713,9 @@ export class VideoExporter {
         if (i % 10 === 0 || i === totalFrames - 1) {
           this.updateProgress(i + 1, totalFrames, 'rendering');
         }
+        
+        // 使用短暂延迟确保MediaRecorder有时间处理帧
+        await new Promise(resolve => setTimeout(resolve, 1));
       }
       
       // 停止录制
@@ -676,8 +738,14 @@ export class VideoExporter {
       alert(i18n.t('exportFailed') + ': ' + error.message);
     } finally {
       this.isExporting = false;
+      this.isPaused = false;
       this.hideProgress();
       this.recordedChunks = [];
+      // 移除可见性监听
+      if (this.visibilityHandler) {
+        document.removeEventListener('visibilitychange', this.visibilityHandler);
+        this.visibilityHandler = null;
+      }
       if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
         this.mediaRecorder.stop();
       }
@@ -689,11 +757,17 @@ export class VideoExporter {
    */
   cancelExport() {
     this.isExporting = false;
+    this.isPaused = false;
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       this.mediaRecorder.stop();
     }
     this.hideProgress();
     this.recordedChunks = [];
+    // 移除可见性监听
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
+    }
     this.editor.updateStatus(i18n.t('exportCancelled'), 'info');
   }
 
