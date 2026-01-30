@@ -458,8 +458,10 @@
           <button id="toggle-com" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="comOn">
             🎯 重心: 开
           </button>
-          <button id="refresh-footprint" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="refreshFootprint">
-            👣 刷新包络线
+          <button id="refresh-footprint" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);">
+            <span data-i18n="refreshFootprint">👣 刷新包络线</span>
+            <input id="footprint-height-threshold" type="number" min="0" step="0.1" value="10" style="width: 48px; padding: 2px 4px; font-size: 11px; border: 1px solid var(--border-primary); border-radius: 3px; background: var(--bg-secondary); color: var(--text-primary);" />
+            <span>cm</span>
           </button>
           <button id="toggle-auto-refresh" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="autoRefreshOff">
             ⏱️ 自动刷新: 关

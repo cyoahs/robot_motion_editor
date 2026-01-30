@@ -183,19 +183,19 @@ export class COMVisualizer {
     return center;
   }
 
-  calculateFootprint(robot) {
+  calculateFootprint(robot, heightThresholdMeters = 0.1) {
     const points2D = [];
     const worldPosition = new THREE.Vector3();
     
-    // 遍历所有link，收集低于0.1m的mesh顶点
+    // 遍历所有link，收集低于阈值的mesh顶点
     robot.traverse((child) => {
       // 只处理Mesh对象
       if (child.isMesh && child.geometry) {
         // 获取link的世界位置
         child.getWorldPosition(worldPosition);
         
-        // 检查是否低于0.1m
-        if (worldPosition.z < 0.1) {
+        // 检查是否低于高度阈值
+        if (worldPosition.z < heightThresholdMeters) {
           const geometry = child.geometry;
           const positionAttribute = geometry.attributes.position;
           
@@ -292,8 +292,8 @@ export class COMVisualizer {
     }
   }
   
-  updateFootprint(robot) {
-    const footprint = this.calculateFootprint(robot);
+  updateFootprint(robot, heightThresholdMeters = 0.1) {
+    const footprint = this.calculateFootprint(robot, heightThresholdMeters);
     if (footprint && footprint.length > 0) {
       const positions = new Float32Array(footprint.length * 3);
       for (let i = 0; i < footprint.length; i++) {

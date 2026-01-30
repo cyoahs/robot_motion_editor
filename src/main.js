@@ -71,6 +71,7 @@ class RobotKeyframeEditor {
     this.showCOM = true; // 默认显示重心
     this.autoRefreshFootprint = false; // 自动刷新包络线开关，默认关闭
     this.footprintUpdateTimer = null; // 包络线更新防抖定时器
+    this.footprintHeightThresholdCm = 10; // 包络线link高度阈值（cm）
     this.defaultCameraPosition = new THREE.Vector3(3, 3, 2);
     this.defaultCameraTarget = new THREE.Vector3(0, 0, 0.5);
 
@@ -354,6 +355,17 @@ class RobotKeyframeEditor {
     document.getElementById('refresh-footprint').addEventListener('click', () => {
       this.refreshFootprint();
     });
+
+    const footprintHeightInput = document.getElementById('footprint-height-threshold');
+    if (footprintHeightInput) {
+      // 防止输入框点击触发按钮刷新
+      footprintHeightInput.addEventListener('click', (event) => {
+        event.stopPropagation();
+      });
+      footprintHeightInput.addEventListener('keydown', (event) => {
+        event.stopPropagation();
+      });
+    }
 
     // 切换自动刷新包络线
     document.getElementById('toggle-auto-refresh').addEventListener('click', () => {
@@ -1023,6 +1035,18 @@ class RobotKeyframeEditor {
     }, 2000);
   }
 
+  getFootprintHeightThresholdMeters() {
+    const input = document.getElementById('footprint-height-threshold');
+    if (!input) {
+      return this.footprintHeightThresholdCm / 100;
+    }
+    const rawValue = parseFloat(input.value);
+    if (Number.isFinite(rawValue)) {
+      this.footprintHeightThresholdCm = Math.max(0, rawValue);
+    }
+    return this.footprintHeightThresholdCm / 100;
+  }
+
   refreshFootprint() {
     if (!this.robotLeft && !this.robotRight) {
       alert(i18n.t('needRobot'));
@@ -1032,12 +1056,13 @@ class RobotKeyframeEditor {
     console.log('👣 刷新地面投影包络线...');
     
     // 使用setTimeout实现异步计算，避免阻塞UI
+    const heightThresholdMeters = this.getFootprintHeightThresholdMeters();
     setTimeout(() => {
       if (this.comVisualizerLeft && this.robotLeft) {
-        this.comVisualizerLeft.updateFootprint(this.robotLeft);
+        this.comVisualizerLeft.updateFootprint(this.robotLeft, heightThresholdMeters);
       }
       if (this.comVisualizerRight && this.robotRight) {
-        this.comVisualizerRight.updateFootprint(this.robotRight);
+        this.comVisualizerRight.updateFootprint(this.robotRight, heightThresholdMeters);
       }
       console.log('✅ 地面投影包络线刷新完成');
     }, 0);
