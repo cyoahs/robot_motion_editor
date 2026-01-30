@@ -10,6 +10,7 @@ import { i18n } from './i18n.js';
 import { ThemeManager } from './themeManager.js';
 import { CurveEditor } from './curveEditor.js';
 import { AxisGizmo } from './axisGizmo.js';
+import { VideoExporter } from './videoExporter.js';
 
 class RobotKeyframeEditor {
   constructor() {
@@ -55,6 +56,14 @@ class RobotKeyframeEditor {
     
     // 坐标轴指示器
     this.axisGizmo = null;
+    
+    // 视频导出器
+    this.videoExporter = null;
+    
+    // 文件名存储
+    this.currentURDFFolder = '';
+    this.currentURDFFile = '';
+    this.currentProjectFile = '';
     
     // 相机控制状态
     this.cameraMode = 'rotate'; // 'rotate' 或 'pan'
@@ -303,6 +312,14 @@ class RobotKeyframeEditor {
       this.exportBaseTrajectory();
     });
 
+    // 导出视频
+    document.getElementById('export-video').addEventListener('click', () => {
+      if (!this.videoExporter) {
+        this.videoExporter = new VideoExporter(this);
+      }
+      this.videoExporter.startExport();
+    });
+
     // 保存工程文件
     document.getElementById('save-project').addEventListener('click', () => {
       this.saveProject();
@@ -404,6 +421,14 @@ class RobotKeyframeEditor {
     console.log(`文件数量: ${files.length}`);
     this.updateStatus(i18n.t('loadingURDFFolder'), 'info');
     
+    // 保存URDF文件名
+    const urdfFile = Array.from(files).find(f => f.name.endsWith('.urdf'));
+    if (urdfFile) {
+      this.currentURDFFile = urdfFile.name;
+      this.currentURDFFolder = urdfFile.webkitRelativePath ? 
+        urdfFile.webkitRelativePath.split('/')[0] : '';
+    }
+    
     try {
       console.log('🔄 调用 urdfLoader.loadFromFolder()...');
       await this.urdfLoader.loadFromFolder(files);
@@ -492,6 +517,10 @@ class RobotKeyframeEditor {
 
   async loadCSV(file) {
     this.updateStatus(i18n.t('loadingCSVFile'), 'info');
+    
+    // 保存轨迹文件名
+    this.trajectoryManager.currentFile = file.name;
+    
     try {
       const text = await file.text();
       
@@ -794,6 +823,9 @@ class RobotKeyframeEditor {
   async loadProject(event) {
     const file = event.target.files[0];
     if (!file) return;
+    
+    // 保存工程文件名
+    this.currentProjectFile = file.name;
 
     try {
       const text = await file.text();
@@ -1403,3 +1435,48 @@ function initI18n() {
 initI18n();
 initBuildInfoModal();
 initHelpModal();
+
+// 初始化下拉菜单
+function initDropdowns() {
+  const dropdowns = document.querySelectorAll('.dropdown');
+  
+  dropdowns.forEach(dropdown => {
+    const toggle = dropdown.querySelector('.dropdown-toggle');
+    const menu = dropdown.querySelector('.dropdown-menu');
+    
+    if (!toggle || !menu) return;
+    
+    // 点击切换下拉菜单
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      
+      // 关闭其他下拉菜单
+      document.querySelectorAll('.dropdown-menu.show').forEach(otherMenu => {
+        if (otherMenu !== menu) {
+          otherMenu.classList.remove('show');
+        }
+      });
+      
+      // 切换当前菜单
+      menu.classList.toggle('show');
+    });
+    
+    // 点击菜单项后关闭菜单
+    menu.querySelectorAll('.dropdown-item').forEach(item => {
+      item.addEventListener('click', () => {
+        menu.classList.remove('show');
+      });
+    });
+  });
+  
+  // 点击外部关闭所有下拉菜单
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.dropdown')) {
+      document.querySelectorAll('.dropdown-menu.show').forEach(menu => {
+        menu.classList.remove('show');
+      });
+    }
+  });
+}
+
+initDropdowns();
