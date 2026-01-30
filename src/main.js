@@ -91,8 +91,14 @@ class RobotKeyframeEditor {
     const statusText = document.getElementById('status-text');
     if (statusText) {
       statusText.textContent = message;
-      statusText.style.color = type === 'error' ? 'var(--warning-color)' : 
-                                type === 'success' ? 'var(--success-color)' : 'var(--text-tertiary)';
+      // 只修改文字颜色
+      if (type === 'error') {
+        statusText.style.color = 'var(--warning-color)';
+      } else if (type === 'success') {
+        statusText.style.color = 'var(--success-color)';
+      } else {
+        statusText.style.color = 'var(--text-secondary)';
+      }
     }
   }
 

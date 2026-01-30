@@ -331,14 +331,6 @@
       transition: color 0.3s ease;
       padding-bottom: 8px;
     }
-
-    #status {
-      padding: 5px 10px;
-      font-size: 12px;
-      background: var(--accent-info);
-      color: white;
-      transition: background-color 0.3s ease;
-    }
     
     /* Toggle Switch 样式 - 大方形按钮 */
     .interpolation-toggle-container {
@@ -460,7 +452,7 @@
         <span style="font-size: 14px;">📄</span>
         <span id="file-name-text"></span>
       </span>
-      <span id="status-text" style="margin-left: 20px; color: var(--text-tertiary); transition: color 0.3s ease;" data-i18n="ready">就绪</span>
+      <span id="status-text" style="margin-left: 20px; padding: 8px 0; color: var(--text-secondary); font-size: 13px; font-family: 'SF Mono', Monaco, 'Courier New', monospace; transition: all 0.3s ease;" data-i18n="ready">就绪</span>
       <button id="reset-button" style="margin-left: auto; padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;" data-i18n-title="resetApp" title="重置应用">
         <span>🔄</span>
       </button>
