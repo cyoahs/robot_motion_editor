@@ -70,6 +70,7 @@ export class COMVisualizer {
     const worldPosition = new THREE.Vector3();
     let linkCount = 0;
     let massCount = 0;
+    const linkDetails = []; // 用于调试
 
     // 递归遍历所有link
     robot.traverse((child) => {
@@ -110,6 +111,17 @@ export class COMVisualizer {
         }
       }
       
+      // 记录调试信息（仅对有名称的link）
+      if (child.name || child.urdfName) {
+        linkDetails.push({
+          name: child.name || 'unnamed',
+          urdfName: child.urdfName || 'unknown',
+          hasUrdfNode: !!child.urdfNode,
+          hasInertial: !!inertial,
+          mass: mass
+        });
+      }
+      
       if (mass > 0 && inertial) {
         massCount++;
         // 获取link的世界坐标
@@ -135,12 +147,26 @@ export class COMVisualizer {
       }
     });
 
+    // 打印调试信息
+    console.log(`🎯 COM计算统计:`);
+    console.log(`  - 总link数: ${linkCount}`);
+    console.log(`  - 有质量的link数: ${massCount}`);
+    console.log(`  - 总质量: ${totalMass.toFixed(3)}kg`);
+    if (massCount === 0) {
+      console.warn(`  ⚠️ 未找到质量信息，将使用几何中心作为近似`);
+    }
+    if (linkDetails.length > 0 && linkDetails.length < 50) {
+      console.table(linkDetails);
+    }
+
     if (totalMass > 0) {
       comPosition.divideScalar(totalMass);
+      console.log(`  - 计算的COM位置: (${comPosition.x.toFixed(3)}, ${comPosition.y.toFixed(3)}, ${comPosition.z.toFixed(3)})`);
       return comPosition;
     }
 
     // 如果没有质量信息，使用几何中心作为近似
+    console.log(`  - 使用几何中心作为COM近似`);
     return this.calculateGeometricCenter(robot);
   }
 
