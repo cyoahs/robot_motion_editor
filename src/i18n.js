@@ -32,6 +32,24 @@ const translations = {
     autoRefreshOn: '⏱️ 自动刷新: 开',
     autoRefreshOff: '⏱️ 自动刷新: 关',
     
+    // 重置和 Cookie
+    resetApp: '重置应用',
+    cookieSettings: 'Cookie 设置',
+    autoSave: '自动保存',
+    autoSaveDesc: '启用 Cookie 自动保存应用状态（仅本地存储）',
+    clearCookies: '清除已保存数据',
+    cookieNotice: 'ℹ️ Cookie 仅用于在本地浏览器保存您的工作状态，不会上传到服务器。',
+    resetConfirm: '确定要重置应用吗？所有未保存的数据将丢失。',
+    clearCookiesConfirm: '确定要清除所有已保存的数据吗？',
+    cookiesCleared: '已成功清除已保存的数据',
+    autoSaveEnabled: '自动保存已启用',
+    autoSaveDisabled: '自动保存已关闭',
+    stateRestored: '已恢复上次保存的状态',
+    autoSavedFull: '✅ 已自动保存！({time})',
+    autoSavedIncremental: '✅ 已自动保存（增量）！({time})',
+    autoSaveFailedSize: '❌ 数据过大 ({size}MB)，超过 {limit}MB 限制',
+    autoSaveFailedQuota: '❌ 存储空间不足，无法保存 {size}MB 数据',
+    
     // 曲线编辑器
     curves: '📈 曲线',
     resetDefault: '恢复默认',
@@ -222,6 +240,24 @@ const translations = {
     refreshFootprint: '👣 Refresh Footprint',
     autoRefreshOn: '⏱️ Auto Refresh: On',
     autoRefreshOff: '⏱️ Auto Refresh: Off',
+    
+    // Reset and Cookie
+    resetApp: 'Reset Application',
+    cookieSettings: 'Cookie Settings',
+    autoSave: 'Auto Save',
+    autoSaveDesc: 'Enable Cookie auto-save for application state (local storage only)',
+    clearCookies: 'Clear Saved Data',
+    cookieNotice: 'ℹ️ Cookies are only used to save your work state locally in the browser and will not be uploaded to any server.',
+    resetConfirm: 'Are you sure you want to reset the application? All unsaved data will be lost.',
+    clearCookiesConfirm: 'Are you sure you want to clear all saved data?',
+    cookiesCleared: 'Saved data cleared successfully',
+    autoSaveEnabled: 'Auto-save enabled',
+    autoSaveDisabled: 'Auto-save disabled',
+    stateRestored: 'Previous state restored',
+    autoSavedFull: '✅ Auto-saved! ({time})',
+    autoSavedIncremental: '✅ Auto-saved (incremental)! ({time})',
+    autoSaveFailedSize: '❌ Data too large ({size}MB), exceeds {limit}MB limit',
+    autoSaveFailedQuota: '❌ Insufficient storage, cannot save {size}MB data',
     
     // Curve editor
     curves: '📈 Curves',

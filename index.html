@@ -382,6 +382,44 @@
     .interpolation-toggle-container input:checked ~ .interpolation-toggle-option:last-of-type:hover {
       background: var(--accent-hover);
     }
+    
+    /* Cookie Toggle 样式 */
+    .cookie-toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    
+    .cookie-toggle-slider {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--border-primary);
+      border-radius: 24px;
+      transition: 0.3s;
+    }
+    
+    .cookie-toggle-slider:before {
+      position: absolute;
+      content: '';
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: 0.3s;
+    }
+    
+    .cookie-toggle input:checked + .cookie-toggle-slider {
+      background: var(--success-color);
+    }
+    
+    .cookie-toggle input:checked + .cookie-toggle-slider:before {
+      transform: translateX(24px);
+    }
   </style>
 </head>
 <body>
@@ -423,7 +461,10 @@
         <span id="file-name-text"></span>
       </span>
       <span id="status-text" style="margin-left: 20px; color: var(--text-tertiary); transition: color 0.3s ease;" data-i18n="ready">就绪</span>
-      <button id="help-button" style="margin-left: auto; padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;" data-i18n-title="userGuide" title="使用说明">
+      <button id="reset-button" style="margin-left: auto; padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;" data-i18n-title="resetApp" title="重置应用">
+        <span>🔄</span>
+      </button>
+      <button id="help-button" style="padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;" data-i18n-title="userGuide" title="使用说明">
         <span>❓</span>
       </button>
       <button id="theme-toggle" style="padding: 8px 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;" data-i18n-title="toggleTheme" title="切换主题">
@@ -648,6 +689,33 @@
             </div>
           </div>
         </div>
+        
+        <!-- Cookie 设置区域 -->
+        <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-primary);">
+          <h3 style="color: var(--text-primary); margin: 0 0 15px 0; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+            <span>🍪</span>
+            <span data-i18n="cookieSettings">Cookie 设置</span>
+          </h3>
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: var(--bg-secondary); border-radius: 6px;">
+              <div style="flex: 1;">
+                <div style="color: var(--text-primary); font-size: 13px; margin-bottom: 4px;" data-i18n="autoSave">自动保存</div>
+                <div style="color: var(--text-tertiary); font-size: 11px;" data-i18n="autoSaveDesc">启用 Cookie 自动保存应用状态（仅本地存储）</div>
+              </div>
+              <label class="cookie-toggle" style="position: relative; display: inline-block; width: 48px; height: 24px; cursor: pointer;">
+                <input type="checkbox" id="auto-save-toggle">
+                <span class="cookie-toggle-slider"></span>
+              </label>
+            </div>
+            <button id="clear-cookies" style="padding: 8px 16px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;" data-i18n="clearCookies">
+              <span>🗑️</span> 清除已保存数据
+            </button>
+            <div id="cookie-notice" style="display: none; padding: 10px; background: rgba(78, 201, 176, 0.1); border: 1px solid var(--success-color); border-radius: 6px; color: var(--text-secondary); font-size: 11px;" data-i18n="cookieNotice">
+              ℹ️ Cookie 仅用于在本地浏览器保存您的工作状态，不会上传到服务器。
+            </div>
+          </div>
+        </div>
+        
         <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-primary); transition: border-color 0.3s ease;">
           <a id="github-link" href="https://github.com/cyoahs/robot_motion_editor" target="_blank" style="color: var(--success-color); text-decoration: none; display: flex; align-items: center; gap: 5px; font-size: 14px; transition: color 0.3s ease;">
             <span>📦</span>

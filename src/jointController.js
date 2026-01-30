@@ -308,6 +308,11 @@ export class JointController {
       }
       const t6 = performance.now();
       
+      // 触发自动保存（防抖）
+      if (this.editor.triggerAutoSave) {
+        this.editor.triggerAutoSave();
+      }
+      
       console.log(`⏱️ autoUpdateKeyframe 耗时: 总=${(t6-t0).toFixed(2)}ms | 获取joint=${(t2-t1).toFixed(2)}ms | 获取base=${(t3-t2).toFixed(2)}ms | 添加关键帧=${(t4-t3).toFixed(2)}ms | 更新指示器=${(t5-t4).toFixed(2)}ms | 调度绘制=${(t6-t5).toFixed(2)}ms`);
       
       this.editor.isUpdatingKeyframe = false;

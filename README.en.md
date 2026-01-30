@@ -17,11 +17,23 @@ A web-based robot motion editing tool with support for URDF loading, CSV traject
 - **Dual-Viewport Comparison**: Original trajectory on the left, edited results on the right with synchronized camera
 - **Trajectory Editing**: Residual-based keyframe system with support for joint and base editing
 - **Project Save/Load**: Save complete project state (URDF, trajectories, keyframes, edit history)
+- **Auto-Save**: Hybrid storage with Cookie + IndexedDB, automatically saves work state
 - **Curve Editor**: Visualize joint and base changes over time with Bezier interpolation support
 - **Dynamics Visualization**: Real-time display of center of mass position and contact polygon projection
 - **Axis Gizmo**: 3D axis indicator in the bottom-right corner, click to switch orthogonal views
 - **URDF Parsing**: Automatic loading of URDF and mesh files from a folder
 - **Multi-language**: Chinese/English interface switching
+
+## 💾 Auto-Save Mechanism
+
+The application uses an intelligent layered storage strategy:
+
+- **localStorage (5MB)**: Stores trajectories, keyframes, UI state, and small config files (<50KB)
+- **IndexedDB (50MB+)**: Stores large mesh files (e.g., .stl, .dae)
+- **Incremental Auto-Save**: Full save only when URDF changes, otherwise saves only trajectory and keyframes
+- **Authorization Management**: Synchronously clears all storage when enabling/disabling auto-save
+
+When auto-save is enabled, refreshing the page automatically restores the last editing state.
 
 ## Quick Start
 

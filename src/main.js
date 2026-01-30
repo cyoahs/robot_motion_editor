@@ -11,12 +11,19 @@ import { ThemeManager } from './themeManager.js';
 import { CurveEditor } from './curveEditor.js';
 import { AxisGizmo } from './axisGizmo.js';
 import { VideoExporter } from './videoExporter.js';
+import { CookieManager } from './cookieManager.js';
 
 class RobotKeyframeEditor {
   constructor() {
     // 初始化主题管理器
     this.themeManager = new ThemeManager();
     this.themeManager.watchSystemTheme();
+    
+    // 初始化 Cookie 管理器
+    this.cookieManager = new CookieManager();
+    
+    // i18n 引用（用于 CookieManager 显示状态）
+    this.i18n = i18n;
     
     // 左侧场景 (原始轨迹)
     this.sceneLeft = null;
@@ -239,6 +246,11 @@ class RobotKeyframeEditor {
 
     // 窗口大小调整
     window.addEventListener('resize', () => this.handleResize());
+    
+    // 尝试恢复上次保存的状态（异步）
+    this.restoreStateIfAvailable().catch(err => {
+      console.error('恢复状态错误:', err);
+    });
   }
 
   handleResize() {
@@ -370,6 +382,27 @@ class RobotKeyframeEditor {
     // 切换自动刷新包络线
     document.getElementById('toggle-auto-refresh').addEventListener('click', () => {
       this.toggleAutoRefreshFootprint();
+    });
+    
+    // 重置应用
+    document.getElementById('reset-button').addEventListener('click', () => {
+      this.resetApplication();
+    });
+    
+    // Cookie 自动保存开关
+    const autoSaveToggle = document.getElementById('auto-save-toggle');
+    if (autoSaveToggle) {
+      // 初始化开关状态
+      autoSaveToggle.checked = this.cookieManager.isAutoSaveEnabled();
+      
+      autoSaveToggle.addEventListener('change', (e) => {
+        this.toggleAutoSave(e.target.checked);
+      });
+    }
+    
+    // 清除 Cookies 按钮
+    document.getElementById('clear-cookies').addEventListener('click', () => {
+      this.clearCookies();
     });
 
     // 主题切换
@@ -511,6 +544,9 @@ class RobotKeyframeEditor {
         console.log('========================================');
         this.updateStatus(i18n.t('urdfLoadSuccess', { count: joints.length }), 'success');
         alert(i18n.t('urdfLoadSuccess', { count: joints.length }));
+        
+        // 触发完整保存（包含 URDF）
+        this.triggerAutoSave(true);
       } else {
         console.error('❌ 机器人模型为 null 或 undefined');
         throw new Error('机器人模型创建失败');
@@ -578,6 +614,9 @@ class RobotKeyframeEditor {
       
       // 更新文件名显示
       this.updateCurrentFileName(file.name, 'csv');
+      
+      // 触发自动保存
+      this.triggerAutoSave();
     } catch (error) {
       console.error('CSV 加载失败:', error);
       this.updateStatus(i18n.t('csvLoadFailed'), 'error');
@@ -587,6 +626,12 @@ class RobotKeyframeEditor {
 
   updateRobotState(frameIndex) {
     if ((!this.robotLeft && !this.robotRight) || !this.trajectoryManager.hasTrajectory()) {
+      return;
+    }
+    
+    // 检查 jointController 是否已初始化
+    if (!this.jointController || !this.jointController.joints || this.jointController.joints.length === 0) {
+      console.warn('⚠️ jointController 未初始化，跳过更新机器人状态');
       return;
     }
 
@@ -610,8 +655,10 @@ class RobotKeyframeEditor {
       
       // 更新左侧关节
       baseState.joints.forEach((value, index) => {
-        const jointName = this.jointController.joints[index].name;
-        this.robotLeft.setJointValue(jointName, value);
+        if (index < this.jointController.joints.length) {
+          const jointName = this.jointController.joints[index].name;
+          this.robotLeft.setJointValue(jointName, value);
+        }
       });
     }
     
@@ -692,6 +739,9 @@ class RobotKeyframeEditor {
       this.curveEditor.updateCurves();
       this.curveEditor.draw();
     }
+    
+    // 触发自动保存
+    this.triggerAutoSave();
   }
 
   deleteCurrentKeyframe() {
@@ -725,6 +775,9 @@ class RobotKeyframeEditor {
         this.curveEditor.updateCurves();
         this.curveEditor.draw();
       }
+      
+      // 触发自动保存
+      this.triggerAutoSave();
       
       console.log('删除关键帧:', currentFrame);
     } else {
@@ -1066,6 +1119,170 @@ class RobotKeyframeEditor {
       }
       console.log('✅ 地面投影包络线刷新完成');
     }, 0);
+  }
+  
+  /**
+   * 恢复保存的状态（如果可用）
+   */
+  async restoreStateIfAvailable() {
+    if (!this.cookieManager.isAutoSaveEnabled()) {
+      console.log('📕 自动保存未启用，跳过状态恢复');
+      return;
+    }
+    
+    const stateInfo = this.cookieManager.getStateInfo();
+    if (!stateInfo) {
+      console.log('📕 没有找到已保存的状态');
+      return;
+    }
+    
+    console.log('🔍 检测到已保存的状态:', stateInfo);
+    
+    try {
+      const restored = await this.cookieManager.restoreState(this);
+      if (restored) {
+        this.updateStatus(i18n.t('stateRestored'), 'success');
+        console.log('✅ 状态恢复成功');
+      } else {
+        console.log('⚠️ 状态恢复失败');
+      }
+    } catch (e) {
+      console.error('❌ 恢复状态异常:', e);
+    }
+  }
+  
+  /**
+   * 重置应用到初始状态
+   */
+  async resetApplication() {
+    if (!confirm(i18n.t('resetConfirm'))) {
+      return;
+    }
+    
+    console.log('🔄 重置应用...');
+    
+    // 清除轨迹管理器
+    if (this.trajectoryManager) {
+      this.trajectoryManager.clearAll();
+    }
+    
+    // 移除机器人模型
+    if (this.robotLeft) {
+      this.sceneLeft.remove(this.robotLeft);
+      this.robotLeft = null;
+    }
+    if (this.robotRight) {
+      this.sceneRight.remove(this.robotRight);
+      this.robotRight = null;
+      this.robot = null;
+    }
+    
+    // 清除控制器
+    if (this.jointController) {
+      const container = document.getElementById('joint-controls');
+      if (container) {
+        container.innerHTML = '';
+      }
+      this.jointController = null;
+    }
+    
+    if (this.baseController) {
+      this.baseController = null;
+    }
+    
+    // 重置时间轴
+    if (this.timelineController) {
+      this.timelineController.pause();
+      this.timelineController.updateTimeline(0, 0);
+      this.timelineController.updateKeyframeMarkers([]);
+      this.timelineController.setCurrentFrame(0);
+    }
+    
+    // 重置曲线编辑器
+    if (this.curveEditor) {
+      this.curveEditor.curves.clear();
+      this.curveEditor.draw();
+    }
+    
+    // 重置相机
+    this.resetCamera();
+    
+    // 重置 UI 状态
+    this.cameraMode = 'rotate';
+    this.followRobot = false;
+    this.showCOM = true;
+    this.autoRefreshFootprint = false;
+    this.footprintHeightThresholdCm = 10;
+    
+    // 更新按钮状态
+    document.getElementById('toggle-camera-mode').textContent = i18n.t('rotate');
+    document.getElementById('follow-robot').textContent = i18n.t('followOff');
+    document.getElementById('follow-robot').style.background = 'var(--overlay-bg)';
+    document.getElementById('follow-robot').style.borderColor = 'var(--border-primary)';
+    document.getElementById('toggle-com').textContent = i18n.t('comOn');
+    document.getElementById('toggle-com').style.background = 'rgba(255, 100, 100, 0.3)';
+    document.getElementById('toggle-com').style.borderColor = 'rgba(255, 100, 100, 0.6)';
+    document.getElementById('toggle-auto-refresh').textContent = i18n.t('autoRefreshOff');
+    document.getElementById('toggle-auto-refresh').style.background = 'var(--overlay-bg)';
+    document.getElementById('toggle-auto-refresh').style.borderColor = 'var(--border-primary)';
+    
+    // 清除文件名显示
+    this.clearCurrentFileName();
+    
+    // 清除 Cookie（如果启用了自动保存）
+    if (this.cookieManager.isAutoSaveEnabled()) {
+      await this.cookieManager.clearState();
+    }
+    
+    // 更新状态显示
+    this.updateStatus(i18n.t('ready'), 'info');
+    
+    console.log('✅ 应用已重置');
+  }
+  
+  /**
+   * 切换自动保存
+   */
+  async toggleAutoSave(enabled) {
+    await this.cookieManager.setAutoSaveEnabled(enabled);
+    
+    const notice = document.getElementById('cookie-notice');
+    if (notice) {
+      notice.style.display = enabled ? 'block' : 'none';
+    }
+    
+    if (enabled) {
+      console.log('💾 自动保存已启用');
+      this.updateStatus(i18n.t('autoSaveEnabled'), 'success');
+      // 立即执行一次完整保存（包含 URDF）
+      await this.cookieManager.saveState(this, true);
+    } else {
+      console.log('💾 自动保存已禁用');
+      this.updateStatus(i18n.t('autoSaveDisabled'), 'info');
+    }
+  }
+  
+  /**
+   * 清除已保存的 Cookies
+   */
+  async clearCookies() {
+    if (!confirm(i18n.t('clearCookiesConfirm'))) {
+      return;
+    }
+    
+    await this.cookieManager.clearState();
+    this.updateStatus(i18n.t('cookiesCleared'), 'success');
+    console.log('🗑️ 已清除 Cookies');
+  }
+  
+  /**
+   * 触发自动保存（防抖）
+   * @param {boolean} fullSave - 是否完整保存（包括 URDF）
+   */
+  triggerAutoSave(fullSave = false) {
+    if (this.cookieManager.isAutoSaveEnabled()) {
+      this.cookieManager.saveStateDebounced(this, fullSave);
+    }
   }
 
   /**
