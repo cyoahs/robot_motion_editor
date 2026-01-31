@@ -68,6 +68,7 @@ const translations = {
     // 时间轴
     addKeyframe: '添加关键帧',
     deleteKeyframe: '删除关键帧',
+    smoothKeyframes: '✨ 平滑',
     zoomOut: '🔍-',
     zoomReset: '1:1',
     zoomIn: '🔍+',
@@ -279,6 +280,7 @@ const translations = {
     // Timeline
     addKeyframe: 'Add Keyframe',
     deleteKeyframe: 'Delete Keyframe',
+    smoothKeyframes: '✨ Smooth',
     zoomOut: '🔍-',
     zoomReset: '1:1',
     zoomIn: '🔍+',

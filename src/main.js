@@ -306,6 +306,11 @@ class RobotKeyframeEditor {
       this.deleteCurrentKeyframe();
     });
 
+    // 平滑关键帧
+    document.getElementById('smooth-keyframes').addEventListener('click', () => {
+      this.smoothSelectedKeyframes();
+    });
+
     // 重置关节
     document.getElementById('reset-joints').addEventListener('click', () => {
       if (this.jointController) {
@@ -789,6 +794,225 @@ class RobotKeyframeEditor {
     } else {
       alert('当前帧不是关键帧');
     }
+  }
+
+  /**
+   * 平滑选中的关键帧
+   * 要求：至少选中3个连续关键帧
+   * 效果：第一个和最后一个关键帧保持不变，中间关键帧的残差自动计算
+   *       使得叠加值等于前后关键帧叠加值的线性插值
+   */
+  smoothSelectedKeyframes() {
+    if (!this.trajectoryManager.hasTrajectory()) {
+      alert('请先加载 CSV 轨迹');
+      return;
+    }
+
+    // 获取选中的关键帧并排序
+    const selectedKeyframes = this.timelineController.getSelectedKeyframes();
+    
+    if (selectedKeyframes.length < 3) {
+      alert('请选择至少3个关键帧（使用 Shift+点击）');
+      return;
+    }
+
+    // 检查是否为连续关键帧
+    let isConsecutive = true;
+    for (let i = 1; i < selectedKeyframes.length; i++) {
+      const prevFrame = selectedKeyframes[i - 1];
+      const currentFrame = selectedKeyframes[i];
+      const keyframesBetween = Array.from(this.trajectoryManager.keyframes.keys())
+        .filter(f => f > prevFrame && f < currentFrame);
+      
+      if (keyframesBetween.length > 0) {
+        isConsecutive = false;
+        break;
+      }
+    }
+
+    if (!isConsecutive) {
+      alert('请选择连续的关键帧（中间不能有未选中的关键帧）');
+      return;
+    }
+
+    // 保持第一个和最后一个关键帧，平滑中间关键帧
+    const startFrame = selectedKeyframes[0];
+    const endFrame = selectedKeyframes[selectedKeyframes.length - 1];
+    const middleFrames = selectedKeyframes.slice(1, -1);
+
+    if (middleFrames.length === 0) {
+      alert('需要至少3个关键帧（包含中间帧）才能进行平滑');
+      return;
+    }
+
+    // 获取起始和结束关键帧数据
+    const startKeyframe = this.trajectoryManager.keyframes.get(startFrame);
+    const endKeyframe = this.trajectoryManager.keyframes.get(endFrame);
+
+    // 计算起始和结束的叠加值（原始值 + 残差）
+    const startOverlay = this.calculateOverlayValues(startFrame, startKeyframe);
+    const endOverlay = this.calculateOverlayValues(endFrame, endKeyframe);
+
+    // 对每个中间关键帧进行平滑
+    middleFrames.forEach(frame => {
+      const keyframe = this.trajectoryManager.keyframes.get(frame);
+      
+      // 计算插值比例
+      const t = (frame - startFrame) / (endFrame - startFrame);
+      
+      // 对关节角度进行线性插值并计算新残差
+      if (keyframe.residual && startOverlay.joints && endOverlay.joints) {
+        for (let i = 0; i < keyframe.residual.length; i++) {
+          // 线性插值叠加值
+          const interpolatedOverlay = startOverlay.joints[i] + t * (endOverlay.joints[i] - startOverlay.joints[i]);
+          
+          // 获取该帧的原始关节角度
+          const frameBaseState = this.trajectoryManager.getBaseState(frame);
+          const baseJointValue = frameBaseState ? frameBaseState.joints[i] : 0;
+          
+          // 新残差 = 插值叠加值 - 原始值
+          keyframe.residual[i] = interpolatedOverlay - baseJointValue;
+        }
+      }
+      
+      // 对基座位置进行线性插值并计算新残差
+      if (keyframe.baseResidual && startOverlay.basePosition && endOverlay.basePosition) {
+        const frameBaseState = this.trajectoryManager.getBaseState(frame);
+        if (frameBaseState) {
+          ['x', 'y', 'z'].forEach(axis => {
+            const interpolatedOverlay = startOverlay.basePosition[axis] + 
+              t * (endOverlay.basePosition[axis] - startOverlay.basePosition[axis]);
+            
+            const basePoseValue = frameBaseState.base.position[axis];
+            
+            if (!keyframe.baseResidual.position) {
+              keyframe.baseResidual.position = { x: 0, y: 0, z: 0 };
+            }
+            keyframe.baseResidual.position[axis] = interpolatedOverlay - basePoseValue;
+          });
+        }
+      }
+      
+      // 对基座旋转进行球面线性插值（SLERP）并计算新残差
+      if (keyframe.baseResidual && startOverlay.baseQuaternion && endOverlay.baseQuaternion) {
+        const startQuat = new THREE.Quaternion(
+          startOverlay.baseQuaternion.x,
+          startOverlay.baseQuaternion.y,
+          startOverlay.baseQuaternion.z,
+          startOverlay.baseQuaternion.w
+        );
+        const endQuat = new THREE.Quaternion(
+          endOverlay.baseQuaternion.x,
+          endOverlay.baseQuaternion.y,
+          endOverlay.baseQuaternion.z,
+          endOverlay.baseQuaternion.w
+        );
+        
+        const interpolatedQuat = new THREE.Quaternion();
+        interpolatedQuat.slerpQuaternions(startQuat, endQuat, t);
+        
+        const frameBaseState = this.trajectoryManager.getBaseState(frame);
+        if (frameBaseState) {
+          const baseQuat = new THREE.Quaternion(
+            frameBaseState.base.quaternion.x,
+            frameBaseState.base.quaternion.y,
+            frameBaseState.base.quaternion.z,
+            frameBaseState.base.quaternion.w
+          );
+          
+          // 计算残差四元数：interpolatedQuat = baseQuat * residualQuat
+          // residualQuat = baseQuat.inverse() * interpolatedQuat
+          const residualQuat = baseQuat.clone().invert().multiply(interpolatedQuat);
+          
+          if (!keyframe.baseResidual.quaternion) {
+            keyframe.baseResidual.quaternion = { x: 0, y: 0, z: 0, w: 1 };
+          }
+          keyframe.baseResidual.quaternion.x = residualQuat.x;
+          keyframe.baseResidual.quaternion.y = residualQuat.y;
+          keyframe.baseResidual.quaternion.z = residualQuat.z;
+          keyframe.baseResidual.quaternion.w = residualQuat.w;
+        }
+      }
+    });
+
+    // 更新显示
+    const currentFrame = this.timelineController.getCurrentFrame();
+    this.updateRobotState(currentFrame);
+    
+    // 更新曲线编辑器
+    if (this.curveEditor) {
+      this.curveEditor.updateCurves();
+    }
+    
+    // 清除选择状态
+    this.timelineController.clearSelection();
+    
+    // 触发自动保存
+    this.triggerAutoSave();
+    
+    console.log(`已平滑 ${middleFrames.length} 个中间关键帧`);
+    alert(`平滑完成！已处理 ${middleFrames.length} 个中间关键帧`);
+  }
+
+  /**
+   * 计算指定帧的叠加值（原始值 + 残差）
+   */
+  calculateOverlayValues(frame, keyframe) {
+    const result = {
+      joints: [],
+      basePosition: { x: 0, y: 0, z: 0 },
+      baseQuaternion: { x: 0, y: 0, z: 0, w: 1 }
+    };
+
+    // 计算关节角度叠加值
+    const baseState = this.trajectoryManager.getBaseState(frame);
+    if (keyframe.residual && baseState) {
+      for (let i = 0; i < keyframe.residual.length; i++) {
+        const baseValue = baseState.joints[i];
+        result.joints[i] = baseValue + keyframe.residual[i];
+      }
+    }
+
+    // 计算基座位置叠加值
+    if (!baseState) {
+      return result;
+    }
+    
+    if (keyframe.baseResidual && keyframe.baseResidual.position) {
+      result.basePosition.x = baseState.base.position.x + keyframe.baseResidual.position.x;
+      result.basePosition.y = baseState.base.position.y + keyframe.baseResidual.position.y;
+      result.basePosition.z = baseState.base.position.z + keyframe.baseResidual.position.z;
+    } else {
+      result.basePosition = { ...baseState.base.position };
+    }
+
+    // 计算基座旋转叠加值
+    if (keyframe.baseResidual && keyframe.baseResidual.quaternion) {
+      const baseQuat = new THREE.Quaternion(
+        baseState.base.quaternion.x,
+        baseState.base.quaternion.y,
+        baseState.base.quaternion.z,
+        baseState.base.quaternion.w
+      );
+      const residualQuat = new THREE.Quaternion(
+        keyframe.baseResidual.quaternion.x,
+        keyframe.baseResidual.quaternion.y,
+        keyframe.baseResidual.quaternion.z,
+        keyframe.baseResidual.quaternion.w
+      );
+      
+      const overlayQuat = baseQuat.multiply(residualQuat);
+      result.baseQuaternion = {
+        x: overlayQuat.x,
+        y: overlayQuat.y,
+        z: overlayQuat.z,
+        w: overlayQuat.w
+      };
+    } else {
+      result.baseQuaternion = { ...baseState.base.quaternion };
+    }
+
+    return result;
   }
 
   exportTrajectory() {
