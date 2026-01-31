@@ -53,6 +53,7 @@ const translations = {
     // 曲线编辑器
     curves: '📈 曲线',
     resetDefault: '恢复默认',
+    resetView: '重置缩放',
     interpolationLinear: '线性',
     interpolationBezier: '贝塞尔',
     interpolationMode: '插值模式',
@@ -189,6 +190,7 @@ const translations = {
     curves: '📈 曲线',
     curveEditor: '📈 曲线编辑器',
     resetDefault: '恢复默认',
+    resetView: '重置缩放',
     
     // 使用说明
     userGuide: '📖 使用说明',
@@ -262,6 +264,7 @@ const translations = {
     // Curve editor
     curves: '📈 Curves',
     resetDefault: 'Reset Default',
+    resetView: 'Reset Zoom',
     interpolationLinear: 'Linear',
     interpolationBezier: 'Bezier',
     interpolationMode: 'Interpolation',
@@ -395,6 +398,7 @@ const translations = {
     curves: '📈 Curves',
     curveEditor: '📈 Curve Editor',
     resetDefault: 'Reset Default',
+    resetView: 'Reset Zoom',
     
     // User Guide
     userGuide: '📖 User Guide',

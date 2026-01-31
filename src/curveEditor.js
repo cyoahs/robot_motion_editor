@@ -12,6 +12,26 @@ export class CurveEditor {
     this.height = 200; // 展开时的高度
     this.padding = { left: 0, right: 0, top: 20, bottom: 30 };
     
+    // 视图变换（缩放和平移）
+    this.viewTransform = {
+      offsetX: 0,      // X轴平移（帧数）
+      scaleX: 1,       // X轴缩放
+      offsetY: 0,      // Y轴平移（值域）
+      scaleY: 1,       // Y轴缩放
+      minScaleX: 0.1,  // X轴最小缩放
+      maxScaleX: 10,   // X轴最大缩放
+      minScaleY: 0.1,  // Y轴最小缩放
+      maxScaleY: 10    // Y轴最大缩放
+    };
+    
+    // 交互状态
+    this.draggingPoint = null; // {curveKey, keyframeIndex}
+    this.hoveredPoint = null;
+    this.isPanning = false;    // 是否正在平移
+    this.isBoxSelecting = false; // 是否正在框选
+    this.panStart = null;      // 平移起始点
+    this.boxSelectStart = null; // 框选起始点
+    
     // 曲线数据
     this.curves = new Map(); // key: "joint_${index}" 或 "base_${axis}", value: {visible, color, data}
     this.colors = [
@@ -19,10 +39,6 @@ export class CurveEditor {
       '#dcdcaa', '#4fc1ff', '#b5cea8', '#d7ba7d', '#c678dd'
     ];
     this.colorIndex = 0;
-    
-    // 交互状态
-    this.draggingPoint = null; // {curveKey, keyframeIndex}
-    this.hoveredPoint = null;
     
     // 防抖定时器，用于优化绘制性能
     this.drawDebounceTimer = null;
@@ -203,11 +219,24 @@ export class CurveEditor {
       this.resetToDefault();
     });
     
+    // 重置缩放按钮
+    document.getElementById('curve-reset-view')?.addEventListener('click', () => {
+      this.resetView();
+    });
+    
     // 画布交互
     this.canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
     this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
     this.canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
     this.canvas.addEventListener('mouseleave', (e) => this.handleMouseLeave(e));
+    
+    // 滚轮缩放
+    this.canvas.addEventListener('wheel', (e) => this.handleWheel(e), { passive: false });
+    
+    // 触控板手势
+    this.canvas.addEventListener('gesturestart', (e) => this.handleGestureStart(e));
+    this.canvas.addEventListener('gesturechange', (e) => this.handleGestureChange(e));
+    this.canvas.addEventListener('gestureend', (e) => this.handleGestureEnd(e));
     
     // 窗口大小改变
     window.addEventListener('resize', () => this.resizeCanvas());
@@ -700,22 +729,36 @@ export class CurveEditor {
     const plotHeight = plotBottom - plotTop;
     
     // 绘制网格
-    this.drawGrid(plotLeft, plotTop, plotWidth, plotHeight, frameCount, zoomLevel, scrollLeft);
+    this.drawGrid(plotLeft, plotTop, plotWidth, plotHeight, frameCount);
     
     // 绘制关键帧竖线
-    this.drawKeyframeLines(keyframes, plotLeft, plotTop, plotWidth, plotHeight, 
-      frameCount, zoomLevel, scrollLeft);
+    this.drawKeyframeLines(keyframes, plotLeft, plotTop, plotWidth, plotHeight, frameCount);
     
     // 绘制当前帧竖线
-    this.drawCurrentFrameLine(currentFrame, plotLeft, plotTop, plotWidth, plotHeight, 
-      frameCount, zoomLevel, scrollLeft);
+    this.drawCurrentFrameLine(currentFrame, plotLeft, plotTop, plotWidth, plotHeight, frameCount);
     
     // 绘制曲线
-    this.drawCurves(plotLeft, plotTop, plotWidth, plotHeight, frameCount, 
-      keyframes, zoomLevel, scrollLeft);
+    this.drawCurves(plotLeft, plotTop, plotWidth, plotHeight, frameCount, keyframes);
     
     // 绘制坐标轴
     this.drawAxes(plotLeft, plotTop, plotWidth, plotHeight);
+    
+    // 绘制框选框
+    if (this.isBoxSelecting && this.boxSelectStart && this.boxSelectEnd) {
+      const x1 = Math.min(this.boxSelectStart.x, this.boxSelectEnd.x);
+      const y1 = Math.min(this.boxSelectStart.y, this.boxSelectEnd.y);
+      const x2 = Math.max(this.boxSelectStart.x, this.boxSelectEnd.x);
+      const y2 = Math.max(this.boxSelectStart.y, this.boxSelectEnd.y);
+      
+      // 半透明填充
+      this.ctx.fillStyle = 'rgba(100, 150, 255, 0.2)';
+      this.ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+      
+      // 边框
+      this.ctx.strokeStyle = '#6496ff';
+      this.ctx.lineWidth = 1;
+      this.ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    }
     
     const drawEnd = performance.now();
     console.log(`⏱️ curveEditor.draw() 耗时: ${(drawEnd - drawStart).toFixed(2)}ms`);
@@ -746,7 +789,7 @@ export class CurveEditor {
     this.ctx.fillText('请加载轨迹数据', width / 2, height / 2);
   }
 
-  drawGrid(left, top, width, height, frameCount, zoomLevel, scrollLeft) {
+  drawGrid(left, top, width, height, frameCount) {
     this.ctx.strokeStyle = this.cachedStyles.borderPrimary;
     this.ctx.lineWidth = 0.5;
     this.ctx.setLineDash([2, 2]);
@@ -761,17 +804,29 @@ export class CurveEditor {
       this.ctx.stroke();
     }
     
+    // 纵向网格线（时间）
+    const frameStep = Math.max(1, Math.floor(frameCount / 10 / this.viewTransform.scaleX));
+    for (let frame = 0; frame < frameCount; frame += frameStep) {
+      const x = this.frameToX(frame, left, width, frameCount);
+      if (x >= left && x <= left + width) {
+        this.ctx.beginPath();
+        this.ctx.moveTo(x, top);
+        this.ctx.lineTo(x, top + height);
+        this.ctx.stroke();
+      }
+    }
+    
     this.ctx.setLineDash([]);
   }
 
-  drawKeyframeLines(keyframes, left, top, width, height, frameCount, zoomLevel, scrollLeft) {
+  drawKeyframeLines(keyframes, left, top, width, height, frameCount) {
     this.ctx.strokeStyle = this.cachedStyles.warningColor;
     this.ctx.globalAlpha = 0.3;
     this.ctx.lineWidth = 1;
     this.ctx.setLineDash([5, 5]);
     
     keyframes.forEach(kf => {
-      const x = this.frameToX(kf.frame, left, width, frameCount, zoomLevel, scrollLeft);
+      const x = this.frameToX(kf.frame, left, width, frameCount);
       if (x >= left && x <= left + width) {
         this.ctx.beginPath();
         this.ctx.moveTo(x, top);
@@ -784,8 +839,8 @@ export class CurveEditor {
     this.ctx.setLineDash([]);
   }
 
-  drawCurrentFrameLine(currentFrame, left, top, width, height, frameCount, zoomLevel, scrollLeft) {
-    const x = this.frameToX(currentFrame, left, width, frameCount, zoomLevel, scrollLeft);
+  drawCurrentFrameLine(currentFrame, left, top, width, height, frameCount) {
+    const x = this.frameToX(currentFrame, left, width, frameCount);
     
     if (x >= left && x <= left + width) {
       this.ctx.strokeStyle = this.cachedStyles.accentInfo;
@@ -797,47 +852,19 @@ export class CurveEditor {
     }
   }
 
-  drawCurves(left, top, width, height, frameCount, keyframes, zoomLevel, scrollLeft) {
+  drawCurves(left, top, width, height, frameCount, keyframes) {
     // 计算可见帧范围 (只计算屏幕上实际显示的部分)
-    const visibleFrameStart = Math.max(0, this.xToFrame(left, left, width, frameCount, zoomLevel, scrollLeft));
-    const visibleFrameEnd = Math.min(frameCount - 1, this.xToFrame(left + width, left, width, frameCount, zoomLevel, scrollLeft));
+    const visibleFrameStart = Math.max(0, this.xToFrame(left, left, width, frameCount));
+    const visibleFrameEnd = Math.min(frameCount - 1, this.xToFrame(left + width, left, width, frameCount));
     
-    // 找到所有可见曲线的值域 (仅在可见范围内采样)
-    let minValue = Infinity;
-    let maxValue = -Infinity;
+    // 使用通用方法计算值域（已应用视图变换）
+    const { minValue, maxValue } = this.calculateValueRange();
     
-    this.curves.forEach((curve, key) => {
-      if (!curve.visible) return;
-      
-      // 只遍历可见帧范围来计算值域
-      const step = Math.max(1, Math.floor((visibleFrameEnd - visibleFrameStart) / 200));
-      for (let frame = visibleFrameStart; frame <= visibleFrameEnd; frame += step) {
-        // 一次调用获取两个值,减少函数调用开销
-        const baseValue = this.getFrameValue(frame, curve, false);
-        const modifiedValue = this.getFrameValue(frame, curve, true);
-        
-        if (baseValue !== null) {
-          minValue = Math.min(minValue, baseValue);
-          maxValue = Math.max(maxValue, baseValue);
-        }
-        if (modifiedValue !== null) {
-          minValue = Math.min(minValue, modifiedValue);
-          maxValue = Math.max(maxValue, modifiedValue);
-        }
-      }
-    });
-    
-    // 如果没有数据，使用默认范围
-    if (minValue === Infinity) {
-      minValue = -1;
-      maxValue = 1;
+    // 防御性检查：确保值域有效
+    if (!isFinite(minValue) || !isFinite(maxValue) || minValue >= maxValue) {
+      console.warn('Invalid value range in drawCurves:', { minValue, maxValue, scale: this.viewTransform.scaleY, offset: this.viewTransform.offsetY });
+      return;
     }
-    
-    // 添加一些边距
-    const range = maxValue - minValue;
-    const margin = range * 0.1 || 0.1;
-    minValue -= margin;
-    maxValue += margin;
     
     // 绘制每条曲线
     this.curves.forEach((curve, key) => {
@@ -857,7 +884,7 @@ export class CurveEditor {
       for (let frame = visibleFrameStart; frame <= visibleFrameEnd; frame += step) {
         const value = this.getFrameValue(frame, curve, false);
         if (value !== null) {
-          const x = this.frameToX(frame, left, width, frameCount, zoomLevel, scrollLeft);
+          const x = this.frameToX(frame, left, width, frameCount);
           const y = this.valueToY(value, top, height, minValue, maxValue);
           
           if (firstPoint) {
@@ -881,7 +908,7 @@ export class CurveEditor {
       for (let frame = visibleFrameStart; frame <= visibleFrameEnd; frame += step) {
         const value = this.getFrameValue(frame, curve, true);
         if (value !== null) {
-          const x = this.frameToX(frame, left, width, frameCount, zoomLevel, scrollLeft);
+          const x = this.frameToX(frame, left, width, frameCount);
           const y = this.valueToY(value, top, height, minValue, maxValue);
           
           if (firstPoint) {
@@ -900,7 +927,7 @@ export class CurveEditor {
         keyframes.forEach((kf) => {
           const value = this.getFrameValue(kf.frame, curve, true);
           if (value !== null) {
-            const x = this.frameToX(kf.frame, left, width, frameCount, zoomLevel, scrollLeft);
+            const x = this.frameToX(kf.frame, left, width, frameCount);
             const y = this.valueToY(value, top, height, minValue, maxValue);
             
             if (x >= left && x <= left + width) {
@@ -1079,75 +1106,99 @@ export class CurveEditor {
     };
   }
 
-  frameToX(frame, left, width, frameCount, zoomLevel, scrollLeft) {
-    // 参考timeline的关键帧标记实现，使用相同的缩放和滚动逻辑
-    const timelineController = this.editor.timelineController;
-    if (!timelineController) {
-      return left + (frame / Math.max(frameCount - 1, 1)) * width;
+  frameToX(frame, left, width, frameCount) {
+    if (frameCount <= 1) {
+      return left + width / 2;
     }
     
-    // 获取timeline slider的位置信息
-    const slider = document.getElementById('timeline-slider');
-    if (!slider) {
-      return left + (frame / Math.max(frameCount - 1, 1)) * width;
-    }
+    // 应用X轴变换
+    const normalizedFrame = frame / (frameCount - 1); // 0-1范围
+    const transformedFrame = (normalizedFrame - 0.5 - this.viewTransform.offsetX) * this.viewTransform.scaleX + 0.5;
     
-    // 计算thumb的有效范围
-    const oldValue = slider.value;
-    slider.value = 0;
-    const thumbPos0 = timelineController.getThumbPosition(slider);
-    slider.value = slider.max;
-    const thumbPosMax = timelineController.getThumbPosition(slider);
-    slider.value = oldValue;
-    
-    const effectiveWidth = thumbPosMax - thumbPos0;
-    const offset = thumbPos0;
-    
-    // 计算帧在slider上的位置
-    const ratio = frame / Math.max(frameCount - 1, 1);
-    const posInSlider = offset + ratio * effectiveWidth;
-    
-    // 映射到曲线画布
-    return left + (posInSlider / slider.offsetWidth) * width;
+    return left + transformedFrame * width;
   }
   
   /**
    * 将画布 x 坐标转换为帧号 (frameToX 的逆运算)
    * 用于计算可见帧范围
    */
-  xToFrame(x, left, width, frameCount, zoomLevel, scrollLeft) {
-    const timelineController = this.editor.timelineController;
-    if (!timelineController) {
-      return Math.round(((x - left) / width) * Math.max(frameCount - 1, 1));
+  xToFrame(x, left, width, frameCount) {
+    if (frameCount <= 1) {
+      return 0;
     }
     
-    const slider = document.getElementById('timeline-slider');
-    if (!slider) {
-      return Math.round(((x - left) / width) * Math.max(frameCount - 1, 1));
+    // 从像素坐标转换到标准化坐标
+    const normalizedX = (x - left) / width;
+    
+    // 反向应用X轴变换
+    const transformedX = (normalizedX - 0.5) / this.viewTransform.scaleX + 0.5 + this.viewTransform.offsetX;
+    
+    // 转换为帧号
+    const frame = transformedX * (frameCount - 1);
+    return Math.round(Math.max(0, Math.min(frameCount - 1, frame)));
+  }
+
+  // 计算值域范围（应用视图变换）
+  calculateValueRange() {
+    if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
+      return { minValue: -1, maxValue: 1 };
+    }
+
+    const keyframes = this.editor.trajectoryManager.getKeyframes();
+    const frameCount = this.editor.trajectoryManager.getFrameCount();
+    
+    // 计算可见帧范围
+    const width = this.canvas.width / (window.devicePixelRatio || 1);
+    const plotLeft = this.padding.left;
+    const plotWidth = width - this.padding.left - this.padding.right;
+    
+    const visibleFrameStart = Math.max(0, this.xToFrame(plotLeft, plotLeft, plotWidth, frameCount));
+    const visibleFrameEnd = Math.min(frameCount - 1, this.xToFrame(plotLeft + plotWidth, plotLeft, plotWidth, frameCount));
+    
+    // 找到所有可见曲线的值域
+    let minValue = Infinity;
+    let maxValue = -Infinity;
+    
+    this.curves.forEach((curve) => {
+      if (!curve.visible) return;
+      
+      // 采样可见帧范围
+      const step = Math.max(1, Math.floor((visibleFrameEnd - visibleFrameStart) / 200));
+      for (let frame = visibleFrameStart; frame <= visibleFrameEnd; frame += step) {
+        const baseValue = this.getFrameValue(frame, curve, false);
+        const modifiedValue = this.getFrameValue(frame, curve, true);
+        
+        if (baseValue !== null) {
+          minValue = Math.min(minValue, baseValue);
+          maxValue = Math.max(maxValue, baseValue);
+        }
+        if (modifiedValue !== null) {
+          minValue = Math.min(minValue, modifiedValue);
+          maxValue = Math.max(maxValue, modifiedValue);
+        }
+      }
+    });
+    
+    // 如果没有数据，使用默认范围
+    if (minValue === Infinity) {
+      minValue = -1;
+      maxValue = 1;
     }
     
-    // 计算thumb的有效范围
-    const oldValue = slider.value;
-    slider.value = 0;
-    const thumbPos0 = timelineController.getThumbPosition(slider);
-    slider.value = slider.max;
-    const thumbPosMax = timelineController.getThumbPosition(slider);
-    slider.value = oldValue;
+    // 添加边距
+    const range = maxValue - minValue;
+    const margin = range * 0.1 || 0.1;
+    minValue -= margin;
+    maxValue += margin;
     
-    const effectiveWidth = thumbPosMax - thumbPos0;
-    const offset = thumbPos0;
-    
-    // 从画布坐标映射回slider位置
-    const posInSlider = ((x - left) / width) * slider.offsetWidth;
-    
-    // 从slider位置计算帧号
-    const ratio = (posInSlider - offset) / effectiveWidth;
-    return Math.round(ratio * Math.max(frameCount - 1, 1));
+    // Y轴始终自适应，不应用缩放变换
+    return { minValue, maxValue };
   }
 
   valueToY(value, top, height, minValue, maxValue) {
     const range = maxValue - minValue;
     const normalized = (value - minValue) / range;
+    
     return top + height - normalized * height;
   }
 
@@ -1156,6 +1207,25 @@ export class CurveEditor {
     const rect = this.canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+    
+    // 中键或 Shift+左键 开始平移
+    if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
+      this.isPanning = true;
+      this.panStart = { x, y };
+      this.panStartOffsetX = this.viewTransform.offsetX;
+      this.canvas.style.cursor = 'grabbing';
+      e.preventDefault();
+      return;
+    }
+    
+    // Ctrl/Cmd+左键 开始框选
+    if (e.button === 0 && (e.ctrlKey || e.metaKey)) {
+      this.isBoxSelecting = true;
+      this.boxSelectStart = { x, y };
+      this.canvas.style.cursor = 'crosshair';
+      e.preventDefault();
+      return;
+    }
     
     // 检查是否点击了关键帧点
     const point = this.findPointAt(x, y);
@@ -1169,6 +1239,26 @@ export class CurveEditor {
     const rect = this.canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+    
+    // 处理平移（只平移X轴）
+    if (this.isPanning && this.panStart) {
+      const deltaX = x - this.panStart.x;
+      const plotWidth = this.canvas.width / (window.devicePixelRatio || 1) - this.padding.left - this.padding.right;
+      
+      // 计算X的偏移量变化，考虑缩放
+      const offsetDeltaX = deltaX / plotWidth / this.viewTransform.scaleX;
+      
+      this.viewTransform.offsetX = this.panStartOffsetX + offsetDeltaX;
+      this.draw();
+      return;
+    }
+    
+    // 处理框选
+    if (this.isBoxSelecting && this.boxSelectStart) {
+      this.boxSelectEnd = { x, y };
+      this.draw();
+      return;
+    }
     
     if (this.draggingPoint) {
       // 拖动关键帧点
@@ -1186,6 +1276,56 @@ export class CurveEditor {
   }
 
   handleMouseUp(e) {
+    // 结束框选 - 计算框选区域并缩放到该区域（只缩放X轴）
+    if (this.isBoxSelecting && this.boxSelectStart && this.boxSelectEnd) {
+      const x1 = Math.min(this.boxSelectStart.x, this.boxSelectEnd.x);
+      const x2 = Math.max(this.boxSelectStart.x, this.boxSelectEnd.x);
+      
+      if (Math.abs(x2 - x1) > 10) { // 至少10像素宽度
+        const frameCount = this.editor.trajectoryManager.getFrameCount();
+        const width = this.canvas.width / (window.devicePixelRatio || 1);
+        const plotLeft = this.padding.left;
+        const plotWidth = width - this.padding.left - this.padding.right;
+        
+        const frame1 = this.xToFrame(x1, plotLeft, plotWidth, frameCount);
+        const frame2 = this.xToFrame(x2, plotLeft, plotWidth, frameCount);
+        const selectedFrameRange = Math.abs(frame2 - frame1);
+        const selectedCenter = (frame1 + frame2) / 2;
+        
+        if (selectedFrameRange > 0 && isFinite(selectedFrameRange)) {
+          const currentRange = frameCount - 1;
+          const currentScale = this.viewTransform.scaleX || 1;
+          
+          // 计算新的缩放倍数
+          const newScale = Math.max(1, (currentRange / selectedFrameRange) * currentScale);
+          
+          if (isFinite(newScale) && newScale >= 1) {
+            this.viewTransform.scaleX = Math.min(this.viewTransform.maxScaleX, newScale);
+            
+            // 调整偏移使选中区域居中
+            const normalizedCenter = selectedCenter / (frameCount - 1);
+            this.viewTransform.offsetX = normalizedCenter - 0.5;
+          }
+        }
+      }
+      
+      this.isBoxSelecting = false;
+      this.boxSelectStart = null;
+      this.boxSelectEnd = null;
+      this.canvas.style.cursor = 'default';
+      this.draw();
+      return;
+    }
+    
+    // 结束平移
+    if (this.isPanning) {
+      this.isPanning = false;
+      this.panStart = null;
+      this.panStartOffsetX = 0;
+      this.canvas.style.cursor = 'default';
+      return;
+    }
+    
     if (this.draggingPoint) {
       this.draggingPoint = null;
       this.canvas.style.cursor = 'default';
@@ -1219,31 +1359,9 @@ export class CurveEditor {
     
     const frameCount = this.editor.trajectoryManager.getFrameCount();
     const keyframes = this.editor.trajectoryManager.getKeyframes();
-    const timelineController = this.editor.timelineController;
-    const zoomLevel = timelineController ? timelineController.zoomLevel : 1;
-    const scrollLeft = document.getElementById('timeline-viewport')?.scrollLeft || 0;
     
-    // 计算值域
-    let minValue = Infinity;
-    let maxValue = -Infinity;
-    
-    this.curves.forEach((curve) => {
-      if (!curve.visible) return;
-      keyframes.forEach(kf => {
-        const value = this.getKeyframeValue(kf, curve);
-        if (value !== null) {
-          minValue = Math.min(minValue, value);
-          maxValue = Math.max(maxValue, value);
-        }
-      });
-    });
-    
-    if (minValue === Infinity) return null;
-    
-    const range = maxValue - minValue;
-    const margin = range * 0.1 || 0.1;
-    minValue -= margin;
-    maxValue += margin;
+    // 使用通用方法计算值域（已应用视图变换）
+    const { minValue, maxValue } = this.calculateValueRange();
     
     const hitRadius = 8;
     
@@ -1256,7 +1374,7 @@ export class CurveEditor {
         const value = this.getKeyframeValue(kf, curve);
         
         if (value !== null) {
-          const px = this.frameToX(kf.frame, plotLeft, plotWidth, frameCount, zoomLevel, scrollLeft);
+          const px = this.frameToX(kf.frame, plotLeft, plotWidth, frameCount);
           const py = this.valueToY(value, plotTop, plotHeight, minValue, maxValue);
           
           const distance = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
@@ -1327,5 +1445,85 @@ export class CurveEditor {
       const currentFrame = this.editor.timelineController.getCurrentFrame();
       this.editor.timelineController.updateFromSlider(currentFrame);
     }
+  }
+
+  // 滚轮缩放处理（只缩放X轴，Y轴自适应）
+  handleWheel(event) {
+    event.preventDefault();
+    
+    const delta = -event.deltaY;
+    const zoomFactor = delta > 0 ? 1.1 : 0.9;
+    
+    const currentScale = this.viewTransform.scaleX || 1;
+    const newScale = currentScale * zoomFactor;
+    
+    // 限制：最小缩放为1（显示完整X轴）
+    if (newScale < 1) {
+      return;
+    }
+    
+    const clampedScale = Math.max(1, Math.min(this.viewTransform.maxScaleX, newScale));
+    
+    if (isFinite(clampedScale) && clampedScale > 0) {
+      // 获取当前帧位置，以它为中心缩放
+      const currentFrame = this.editor.timelineController ? 
+        this.editor.timelineController.getCurrentFrame() : 0;
+      const frameCount = this.editor.trajectoryManager ? 
+        this.editor.trajectoryManager.getFrameCount() : 1;
+      
+      if (frameCount > 1) {
+        // 计算当前帧的标准化位置（0-1）
+        const normalizedFrame = currentFrame / (frameCount - 1);
+        
+        // 保存旧的缩放和偏移
+        const oldScale = this.viewTransform.scaleX;
+        const oldOffset = this.viewTransform.offsetX;
+        
+        // 应用新缩放
+        this.viewTransform.scaleX = clampedScale;
+        
+        // 计算新的offsetX，使得当前帧的屏幕位置保持不变
+        // 根据公式：viewPos = (normalizedFrame - 0.5 - offsetX) * scaleX + 0.5
+        // 保持viewPos不变，求解新的offsetX
+        this.viewTransform.offsetX = normalizedFrame - 0.5 - (normalizedFrame - 0.5 - oldOffset) * oldScale / clampedScale;
+      } else {
+        this.viewTransform.scaleX = clampedScale;
+      }
+      
+      this.draw();
+    }
+  }
+
+  // 手势缩放开始
+  handleGestureStart(event) {
+    event.preventDefault();
+  }
+
+  // 手势缩放变化
+  handleGestureChange(event) {
+    event.preventDefault();
+  }
+
+  // 手势缩放结束
+  handleGestureEnd(event) {
+    event.preventDefault();
+  }
+
+  // 坐标转换：像素Y坐标 -> 值空间坐标（用于鼠标交互）
+  yToValue(y, minValue, maxValue) {
+    const plotTop = 80;
+    const plotHeight = this.canvas.height / (window.devicePixelRatio || 1) - plotTop - 50;
+    const normalized = 1 - (y - plotTop) / plotHeight;
+    
+    return minValue + normalized * (maxValue - minValue);
+  }
+
+
+
+  // 重置视图变换
+  resetView() {
+    this.viewTransform.offsetX = 0;
+    this.viewTransform.scaleX = 1;
+    this.draw();
   }
 }
