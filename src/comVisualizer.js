@@ -75,23 +75,23 @@ export class COMVisualizer {
     this.footprintCenter = new THREE.Mesh(centerGeometry, centerMaterial);
     this.scene.add(this.footprintCenter);
 
-    // 创建主轴1（最大方差方向，蓝色）
+    // 创建主轴1（最大方差方向，红色）
     const axis1Material = new THREE.LineBasicMaterial({ 
-      color: 0x0000ff,
+      color: 0xff3333,
       transparent: true,
-      opacity: 0.7,
-      linewidth: 2
+      opacity: 0.8,
+      linewidth: 3
     });
     const axis1Geometry = new THREE.BufferGeometry();
     this.footprintAxis1 = new THREE.Line(axis1Geometry, axis1Material);
     this.scene.add(this.footprintAxis1);
 
-    // 创建主轴2（最小方差方向，红色）
+    // 创建主轴2（最小方差方向，绿色）
     const axis2Material = new THREE.LineBasicMaterial({ 
-      color: 0xff00ff,
+      color: 0x33ff33,
       transparent: true,
-      opacity: 0.7,
-      linewidth: 2
+      opacity: 0.8,
+      linewidth: 3
     });
     const axis2Geometry = new THREE.BufferGeometry();
     this.footprintAxis2 = new THREE.Line(axis2Geometry, axis2Material);
@@ -189,26 +189,12 @@ export class COMVisualizer {
       }
     });
 
-    // 打印调试信息
-    console.log(`🎯 COM计算统计:`);
-    console.log(`  - 总link数: ${linkCount}`);
-    console.log(`  - 有质量的link数: ${massCount}`);
-    console.log(`  - 总质量: ${totalMass.toFixed(3)}kg`);
-    if (massCount === 0) {
-      console.warn(`  ⚠️ 未找到质量信息，将使用几何中心作为近似`);
-    }
-    if (linkDetails.length > 0 && linkDetails.length < 50) {
-      console.table(linkDetails);
-    }
-
     if (totalMass > 0) {
       comPosition.divideScalar(totalMass);
-      console.log(`  - 计算的COM位置: (${comPosition.x.toFixed(3)}, ${comPosition.y.toFixed(3)}, ${comPosition.z.toFixed(3)})`);
       return comPosition;
     }
 
     // 如果没有质量信息，使用几何中心作为近似
-    console.log(`  - 使用几何中心作为COM近似`);
     return this.calculateGeometricCenter(robot);
   }
 
