@@ -75,23 +75,23 @@ export class COMVisualizer {
     this.footprintCenter = new THREE.Mesh(centerGeometry, centerMaterial);
     this.scene.add(this.footprintCenter);
 
-    // 创建主轴1（最大方差方向，蓝色）
+    // 创建主轴1（最大方差方向，红色）
     const axis1Material = new THREE.LineBasicMaterial({ 
-      color: 0x0000ff,
+      color: 0xff3333,
       transparent: true,
-      opacity: 0.7,
-      linewidth: 2
+      opacity: 0.8,
+      linewidth: 3
     });
     const axis1Geometry = new THREE.BufferGeometry();
     this.footprintAxis1 = new THREE.Line(axis1Geometry, axis1Material);
     this.scene.add(this.footprintAxis1);
 
-    // 创建主轴2（最小方差方向，红色）
+    // 创建主轴2（最小方差方向，绿色）
     const axis2Material = new THREE.LineBasicMaterial({ 
-      color: 0xff00ff,
+      color: 0x33ff33,
       transparent: true,
-      opacity: 0.7,
-      linewidth: 2
+      opacity: 0.8,
+      linewidth: 3
     });
     const axis2Geometry = new THREE.BufferGeometry();
     this.footprintAxis2 = new THREE.Line(axis2Geometry, axis2Material);
@@ -506,7 +506,14 @@ export class COMVisualizer {
       
       // 更新主轴1（最大方差方向）
       if (pca) {
-        const axis1Length = Math.sqrt(pca.eigenvalues[0]) * 2; // 使用标准差的2倍作为长度
+        let axis1Length = Math.sqrt(pca.eigenvalues[0]) * 2; // 使用标准差的2倍作为长度
+        const axis2Length = Math.sqrt(pca.eigenvalues[1]) * 2;
+
+        // 检查长短轴比例，如果不满足1.5倍则延长主轴
+        if (axis2Length > 0 && axis1Length / axis2Length < 1.5) {
+          axis1Length = axis2Length * 1.5;
+        }
+
         const axis1Start = {
           x: center.x - pca.eigenvectors[0].x * axis1Length,
           y: center.y - pca.eigenvectors[0].y * axis1Length
@@ -524,7 +531,7 @@ export class COMVisualizer {
         this.footprintAxis1.visible = true;
 
         // 更新主轴2（最小方差方向）
-        const axis2Length = Math.sqrt(pca.eigenvalues[1]) * 2;
+        // axis2Length 已经在上面计算过了
         const axis2Start = {
           x: center.x - pca.eigenvectors[1].x * axis2Length,
           y: center.y - pca.eigenvectors[1].y * axis2Length
