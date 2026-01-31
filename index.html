@@ -412,9 +412,314 @@
     .cookie-toggle input:checked + .cookie-toggle-slider:before {
       transform: translateX(24px);
     }
+
+    /* 模态框样式 */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 10000;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .modal-overlay.show {
+      display: flex;
+    }
+
+    .modal-dialog {
+      background: var(--bg-primary);
+      border-radius: 6px;
+      border: 1px solid var(--border-primary);
+      width: 90%;
+      max-width: 600px;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
+
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-primary);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-header h3 {
+      margin: 0;
+      font-size: 16px;
+      color: var(--text-primary);
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 20px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 0;
+      width: 24px;
+      height: 24px;
+      line-height: 24px;
+      text-align: center;
+    }
+
+    .modal-close:hover {
+      color: var(--text-primary);
+    }
+
+    .modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .modal-footer {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border-primary);
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .foot-item {
+      background: var(--bg-secondary);
+      padding: 12px;
+      margin-bottom: 10px;
+      border-radius: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .foot-item-info {
+      flex: 1;
+    }
+
+    .foot-item-label {
+      font-weight: bold;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .foot-item-details {
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .foot-item-actions {
+      display: flex;
+      gap: 5px;
+    }
+
+    .foot-item-actions button {
+      padding: 4px 8px;
+      font-size: 11px;
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border-primary);
+      border-radius: 3px;
+      cursor: pointer;
+    }
+
+    .foot-item-actions button:hover {
+      background: var(--accent-primary);
+      color: white;
+    }
+
+    .add-foot-section {
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border-primary);
+    }
+
+    .add-foot-section h4 {
+      margin: 0 0 10px 0;
+      font-size: 13px;
+      color: var(--text-primary);
+    }
+
+    .add-foot-form {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    .add-foot-form select {
+      flex: 1;
+      padding: 6px 8px;
+      background: var(--bg-input);
+      color: var(--text-primary);
+      border: 1px solid var(--border-primary);
+      border-radius: 3px;
+      font-size: 12px;
+    }
+
+    .add-foot-form button {
+      padding: 6px 12px;
+      font-size: 12px;
+      background: var(--accent-primary);
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+
+    .add-foot-form button:hover {
+      background: var(--accent-hover);
+    }
+
+    .modal-empty-message {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-tertiary);
+      font-size: 13px;
+    }
+
+    /* 脚部编辑弹窗样式 */
+    .edit-foot-modal .modal-dialog {
+      max-width: 500px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 12px;
+      font-weight: bold;
+      color: var(--text-primary);
+    }
+
+    .form-group select,
+    .form-group input {
+      width: 100%;
+      padding: 6px 8px;
+      background: var(--bg-input);
+      color: var(--text-primary);
+      border: 1px solid var(--border-primary);
+      border-radius: 3px;
+      font-size: 12px;
+    }
+
+    .joint-list {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid var(--border-primary);
+      border-radius: 3px;
+      padding: 8px;
+      background: var(--bg-secondary);
+    }
+
+    .joint-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px;
+      margin-bottom: 4px;
+      background: var(--bg-primary);
+      border-radius: 3px;
+      border: 1px solid var(--border-primary);
+    }
+
+    .joint-item span {
+      font-size: 11px;
+      color: var(--text-primary);
+    }
+
+    .joint-item button {
+      padding: 2px 6px;
+      font-size: 10px;
+      background: var(--warning-color);
+      color: white;
+      border: none;
+      border-radius: 2px;
+      cursor: pointer;
+    }
+
+    .add-joint-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .add-joint-row select {
+      flex: 1;
+    }
+
+    .add-joint-row button {
+      padding: 6px 12px;
+      font-size: 11px;
+      background: var(--accent-primary);
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+
+    .add-joint-row button:hover {
+      background: var(--accent-hover);
+    }
   </style>
 </head>
 <body>
+  <!-- 脚部识别结果模态框 -->
+  <div id="foot-identification-modal" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 data-i18n="footIdentificationResults">脚部识别结果</h3>
+        <button class="modal-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="foot-modal-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="foot-modal-cancel" data-i18n="cancel">取消</button>
+        <button id="foot-modal-confirm" data-i18n="confirm">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 脚部编辑/创建模态框 -->
+  <div id="foot-edit-modal" class="modal-overlay edit-foot-modal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="foot-edit-modal-title">编辑脚部</h3>
+        <button class="modal-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label data-i18n="footLink">脚部 Link</label>
+          <select id="foot-edit-link-select">
+            <option value="">选择 Link</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label data-i18n="ankleJoints">脚踝关节</label>
+          <div class="joint-list" id="foot-edit-joint-list"></div>
+          <div class="add-joint-row">
+            <select id="foot-edit-joint-select">
+              <option value="">选择关节</option>
+            </select>
+            <button id="foot-edit-add-joint" data-i18n="addFoot">添加</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="foot-edit-cancel" data-i18n="cancel">取消</button>
+        <button id="foot-edit-confirm" data-i18n="confirm">确认</button>
+      </div>
+    </div>
+  </div>
+
   <div id="app">
     <div class="toolbar">
       <label for="urdf-folder" data-i18n="loadURDF">
@@ -499,6 +804,16 @@
           <button id="toggle-auto-refresh" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="autoRefreshOff">
             ⏱️ 自动刷新: 关
           </button>
+          <div style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--overlay-bg); border: 1px solid var(--border-primary); border-radius: 4px; backdrop-filter: blur(5px);">
+            <button id="auto-rotate-major" style="padding: 4px 8px; font-size: 11px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 3px; cursor: pointer;" data-i18n="autoRotateMajor">🔄 主轴</button>
+            <input id="rotation-clamp-major" type="number" min="0" step="0.01" value="0.02" style="width: 50px; padding: 2px 4px; font-size: 11px; border: 1px solid var(--border-primary); border-radius: 3px; background: var(--bg-secondary); color: var(--text-primary);" title="主轴旋转角度上限 (弧度)" />
+            <span style="font-size: 11px; color: var(--text-secondary);">rad</span>
+          </div>
+          <div style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--overlay-bg); border: 1px solid var(--border-primary); border-radius: 4px; backdrop-filter: blur(5px);">
+            <button id="auto-rotate-minor" style="padding: 4px 8px; font-size: 11px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 3px; cursor: pointer;" data-i18n="autoRotateMinor">🔄 次轴</button>
+            <input id="rotation-clamp-minor" type="number" min="0" step="0.01" value="0.02" style="width: 50px; padding: 2px 4px; font-size: 11px; border: 1px solid var(--border-primary); border-radius: 3px; background: var(--bg-secondary); color: var(--text-primary);" title="次轴旋转角度上限 (弧度)" />
+            <span style="font-size: 11px; color: var(--text-secondary);">rad</span>
+          </div>
         </div>
       </div>
       <div id="sidebar">
@@ -508,6 +823,18 @@
             <h3 style="margin: 0; font-size: 13px;" data-i18n="baseControl">▶ 基体控制 (Base)</h3>
           </div>
           <div id="base-controls" style="display: none; margin-top: 10px;"></div>
+        </div>
+        
+        <!-- 脚部控制 -->
+        <div style="border-bottom: 1px solid var(--border-primary); margin-bottom: 10px; padding-bottom: 10px; transition: border-color 0.3s ease;">
+          <div id="foot-control-header" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px; background: var(--bg-tertiary); border-radius: 4px; transition: background-color 0.3s ease;">
+            <h3 style="margin: 0; font-size: 13px;" data-i18n="footControl">▶ 脚部控制 (Feet)</h3>
+          </div>
+          <div id="foot-controls" style="display: none; margin-top: 10px;">
+            <button id="identify-feet" style="width: 100%; padding: 6px; margin-bottom: 8px; font-size: 12px; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer;" data-i18n="identifyFeet">🦶 识别脚部</button>
+            <button id="level-feet" style="width: 100%; padding: 6px; margin-bottom: 8px; font-size: 12px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; display: none;" data-i18n="levelFeet">⚖️ 脚部水平</button>
+            <div id="feet-list" style="max-height: 300px; overflow-y: auto;"></div>
+          </div>
         </div>
         
         <!-- 关节控制 -->
