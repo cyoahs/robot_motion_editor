@@ -214,11 +214,6 @@ export class CurveEditor {
       this.updateInterpolationButton();
     }
     
-    // 恢复默认按钮
-    document.getElementById('curve-reset-default').addEventListener('click', () => {
-      this.resetToDefault();
-    });
-    
     // 重置缩放按钮
     document.getElementById('curve-reset-view')?.addEventListener('click', () => {
       this.resetView();
