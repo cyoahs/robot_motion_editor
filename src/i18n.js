@@ -88,10 +88,6 @@ const translations = {
     reset: '重置',
     alignLowest: '平移对齐',
     alignLowestTitle: '自动调整XYZ，让高度最低的link与原始轨迹对齐',
-    alignMajor: '主轴对齐',
-    alignMajorTitle: '旋转Base以对齐PCA主轴到X轴',
-    alignMinor: '次轴对齐',
-    alignMinorTitle: '旋转Base以对齐PCA次轴到Y轴',
     
     // 时间轴
     addKeyframe: '添加关键帧',
@@ -328,10 +324,6 @@ const translations = {
     reset: 'Reset',
     alignLowest: 'Align Lowest',
     alignLowestTitle: 'Auto-adjust XYZ to align the lowest link with the base trajectory',
-    alignMajor: 'Align Major',
-    alignMajorTitle: 'Rotate Base to align PCA Major Axis to X-axis',
-    alignMinor: 'Align Minor',
-    alignMinorTitle: 'Rotate Base to align PCA Minor Axis to Y-axis',
     
     // Timeline
     addKeyframe: 'Add Keyframe',

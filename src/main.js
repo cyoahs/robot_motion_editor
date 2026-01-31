@@ -554,6 +554,7 @@ class RobotKeyframeEditor {
           
           // 更新COM显示
           if (this.showCOM && this.comVisualizerLeft) {
+            console.log('🎯 更新左侧COM显示');
             this.comVisualizerLeft.update(this.robotLeft);
           }
         });
@@ -571,9 +572,11 @@ class RobotKeyframeEditor {
         // 更新COM显示（无论是否有轨迹，都显示当前状态的COM）
         if (this.showCOM) {
           if (this.comVisualizerLeft && this.robotLeft) {
+            console.log('🎯 更新左侧COM显示');
             this.comVisualizerLeft.update(this.robotLeft);
           }
           if (this.comVisualizerRight && this.robotRight) {
+            console.log('🎯 更新右侧COM显示');
             this.comVisualizerRight.update(this.robotRight);
           }
         }
@@ -1296,6 +1299,8 @@ class RobotKeyframeEditor {
       if (this.comVisualizerRight) {
         this.comVisualizerRight.hide();
       }
+      
+      console.log('🎯 隐藏重心');
     }
   }
 
@@ -1487,6 +1492,7 @@ class RobotKeyframeEditor {
     const distToAxis = Math.abs(crossProduct); // rotationAxis已归一化
     
     if (distToAxis < 0.001) {
+      console.log('重心投影已经在旋转轴上或非常接近');
       return null;
     }
 
@@ -1494,6 +1500,7 @@ class RobotKeyframeEditor {
     const comHeight = data.com.z;
     
     if (Math.abs(comHeight) < 0.001) {
+      console.log('重心高度过小，无法计算旋转');
       return null;
     }
 
@@ -2565,31 +2572,33 @@ RobotKeyframeEditor.prototype.levelFeet = function(footIndex = null) {
     }
 
     const currentFrame = this.timelineController.getCurrentFrame();
-    // 优先使用右侧机器人（通常显示编辑后的结果），因为我们需要基于当前的残差状态进行计算
-    // 如果使用左侧机器人（原始状态），会导致计算总是基于0残差，从而累加错误
-    const robot = this.robotRight || this.robotLeft;
+    const robot = this.robotLeft || this.robotRight;
     
     if (!robot) {
       alert(i18n.t('needRobot'));
       return;
     }
 
-    // 确保该帧有关键帧的逻辑已移除，现在直接操作 jointController
-    // 这允许在没有关键帧的位置进行预览式编辑
-    // 如果当前位置有关键帧，jointController 会自动更新它
-    // 如果没有，只会更新可视状态，就像手动拖动滑块一样
+    // 确保该帧有关键帧
+    if (!this.trajectoryManager.keyframes.has(currentFrame)) {
+      const jointCount = this.trajectoryManager.jointCount;
+      this.trajectoryManager.keyframes.set(currentFrame, {
+        residual: new Array(jointCount).fill(0),
+        baseResidual: {
+          position: { x: 0, y: 0, z: 0 },
+          quaternion: { x: 0, y: 0, z: 0, w: 1 }
+        }
+      });
+    }
+
+    const keyframe = this.trajectoryManager.keyframes.get(currentFrame);
+    let modifiedCount = 0;
 
     // 构建关节名称到索引的映射
     const jointNameToIndex = new Map();
     this.urdfLoader.joints.forEach((joint, index) => {
       jointNameToIndex.set(joint.name, index);
     });
-    
-    // 禁用自动保存以提高性能（最后统一保存）
-    const wsIsUpdating = this.isUpdatingKeyframe;
-    this.isUpdatingKeyframe = true;
-    let modifiedCount = 0;
-    let alreadyLevelCount = 0;
 
     // 对每只脚进行水平化
     feetToProcess.forEach(foot => {
@@ -2618,201 +2627,99 @@ RobotKeyframeEditor.prototype.levelFeet = function(footIndex = null) {
       // 如果已经接近水平（偏差小于1度），跳过
       if (currentAngle < 0.017) { // 1度 = 0.017弧度
         console.log('  ✅ 已经接近水平，跳过');
-        alreadyLevelCount++;
         return;
       }
 
-      // 按照从末端到根部的顺序处理关节
-      const orderedJoints = [...foot.ankleJoints].reverse();
+      // 使用试错法：对每个脚踝关节，尝试小幅度调整，看哪个方向能减小角度
+      const testStep = 0.05; // 测试步长：约2.86度
+      const bestAdjustments = {};
       
-      // 使用迭代收敛法（CCD类似思想），循环多次以解决关节耦合问题
-      // 通常2-3次迭代即可，设置上限10次防止死循环
-      const maxIterations = 10;
-      const tolerance = 0.005; // 约0.3度
-      
-      console.log(`🦶 开始水平化脚部 ${foot.linkName}，最大迭代次数: ${maxIterations}`);
-      
-      for (let iter = 0; iter < maxIterations; iter++) {
-        // 检查当前脚部状态，如果已经足够水平则提前退出
-        // 确保使用最新的世界矩阵
-        robot.updateMatrixWorld(true);
-        const currentFootZ = new THREE.Vector3(0, 0, 1).applyQuaternion(footLink.getWorldQuaternion(new THREE.Quaternion()));
-        const currentDeviation = currentFootZ.angleTo(new THREE.Vector3(0, 0, 1));
-        
-        if (currentDeviation < tolerance) {
-          console.log(`  ✅ 迭代 ${iter}: 偏差 ${(currentDeviation * 180 / Math.PI).toFixed(2)}° < 阈值，已收敛`);
-          break;
+      foot.ankleJoints.forEach(jointName => {
+        const jointIndex = jointNameToIndex.get(jointName);
+        if (jointIndex === undefined) {
+          console.warn(`未找到关节: ${jointName}`);
+          return;
         }
         
-        console.log(`  🔄 迭代 ${iter + 1}/${maxIterations}: 当前偏差 ${(currentDeviation * 180 / Math.PI).toFixed(2)}°`);
-        let iterModified = false;
-
-        orderedJoints.forEach((jointName, idx) => {
-          const jointIndex = jointNameToIndex.get(jointName);
-          if (jointIndex === undefined) return;
-          
-          // 找到关节对象
-          let jointObj = null;
-          robot.traverse(obj => {
-            if (obj.isURDFJoint && obj.name === jointName) {
-              jointObj = obj;
-            }
-          });
-          
-          if (!jointObj) return;
-          
-          // 重新获取当前脚部link的z轴方向（因为上一个关节可能改变了它）
-          robot.updateMatrixWorld(true);
-          const footZ = new THREE.Vector3(0, 0, 1);
-          const footZWorld = footZ.clone().applyQuaternion(footLink.getWorldQuaternion(new THREE.Quaternion()));
-          const targetZ = new THREE.Vector3(0, 0, 1);
-          
-          // 获取关节的旋转轴在世界坐标系中的方向
-          const jointAxis = new THREE.Vector3(
-            jointObj.axis?.x || 0,
-            jointObj.axis?.y || 0,
-            jointObj.axis?.z || 1
-          ).normalize();
-          
-          // 使用 transformDirection 而不是 applyQuaternion
-          const worldAxis = jointAxis.clone();
-          if (jointObj.parent) {
-            worldAxis.transformDirection(jointObj.parent.matrixWorld).normalize();
-          }
-          
-          // 1. 将当前脚部z轴和目标z轴投影到垂直于关节轴的平面上
-          const footZProj = footZWorld.clone().sub(
-            worldAxis.clone().multiplyScalar(footZWorld.dot(worldAxis))
-          );
-          const targetZProj = targetZ.clone().sub(
-            worldAxis.clone().multiplyScalar(targetZ.dot(worldAxis))
-          );
-          
-          const footZProjLen = footZProj.length();
-          const targetZProjLen = targetZProj.length();
-          
-          // 如果投影长度太小，说明z轴与关节轴平行，无法调整
-          if (footZProjLen < 0.01 || targetZProjLen < 0.01) return;
-          
-          // 归一化投影向量
-          footZProj.normalize();
-          targetZProj.normalize();
-          
-          // 2. 计算两个投影向量之间的夹角（无符号）
-          const angle = Math.acos(Math.max(-1, Math.min(1, footZProj.dot(targetZProj))));
-          
-          // 3. 使用叉乘确定旋转方向
-          const cross = new THREE.Vector3().crossVectors(footZProj, targetZProj);
-          const sign = Math.sign(cross.dot(worldAxis));
-          
-          // 4. 计算带符号的旋转角度
-          const rotationAngle = sign * angle;
-          
-          if (Math.abs(rotationAngle) > 0.001) {
-            // 获取当前关节的总值（基础+残差）
-            let currentValue = this.jointController.jointValues[jointIndex];
-            // 某些情况下 jointValues 可能未初始化，尝试从 robot 读取
-            if (currentValue === undefined) {
-               currentValue = jointObj.jointValue || 0;
-            }
-
-            // 计算目标总角度
-            let targetValue = currentValue + rotationAngle;
-            let limited = false;
-
-            // 检查关节限制
-            if (jointObj.limit) {
-              if (targetValue < jointObj.limit.lower) {
-                targetValue = jointObj.limit.lower;
-                limited = true;
-              } else if (targetValue > jointObj.limit.upper) {
-                targetValue = jointObj.limit.upper;
-                limited = true;
-              }
-            }
-
-            // 检查是否还有实际变化
-            const actualChange = targetValue - currentValue;
-            
-            if (Math.abs(actualChange) > 0.0001) {
-              // 更新 JointController 中的值
-              this.jointController.jointValues[jointIndex] = targetValue;
-              
-              // 应用到机器人视觉（但不触发自动保存，因为我们在循环中）
-              // 直接调用 applyJointValue 会调用 autoUpdateKeyframe，我们暂时通过标志位阻止了递归
-              // 但这里我们需要手动调用 setJointValue 来更新视觉
-              if (this.jointController.joints[jointIndex] && this.jointController.joints[jointIndex].joint) {
-                this.jointController.joints[jointIndex].joint.setJointValue(targetValue);
-              }
-              
-              modifiedCount++;
-              iterModified = true;
-              
-              // 更新世界矩阵，以便下一轮计算使用最新状态
-              robot.updateMatrixWorld(true);
-            }
-          }
-        });
+        // 保存当前残差
+        const originalResidual = keyframe.residual[jointIndex];
         
-        // 如果这一轮迭代没有任何修改（可能都受限了，或者已经最优），则停止
-        if (!iterModified) {
-          console.log(`  ⏹️ 迭代 ${iter}: 无更多修改，停止迭代`);
-          break;
+        // 尝试正向调整
+        keyframe.residual[jointIndex] = originalResidual + testStep;
+        this.updateRobotState(currentFrame);
+        const worldZPositive = localZ.clone().applyQuaternion(footLink.getWorldQuaternion(new THREE.Quaternion()));
+        const anglePositive = worldZPositive.angleTo(targetZ);
+        
+        // 尝试负向调整
+        keyframe.residual[jointIndex] = originalResidual - testStep;
+        this.updateRobotState(currentFrame);
+        const worldZNegative = localZ.clone().applyQuaternion(footLink.getWorldQuaternion(new THREE.Quaternion()));
+        const angleNegative = worldZNegative.angleTo(targetZ);
+        
+        // 恢复原值
+        keyframe.residual[jointIndex] = originalResidual;
+        
+        // 选择更好的方向
+        const improvementPositive = currentAngle - anglePositive;
+        const improvementNegative = currentAngle - angleNegative;
+        
+        console.log(`  关节 ${jointName}: 当前角度=${(currentAngle * 180 / Math.PI).toFixed(2)}°, 正向→${(anglePositive * 180 / Math.PI).toFixed(2)}° (改善${(improvementPositive * 180 / Math.PI).toFixed(2)}°), 负向→${(angleNegative * 180 / Math.PI).toFixed(2)}° (改善${(improvementNegative * 180 / Math.PI).toFixed(2)}°)`);
+        
+        // 选择改善最大的方向（即使很小也选择）
+        if (Math.abs(improvementPositive) > 0.0001 || Math.abs(improvementNegative) > 0.0001) {
+          if (improvementPositive > improvementNegative) {
+            bestAdjustments[jointIndex] = testStep;
+            console.log(`    → 选择正向调整 +${testStep.toFixed(3)}`);
+          } else {
+            bestAdjustments[jointIndex] = -testStep;
+            console.log(`    → 选择负向调整 ${(-testStep).toFixed(3)}`);
+          }
+        } else {
+          console.log(`    → 跳过（无明显改善）`);
         }
+      });
+      
+      // 恢复机器人状态到测试前
+      this.updateRobotState(currentFrame);
+      
+      // 应用最佳调整
+      const adjustmentCount = Object.keys(bestAdjustments).length;
+      console.log(`  准备应用 ${adjustmentCount} 个调整`);
+      
+      if (adjustmentCount > 0) {
+        for (const [jointIndex, adjustment] of Object.entries(bestAdjustments)) {
+          keyframe.residual[parseInt(jointIndex)] += adjustment;
+          modifiedCount++;
+          console.log(`    应用: keyframe.residual[${jointIndex}] += ${adjustment.toFixed(3)}`);
+        }
+        console.log(`  ✅ 已应用 ${adjustmentCount} 个关节的调整, modifiedCount=${modifiedCount}`);
+      } else {
+        console.log('  ⚠️ 未找到改善方向');
       }
     });
     
-    // 恢复标志位
-    this.isUpdatingKeyframe = wsIsUpdating;
-
-    console.log(`🔄 水平化完成，总共修改了 ${modifiedCount} 个关节`);
+    console.log(`🔄 水平化完成，总共修改了 ${modifiedCount} 个关节残差`);
 
     if (modifiedCount > 0) {
-      // 循环结束后，统一更新UI和关键帧（如果有的话）
-      if (this.jointController) {
-          // 更新UI显示（滑块和数字框）
-          this.jointController.updateJoints(this.jointController.jointValues);
-          
-          // 如果当前位置有关键帧，则触发一次保存
-          // 如果没有关键帧，这里什么都不做，只保留了视觉预览
-          this.jointController.autoUpdateKeyframe();
+      // 更新关键帧标记
+      const keyframes = Array.from(this.trajectoryManager.keyframes.keys());
+      this.timelineController.updateKeyframeMarkers(keyframes);
+
+      // 更新显示
+      this.updateRobotState(currentFrame);
+
+      // 更新曲线编辑器
+      if (this.curveEditor) {
+        this.curveEditor.updateCurves();
       }
 
-      // 触发COM和包络线更新
-       if (this.showCOM) {
-        if (this.comVisualizerRight && this.robotRight) {
-          this.comVisualizerRight.update(this.robotRight);
-        }
-        this.scheduleFootprintUpdate();
-      }
-      
+      // 触发自动保存
+      this.triggerAutoSave();
+
       const footCountText = footIndex !== null ? `脚 ${footIndex + 1}` : `${feetToProcess.length} 只脚`;
-      // 如果没有关键帧，提示用户这只是预览
-      const isPreview = !this.trajectoryManager.keyframes.has(currentFrame);
-      const statusMsg = `✅ 已水平化 ${footCountText}` + (isPreview ? " (预览模式)" : "");
-      this.updateStatus(statusMsg, 'success');
+      this.updateStatus(`✅ 已水平化 ${footCountText}`, 'success');
     } else {
-      // 如果所有脚都已经水平，显示更友好的提示
-      if (alreadyLevelCount === feetToProcess.length && feetToProcess.length > 0) {
-        this.updateStatus('✅ 脚部已经水平，无需调整', 'success');
-      } else {
-        // 仅当真正失败时才显示错误（非预览模式或明确失败）
-        // 在预览模式下，如果什么都没发生且不是因为已经水平，可能只是因为计算限制，
-        // 这种情况下不显示红色错误可能体验更好，但为了调试保留日志
-        console.warn('⚠️ 水平化操作未能修改任何关节');
-        
-        // 只有在非预览模式或者确实有脚需要调整但没成功时才报错
-        const isPreview = !this.trajectoryManager.keyframes.has(currentFrame);
-        if (!isPreview) {
-            this.updateStatus('⚠️ 未能应用水平化', 'error');
-        } else {
-            // 预览模式下的静默失败或轻微提示
-            if (feetToProcess.length > alreadyLevelCount) {
-               // 有脚没水平，但没调整成功
-               this.updateStatus('⚠️ 无法调整到水平位置', 'warning');
-            }
-        }
-      }
+      this.updateStatus('⚠️ 未能应用水平化', 'error');
     }
   };
 

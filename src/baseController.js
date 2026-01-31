@@ -35,32 +35,6 @@ export class BaseController {
     });
     header.appendChild(alignBtn);
     
-    // 主轴对齐按钮 (红色)
-    const alignMajorBtn = document.createElement('button');
-    alignMajorBtn.textContent = i18n.t('alignMajor');
-    alignMajorBtn.title = i18n.t('alignMajorTitle');
-    alignMajorBtn.style.cssText = 'margin-left: 5px; padding: 2px 8px; font-size: 11px; background: #ff4444; color: white; border: none; border-radius: 3px; cursor: pointer; transition: opacity 0.2s;';
-    alignMajorBtn.addEventListener('mouseenter', () => alignMajorBtn.style.opacity = '0.8');
-    alignMajorBtn.addEventListener('mouseleave', () => alignMajorBtn.style.opacity = '1');
-    alignMajorBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.alignToAxis(0);
-    });
-    header.appendChild(alignMajorBtn);
-
-    // 次轴对齐按钮 (绿色)
-    const alignMinorBtn = document.createElement('button');
-    alignMinorBtn.textContent = i18n.t('alignMinor');
-    alignMinorBtn.title = i18n.t('alignMinorTitle');
-    alignMinorBtn.style.cssText = 'margin-left: 5px; padding: 2px 8px; font-size: 11px; background: #33cc33; color: white; border: none; border-radius: 3px; cursor: pointer; transition: opacity 0.2s;';
-    alignMinorBtn.addEventListener('mouseenter', () => alignMinorBtn.style.opacity = '0.8');
-    alignMinorBtn.addEventListener('mouseleave', () => alignMinorBtn.style.opacity = '1');
-    alignMinorBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.alignToAxis(1);
-    });
-    header.appendChild(alignMinorBtn);
-
     // 添加全局重置按钮
     const resetAllBtn = document.createElement('button');
     resetAllBtn.textContent = i18n.t('reset');
@@ -586,84 +560,6 @@ export class BaseController {
     
     console.log(`✅ 已对齐最低link: ${lowestLinkLeft.name}`);
     console.log(`   偏移: X=${offsetX.toFixed(3)}m, Y=${offsetY.toFixed(3)}m, Z=${offsetZ.toFixed(3)}m`);
-  }
-
-  /**
-   * Align Base Rotation to PCA axes
-   * axisIndex: 0 for Major (Axis 1), 1 for Minor (Axis 2)
-   */
-  alignToAxis(axisIndex) {
-    if (!this.editor.comVisualizerRight) return;
-    
-    const data = this.editor.comVisualizerRight.getFootprintData();
-    if (!data || !data.pca || !data.pca.eigenvectors) {
-      console.warn('⚠️ PCA alignment: No footprint data available');
-      return;
-    }
-
-    const vector = data.pca.eigenvectors[axisIndex];
-    if (!vector) return;
-
-    // Target vector in XY plane
-    const targetVector = new THREE.Vector3(vector.x, vector.y, 0).normalize();
-    
-    // Get current Base orientation
-    const q = new THREE.Quaternion(
-        this.baseValues.quaternion.x,
-        this.baseValues.quaternion.y,
-        this.baseValues.quaternion.z,
-        this.baseValues.quaternion.w
-    );
-    
-    // Determine which local axis to align: Major(0) -> X, Minor(1) -> Y
-    const bodyAxis = (axisIndex === 0) ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
-    
-    // Get current world direction of that axis
-    const currentBodyAxis = bodyAxis.clone().applyQuaternion(q);
-    
-    // Project to XY plane
-    currentBodyAxis.z = 0;
-    currentBodyAxis.normalize();
-    
-    // Check polarity (align to closest direction)
-    if (currentBodyAxis.dot(targetVector) < 0) {
-       targetVector.negate();
-    }
-    
-    // Calculate signed angle from current to target
-    const crossZ = currentBodyAxis.x * targetVector.y - currentBodyAxis.y * targetVector.x;
-    const dot = currentBodyAxis.dot(targetVector);
-    const deltaAngle = Math.atan2(crossZ, dot);
-    
-    // Apply rotation around World Z
-    const rotQuat = new THREE.Quaternion();
-    rotQuat.setFromAxisAngle(new THREE.Vector3(0, 0, 1), deltaAngle);
-    
-    q.premultiply(rotQuat);
-    
-    // Update base values
-    this.baseValues.quaternion.x = q.x;
-    this.baseValues.quaternion.y = q.y;
-    this.baseValues.quaternion.z = q.z;
-    this.baseValues.quaternion.w = q.w;
-    
-    // Update UI
-    const container = document.getElementById('base-controls');
-    if (container) {
-        ['x', 'y', 'z', 'w'].forEach(axis => {
-          const row = container.querySelector(`[data-quat-axis="${axis}"]`);
-          if (row) {
-            const slider = row.querySelector('input[type="range"]');
-            const numberInput = row.querySelector('input[type="number"]');
-            const value = this.baseValues.quaternion[axis];
-            if (slider) slider.value = value;
-            if (numberInput) numberInput.value = value.toFixed(3);
-          }
-        });
-    }
-
-    this.applyBaseTransform();
-    console.log(`✅ Aligned ${axisIndex === 0 ? 'Major' : 'Minor'} Axis to ${axisIndex === 0 ? 'X' : 'Y'}, Delta: ${(deltaAngle * 180 / Math.PI).toFixed(2)}°`);
   }
 
   resetPosition(axis) {
