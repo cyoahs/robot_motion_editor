@@ -1,4 +1,5 @@
 import { i18n } from './i18n.js';
+import { JOINT_GROUPS, groupJointsBySide } from './jointGrouping.js';
 
 export class JointController {
   constructor(joints, editor) {
@@ -27,138 +28,200 @@ export class JointController {
     console.log('✅ 找到 joint-controls 容器');
     container.innerHTML = '';
 
-    console.log(`🔄 创建 ${this.joints.length} 个关节控制器...`);
-    this.joints.forEach((joint, index) => {
-      console.log(`  - 创建关节 ${index}: ${joint.name}`);
-      const control = document.createElement('div');
-      control.className = 'joint-control';
-      control.dataset.jointIndex = index;
-      control.style.transition = 'background-color 0.2s';
+    const groupedJoints = groupJointsBySide(this.joints);
 
-      const label = document.createElement('label');
-      label.style.cssText = 'cursor: pointer; display: flex; align-items: center; user-select: none;';
-      label.title = '点击切换曲线显示';
-      
-      const labelText = document.createElement('span');
-      labelText.textContent = joint.name || `Joint ${index + 1}`;
-      label.appendChild(labelText);
-      
-      // 添加关键帧状态圈圈
-      const keyframeIndicator = document.createElement('span');
-      keyframeIndicator.id = `keyframe-indicator-${index}`;
-      keyframeIndicator.style.cssText = `
-        display: none;
-        width: 10px;
-        height: 10px;
-        min-width: 10px;
-        min-height: 10px;
-        border-radius: 50%;
-        margin-left: 8px;
-        border: 2px solid #f4b942;
-        box-sizing: border-box;
-        flex-shrink: 0;
-      `;
-      label.appendChild(keyframeIndicator);
-      
-      // 点击label切换曲线可见性
-      label.addEventListener('click', (e) => {
-        if (this.editor.curveEditor) {
-          const curveKey = `joint_${index}`;
-          const visible = this.editor.curveEditor.toggleCurveVisibility(curveKey, e.shiftKey);
-          const color = this.editor.curveEditor.getCurveColor(curveKey);
-          if (color) {
-            // 更新背景色
-            if (visible) {
-              control.style.backgroundColor = color + '20'; // 20% 透明度
-            } else {
-              control.style.backgroundColor = '';
+    console.log(`🔄 创建 ${this.joints.length} 个关节控制器...`);
+    JOINT_GROUPS.forEach((group) => {
+      const section = this.createGroupSection(group, groupedJoints[group.key].length);
+      const sectionBody = section.querySelector('.joint-group-body');
+
+      groupedJoints[group.key].forEach(({ joint, index }) => {
+        console.log(`  - 创建关节 ${index}: ${joint.name}`);
+        const control = document.createElement('div');
+        control.className = 'joint-control';
+        control.dataset.jointIndex = index;
+        control.style.transition = 'background-color 0.2s';
+
+        const label = document.createElement('label');
+        label.style.cssText = 'cursor: pointer; display: flex; align-items: center; user-select: none;';
+        label.title = '点击切换曲线显示';
+        
+        const labelText = document.createElement('span');
+        labelText.textContent = joint.name || `Joint ${index + 1}`;
+        label.appendChild(labelText);
+        
+        // 添加关键帧状态圈圈
+        const keyframeIndicator = document.createElement('span');
+        keyframeIndicator.id = `keyframe-indicator-${index}`;
+        keyframeIndicator.style.cssText = `
+          display: none;
+          width: 10px;
+          height: 10px;
+          min-width: 10px;
+          min-height: 10px;
+          border-radius: 50%;
+          margin-left: 8px;
+          border: 2px solid #f4b942;
+          box-sizing: border-box;
+          flex-shrink: 0;
+        `;
+        label.appendChild(keyframeIndicator);
+        
+        // 点击label切换曲线可见性
+        label.addEventListener('click', (e) => {
+          if (this.editor.curveEditor) {
+            const curveKey = `joint_${index}`;
+            const visible = this.editor.curveEditor.toggleCurveVisibility(curveKey, e.shiftKey);
+            const color = this.editor.curveEditor.getCurveColor(curveKey);
+            if (color) {
+              // 更新背景色
+              if (visible) {
+                control.style.backgroundColor = color + '20'; // 20% 透明度
+              } else {
+                control.style.backgroundColor = '';
+              }
             }
           }
-        }
-      });
-      
-      // 初始化显示状态
-      setTimeout(() => {
-        if (this.editor.curveEditor) {
-          const curveKey = `joint_${index}`;
-          const visible = this.editor.curveEditor.isCurveVisible(curveKey);
-          const color = this.editor.curveEditor.getCurveColor(curveKey);
-          if (color && visible) {
-            control.style.backgroundColor = color + '20';
+        });
+        
+        // 初始化显示状态
+        setTimeout(() => {
+          if (this.editor.curveEditor) {
+            const curveKey = `joint_${index}`;
+            const visible = this.editor.curveEditor.isCurveVisible(curveKey);
+            const color = this.editor.curveEditor.getCurveColor(curveKey);
+            if (color && visible) {
+              control.style.backgroundColor = color + '20';
+            }
           }
-        }
-      }, 100);
-      
-      control.appendChild(label);
+        }, 100);
+        
+        control.appendChild(label);
 
-      // 创建水平布局容器
-      const row = document.createElement('div');
-      row.className = 'joint-control-row';
-      
-      // 阻止row内的点击事件冒泡到control
-      row.addEventListener('click', (e) => {
-        e.stopPropagation();
+        // 创建水平布局容器
+        const row = document.createElement('div');
+        row.className = 'joint-control-row';
+        
+        // 阻止row内的点击事件冒泡到control
+        row.addEventListener('click', (e) => {
+          e.stopPropagation();
+        });
+
+        // 滑块
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.min = joint.limits.lower;
+        slider.max = joint.limits.upper;
+        slider.step = 0.01;
+        slider.value = 0;
+        slider.dataset.jointIndex = index;
+        
+        slider.addEventListener('input', (e) => {
+          const value = parseFloat(e.target.value);
+          this.jointValues[index] = value;
+          numberInput.value = value.toFixed(3);
+          this.applyJointValue(index, value);
+        });
+        
+        row.appendChild(slider);
+
+        // 数字输入（放在滑块右边）
+        const numberInput = document.createElement('input');
+        numberInput.type = 'number';
+        numberInput.min = joint.limits.lower;
+        numberInput.max = joint.limits.upper;
+        numberInput.step = 0.01;
+        numberInput.value = '0.000';
+        numberInput.dataset.jointIndex = index;
+        
+        numberInput.addEventListener('change', (e) => {
+          let value = parseFloat(e.target.value);
+          value = Math.max(joint.limits.lower, Math.min(joint.limits.upper, value));
+          this.jointValues[index] = value;
+          slider.value = value;
+          numberInput.value = value.toFixed(3);
+          this.applyJointValue(index, value);
+        });
+        
+        row.appendChild(numberInput);
+
+        // 添加重置按钮
+        const resetBtn = document.createElement('button');
+        resetBtn.innerHTML = '↺';
+        resetBtn.title = joint.name ? `${i18n.t('resetJointTitle').replace('{name}', joint.name)}` : `Reset Joint ${index + 1}`;
+        resetBtn.style.cssText = 'width: 20px; height: 20px; padding: 0; font-size: 14px; background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-primary); border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;';
+        resetBtn.addEventListener('mouseover', () => {
+          resetBtn.style.background = 'var(--bg-tertiary)';
+        });
+        resetBtn.addEventListener('mouseout', () => {
+          resetBtn.style.background = 'var(--bg-input)';
+        });
+        resetBtn.addEventListener('click', () => {
+          this.resetJoint(index);
+        });
+        
+        row.appendChild(resetBtn);
+        control.appendChild(row);
+        sectionBody.appendChild(control);
       });
 
-      // 滑块
-      const slider = document.createElement('input');
-      slider.type = 'range';
-      slider.min = joint.limits.lower;
-      slider.max = joint.limits.upper;
-      slider.step = 0.01;
-      slider.value = 0;
-      slider.dataset.jointIndex = index;
-      
-      slider.addEventListener('input', (e) => {
-        const value = parseFloat(e.target.value);
-        this.jointValues[index] = value;
-        numberInput.value = value.toFixed(3);
-        this.applyJointValue(index, value);
-      });
-      
-      row.appendChild(slider);
-
-      // 数字输入（放在滑块右边）
-      const numberInput = document.createElement('input');
-      numberInput.type = 'number';
-      numberInput.min = joint.limits.lower;
-      numberInput.max = joint.limits.upper;
-      numberInput.step = 0.01;
-      numberInput.value = '0.000';
-      numberInput.dataset.jointIndex = index;
-      
-      numberInput.addEventListener('change', (e) => {
-        let value = parseFloat(e.target.value);
-        value = Math.max(joint.limits.lower, Math.min(joint.limits.upper, value));
-        this.jointValues[index] = value;
-        slider.value = value;
-        numberInput.value = value.toFixed(3);
-        this.applyJointValue(index, value);
-      });
-      
-      row.appendChild(numberInput);
-
-      // 添加重置按钮
-      const resetBtn = document.createElement('button');
-      resetBtn.innerHTML = '↺';
-      resetBtn.title = joint.name ? `${i18n.t('resetJointTitle').replace('{name}', joint.name)}` : `Reset Joint ${index + 1}`;
-      resetBtn.style.cssText = 'width: 20px; height: 20px; padding: 0; font-size: 14px; background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-primary); border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;';
-      resetBtn.addEventListener('mouseover', () => {
-        resetBtn.style.background = 'var(--bg-tertiary)';
-      });
-      resetBtn.addEventListener('mouseout', () => {
-        resetBtn.style.background = 'var(--bg-input)';
-      });
-      resetBtn.addEventListener('click', () => {
-        this.resetJoint(index);
-      });
-      
-      row.appendChild(resetBtn);
-      control.appendChild(row);
-      container.appendChild(control);
+      container.appendChild(section);
     });
     
     console.log(`✅ ${this.joints.length} 个关节控制器创建完成`);
+  }
+
+  createGroupSection(group, count) {
+    const section = document.createElement('div');
+    section.className = 'joint-group-section';
+    section.dataset.jointGroup = group.key;
+
+    const header = document.createElement('button');
+    header.type = 'button';
+    header.className = 'joint-group-header';
+    header.style.cssText = `
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 0 8px 0;
+      padding: 6px 8px;
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border-primary);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    `;
+
+    const label = document.createElement('span');
+    const labelText = document.createElement('span');
+    labelText.dataset.i18n = group.labelKey;
+    labelText.textContent = i18n.t(group.labelKey) || group.fallbackLabel;
+    label.appendChild(labelText);
+    label.appendChild(document.createTextNode(` (${count})`));
+    header.appendChild(label);
+
+    const icon = document.createElement('span');
+    icon.textContent = '▼';
+    icon.style.fontSize = '10px';
+    header.appendChild(icon);
+
+    const body = document.createElement('div');
+    body.className = 'joint-group-body';
+    body.style.marginBottom = '10px';
+
+    header.addEventListener('click', () => {
+      const collapsed = body.style.display === 'none';
+      body.style.display = collapsed ? '' : 'none';
+      icon.textContent = collapsed ? '▼' : '▶';
+    });
+
+    section.appendChild(header);
+    section.appendChild(body);
+    return section;
   }
 
   updateKeyframeIndicators() {
@@ -239,7 +302,7 @@ export class JointController {
     if (!this.editor.curveEditor) return;
     
     this.joints.forEach((joint, index) => {
-      const control = document.querySelector(`.joint-control[data-joint-index="${index}"]`);
+      const control = this.getJointControl(index);
       if (!control) return;
       
       const curveKey = `joint_${index}`;
@@ -266,6 +329,10 @@ export class JointController {
       }
       // 触发包络线防抖更新
       this.editor.scheduleFootprintUpdate();
+    }
+
+    if (this.editor.updatePalmVisualizers) {
+      this.editor.updatePalmVisualizers();
     }
     
     // 如果当前帧是关键帧，自动更新残差
@@ -317,13 +384,10 @@ export class JointController {
   updateJoints(jointValues) {
     this.jointValues = [...jointValues];
     
-    const container = document.getElementById('joint-controls');
-    const controls = container.querySelectorAll('.joint-control');
-    
-    controls.forEach((control, index) => {
-      if (index >= jointValues.length) return;
+    jointValues.forEach((value, index) => {
+      const control = this.getJointControl(index);
+      if (!control) return;
       
-      const value = jointValues[index];
       const slider = control.querySelector('input[type="range"]');
       const numberInput = control.querySelector('input[type="number"]');
       
@@ -367,11 +431,10 @@ export class JointController {
         this.jointValues[index] = baseValue;
         
         // 更新UI
-        const container = document.getElementById('joint-controls');
-        const controls = container.querySelectorAll('.joint-control');
-        if (controls[index]) {
-          const slider = controls[index].querySelector('input[type="range"]');
-          const numberInput = controls[index].querySelector('input[type="number"]');
+        const control = this.getJointControl(index);
+        if (control) {
+          const slider = control.querySelector('input[type="range"]');
+          const numberInput = control.querySelector('input[type="number"]');
           if (slider) slider.value = baseValue;
           if (numberInput) numberInput.value = baseValue.toFixed(3);
         }
@@ -382,16 +445,21 @@ export class JointController {
     } else {
       // 如果没有轨迹，重置到 0
       this.jointValues[index] = 0;
-      const container = document.getElementById('joint-controls');
-      const controls = container.querySelectorAll('.joint-control');
-      if (controls[index]) {
-        const slider = controls[index].querySelector('input[type="range"]');
-        const numberInput = controls[index].querySelector('input[type="number"]');
+      const control = this.getJointControl(index);
+      if (control) {
+        const slider = control.querySelector('input[type="range"]');
+        const numberInput = control.querySelector('input[type="number"]');
         if (slider) slider.value = 0;
         if (numberInput) numberInput.value = '0.000';
       }
       this.applyJointValue(index, 0);
       console.log(`✅ 关节 ${index} 已重置到 0`);
     }
+  }
+
+  getJointControl(index) {
+    const container = document.getElementById('joint-controls');
+    if (!container) return null;
+    return container.querySelector(`.joint-control[data-joint-index="${index}"]`);
   }
 }

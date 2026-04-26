@@ -6,6 +6,7 @@ import { JointController } from './jointController.js';
 import { BaseController } from './baseController.js';
 import { TimelineController } from './timelineController.js';
 import { COMVisualizer } from './comVisualizer.js';
+import { PalmVisualizer } from './palmVisualizer.js';
 import { i18n } from './i18n.js';
 import { ThemeManager } from './themeManager.js';
 import { CurveEditor } from './curveEditor.js';
@@ -53,6 +54,9 @@ class RobotKeyframeEditor {
     this.comVisualizerLeft = null;
     this.comVisualizerRight = null;
     this.showCOM = true; // 默认显示COM
+    this.palmVisualizerLeft = null;
+    this.palmVisualizerRight = null;
+    this.showPalm = true; // 默认显示掌心距离
     
     // 坐标轴指示器
     this.axisGizmo = null;
@@ -140,6 +144,8 @@ class RobotKeyframeEditor {
     // 创建COM可视化器
     this.comVisualizerLeft = new COMVisualizer(this.sceneLeft);
     this.comVisualizerRight = new COMVisualizer(this.sceneRight);
+    this.palmVisualizerLeft = new PalmVisualizer(this.sceneLeft, document.getElementById('palm-distance-left'));
+    this.palmVisualizerRight = new PalmVisualizer(this.sceneRight, document.getElementById('palm-distance-right'));
     // 创建相机 (Z-up 坐标系，正交投影)
     const viewport = document.getElementById('viewport');
     const fullWidth = viewport.clientWidth;
@@ -350,6 +356,10 @@ class RobotKeyframeEditor {
       this.toggleCOM();
     });
 
+    document.getElementById('toggle-palm').addEventListener('click', () => {
+      this.togglePalm();
+    });
+
     // 刷新地面投影包络线
     document.getElementById('refresh-footprint').addEventListener('click', () => {
       this.refreshFootprint();
@@ -471,6 +481,8 @@ class RobotKeyframeEditor {
             console.log('🎯 更新左侧COM显示');
             this.comVisualizerLeft.update(this.robotLeft);
           }
+
+          this.updatePalmVisualizers();
         });
         
         console.log('✅ 右侧机器人模型已添加到场景');
@@ -494,6 +506,8 @@ class RobotKeyframeEditor {
             this.comVisualizerRight.update(this.robotRight);
           }
         }
+
+        this.updatePalmVisualizers();
         
         console.log('✅ 关节控制面板已初始化');
         console.log('========================================');
@@ -636,6 +650,8 @@ class RobotKeyframeEditor {
         this.comVisualizerRight.update(this.robotRight);
       }
     }
+
+    this.updatePalmVisualizers();
         // 兼容旧代码
     this.robot = this.robotRight;
   }
@@ -976,6 +992,48 @@ class RobotKeyframeEditor {
       }
       
       console.log('🎯 隐藏重心');
+    }
+  }
+
+  togglePalm() {
+    this.showPalm = !this.showPalm;
+    const button = document.getElementById('toggle-palm');
+
+    if (this.showPalm) {
+      button.textContent = i18n.t('palmOn');
+      button.style.background = 'rgba(0, 212, 255, 0.25)';
+      button.style.borderColor = 'rgba(0, 212, 255, 0.6)';
+      this.updatePalmVisualizers();
+      console.log('🖐 显示掌心距离');
+    } else {
+      button.textContent = i18n.t('palmOff');
+      button.style.background = 'var(--overlay-bg)';
+      button.style.borderColor = 'var(--border-primary)';
+      if (this.palmVisualizerLeft) {
+        this.palmVisualizerLeft.hide();
+      }
+      if (this.palmVisualizerRight) {
+        this.palmVisualizerRight.hide();
+      }
+      console.log('🖐 隐藏掌心距离');
+    }
+  }
+
+  updatePalmVisualizers() {
+    if (!this.showPalm) {
+      return;
+    }
+
+    if (this.palmVisualizerLeft && this.robotLeft) {
+      this.palmVisualizerLeft.update(this.robotLeft);
+    } else if (this.palmVisualizerLeft) {
+      this.palmVisualizerLeft.hide();
+    }
+
+    if (this.palmVisualizerRight && this.robotRight) {
+      this.palmVisualizerRight.update(this.robotRight);
+    } else if (this.palmVisualizerRight) {
+      this.palmVisualizerRight.hide();
     }
   }
 

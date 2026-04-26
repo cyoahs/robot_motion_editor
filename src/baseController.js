@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { i18n } from './i18n.js';
+import { composeRootRotation, decomposeRootRotation, normalizeQuaternion as normalizeRootQuaternion } from './rotationDecomposition.js';
 
 export class BaseController {
   constructor(editor) {
@@ -8,6 +9,7 @@ export class BaseController {
       position: { x: 0, y: 0, z: 0 },
       quaternion: { x: 0, y: 0, z: 0, w: 1 }
     };
+    this.rootRotationValues = decomposeRootRotation(this.baseValues.quaternion);
     this.isExpanded = false;
     
     this.setupUI();
@@ -197,10 +199,10 @@ export class BaseController {
     
     const quatLabel = document.createElement('label');
     quatLabel.style.cssText = 'cursor: pointer; display: flex; align-items: center; user-select: none;';
-    quatLabel.title = '点击切换四元数欧拉角可视化';
+    quatLabel.title = '点击切换 root 旋转曲线可视化';
     
     const quatLabelText = document.createElement('span');
-    quatLabelText.textContent = i18n.t('quaternion') + ' (Euler)';
+    quatLabelText.textContent = 'Root Rotation / Quaternion';
     quatLabel.appendChild(quatLabelText);
     
     // 添加关键帧状态圈圈
@@ -251,7 +253,7 @@ export class BaseController {
     // 创建重置按钮（放在标题行右侧）
     const quatResetBtn = document.createElement('button');
     quatResetBtn.innerHTML = '↺';
-    quatResetBtn.title = '重置整个四元数';
+    quatResetBtn.title = '重置 root 旋转';
     quatResetBtn.style.cssText = 'width: 20px; height: 20px; padding: 0; font-size: 14px; background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-primary); border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;';
     quatResetBtn.addEventListener('mouseover', () => {
       quatResetBtn.style.background = 'var(--bg-tertiary)';
@@ -267,12 +269,42 @@ export class BaseController {
     quatHeaderRow.appendChild(quatResetBtn);
     quatControl.appendChild(quatHeaderRow);
     
-    // Quaternion 控制行
-    ['x', 'y', 'z', 'w'].forEach(axis => {
+    const rotationAxes = [
+      {
+        axis: 'yawZ',
+        label: 'Yaw Z',
+        title: '绕世界 Z 轴旋转',
+        min: -180,
+        max: 180
+      },
+      {
+        axis: 'pitchSide',
+        label: 'Pitch Side',
+        title: '绕垂直于世界 Z 和 heading 的轴旋转',
+        min: -90,
+        max: 90
+      },
+      {
+        axis: 'rollHeading',
+        label: 'Roll Heading',
+        title: '绕 root heading 旋转',
+        min: -180,
+        max: 180
+      }
+    ];
+
+    const rootRotationLabel = document.createElement('div');
+    rootRotationLabel.textContent = 'Heading Decomposition';
+    rootRotationLabel.style.cssText = 'padding-left: 10px; margin: 2px 0 4px; font-size: 11px; color: var(--text-tertiary);';
+    quatControl.appendChild(rootRotationLabel);
+
+    // Root rotation 控制行：底层仍保存 quaternion
+    rotationAxes.forEach(({ axis, label, title, min, max }) => {
       const row = document.createElement('div');
       row.className = 'joint-control-row';
-      row.dataset.quatAxis = axis;
+      row.dataset.rootRotationAxis = axis;
       row.style.cssText = 'padding-left: 10px;';
+      row.title = title;
       
       row.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -280,24 +312,25 @@ export class BaseController {
       
       // 轴标签
       const axisLabel = document.createElement('span');
-      axisLabel.textContent = axis.toUpperCase() + ':';
-      axisLabel.style.cssText = 'width: 20px; font-size: 11px; color: var(--text-primary); transition: color 0.3s ease;';
+      axisLabel.textContent = label + ':';
+      axisLabel.style.cssText = 'width: 86px; font-size: 11px; color: var(--text-primary); transition: color 0.3s ease;';
       row.appendChild(axisLabel);
 
       // 滑块
       const slider = document.createElement('input');
       slider.type = 'range';
-      slider.min = -1;
-      slider.max = 1;
-      slider.step = 0.01;
-      slider.value = axis === 'w' ? 1 : 0;
+      slider.min = min;
+      slider.max = max;
+      slider.step = 0.1;
+      slider.value = this.rootRotationValues[axis];
       slider.style.flex = '1';
       
       slider.addEventListener('input', (e) => {
         const value = parseFloat(e.target.value);
-        this.baseValues.quaternion[axis] = value;
-        numberInput.value = value.toFixed(3);
-        this.normalizeQuaternion();
+        this.rootRotationValues[axis] = value;
+        numberInput.value = value.toFixed(1);
+        this.updateQuaternionFromRootRotation();
+        this.updateQuaternionUI();
         this.applyBaseTransform();
       });
       
@@ -306,24 +339,86 @@ export class BaseController {
       // 数字输入
       const numberInput = document.createElement('input');
       numberInput.type = 'number';
-      numberInput.min = -1;
-      numberInput.max = 1;
-      numberInput.step = 0.01;
-      numberInput.value = axis === 'w' ? '1.000' : '0.000';
+      numberInput.min = min;
+      numberInput.max = max;
+      numberInput.step = 0.1;
+      numberInput.value = this.rootRotationValues[axis].toFixed(1);
       numberInput.style.cssText = 'width: 70px; padding: 2px 4px; background: var(--bg-input); border: 1px solid var(--border-primary); color: var(--text-primary); border-radius: 2px; font-size: 11px; transition: all 0.3s ease;';
       
       numberInput.addEventListener('change', (e) => {
         let value = parseFloat(e.target.value);
-        value = Math.max(-1, Math.min(1, value));
-        this.baseValues.quaternion[axis] = value;
+        value = Math.max(min, Math.min(max, value));
+        this.rootRotationValues[axis] = value;
         slider.value = value;
-        numberInput.value = value.toFixed(3);
-        this.normalizeQuaternion();
+        numberInput.value = value.toFixed(1);
+        this.updateQuaternionFromRootRotation();
+        this.updateQuaternionUI();
         this.applyBaseTransform();
       });
       
       row.appendChild(numberInput);
       
+      quatControl.appendChild(row);
+    });
+
+    const directQuaternionLabel = document.createElement('div');
+    directQuaternionLabel.textContent = 'Direct Quaternion';
+    directQuaternionLabel.style.cssText = 'padding-left: 10px; margin: 8px 0 4px; font-size: 11px; color: var(--text-tertiary);';
+    quatControl.appendChild(directQuaternionLabel);
+
+    // Quaternion 直接控制行：保留底层四元数编辑能力
+    ['x', 'y', 'z', 'w'].forEach(axis => {
+      const row = document.createElement('div');
+      row.className = 'joint-control-row';
+      row.dataset.quatAxis = axis;
+      row.style.cssText = 'padding-left: 10px;';
+      row.title = `直接编辑 quaternion ${axis.toUpperCase()} 分量`;
+
+      row.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+
+      const axisLabel = document.createElement('span');
+      axisLabel.textContent = axis.toUpperCase() + ':';
+      axisLabel.style.cssText = 'width: 86px; font-size: 11px; color: var(--text-primary); transition: color 0.3s ease;';
+      row.appendChild(axisLabel);
+
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.min = -1;
+      slider.max = 1;
+      slider.step = 0.01;
+      slider.value = this.baseValues.quaternion[axis];
+      slider.style.flex = '1';
+
+      slider.addEventListener('input', (e) => {
+        const value = parseFloat(e.target.value);
+        this.baseValues.quaternion[axis] = value;
+        numberInput.value = value.toFixed(3);
+        this.normalizeQuaternion();
+        this.applyBaseTransform();
+      });
+
+      row.appendChild(slider);
+
+      const numberInput = document.createElement('input');
+      numberInput.type = 'number';
+      numberInput.min = -1;
+      numberInput.max = 1;
+      numberInput.step = 0.01;
+      numberInput.value = this.baseValues.quaternion[axis].toFixed(3);
+      numberInput.style.cssText = 'width: 70px; padding: 2px 4px; background: var(--bg-input); border: 1px solid var(--border-primary); color: var(--text-primary); border-radius: 2px; font-size: 11px; transition: all 0.3s ease;';
+
+      numberInput.addEventListener('change', (e) => {
+        let value = parseFloat(e.target.value);
+        value = Math.max(-1, Math.min(1, value));
+        this.baseValues.quaternion[axis] = value;
+        numberInput.value = value.toFixed(3);
+        this.normalizeQuaternion();
+        this.applyBaseTransform();
+      });
+
+      row.appendChild(numberInput);
       quatControl.appendChild(row);
     });
     
@@ -354,30 +449,63 @@ export class BaseController {
       q.y = 0;
       q.z = 0;
       q.w = 1;
+      this.updateRootRotationFromQuaternion();
+      this.updateRootRotationUI();
+      this.updateQuaternionUI();
     } else if (length > 0.0001) {
       const oldLength = length;
-      q.x /= length;
-      q.y /= length;
-      q.z /= length;
-      q.w /= length;
+      this.baseValues.quaternion = normalizeRootQuaternion(q);
       
       if (Math.abs(oldLength - 1.0) > 0.01) {
         console.log(`🔄 四元数归一化: ${oldLength.toFixed(4)} → 1.0`);
       }
       
-      // 更新UI
-      const container = document.getElementById('base-controls');
-      ['x', 'y', 'z', 'w'].forEach(axis => {
-        const row = container.querySelector(`[data-quat-axis="${axis}"]`);
-        if (row) {
-          const slider = row.querySelector('input[type="range"]');
-          const numberInput = row.querySelector('input[type="number"]');
-          const value = q[axis];
-          if (slider) slider.value = value;
-          if (numberInput) numberInput.value = value.toFixed(3);
-        }
-      });
+      this.updateRootRotationFromQuaternion();
+      this.updateRootRotationUI();
+      this.updateQuaternionUI();
     }
+  }
+
+  updateQuaternionFromRootRotation() {
+    this.baseValues.quaternion = composeRootRotation(this.rootRotationValues);
+  }
+
+  updateQuaternionUI() {
+    const container = document.getElementById('base-controls');
+    if (!container) return;
+
+    ['x', 'y', 'z', 'w'].forEach(axis => {
+      const row = container.querySelector(`[data-quat-axis="${axis}"]`);
+      if (!row) return;
+
+      const slider = row.querySelector('input[type="range"]');
+      const numberInput = row.querySelector('input[type="number"]');
+      const value = this.baseValues.quaternion[axis];
+
+      if (slider) slider.value = value;
+      if (numberInput) numberInput.value = value.toFixed(3);
+    });
+  }
+
+  updateRootRotationFromQuaternion() {
+    this.rootRotationValues = decomposeRootRotation(this.baseValues.quaternion);
+  }
+
+  updateRootRotationUI() {
+    const container = document.getElementById('base-controls');
+    if (!container) return;
+
+    ['yawZ', 'pitchSide', 'rollHeading'].forEach(axis => {
+      const row = container.querySelector(`[data-root-rotation-axis="${axis}"]`);
+      if (!row) return;
+
+      const slider = row.querySelector('input[type="range"]');
+      const numberInput = row.querySelector('input[type="number"]');
+      const value = this.rootRotationValues[axis];
+
+      if (slider) slider.value = value;
+      if (numberInput) numberInput.value = value.toFixed(1);
+    });
   }
 
   applyBaseTransform() {
@@ -395,6 +523,10 @@ export class BaseController {
       this.editor.comVisualizerRight.update(this.editor.robotRight);
       // 触发包络线防抖更新
       this.editor.scheduleFootprintUpdate();
+    }
+
+    if (this.editor.updatePalmVisualizers) {
+      this.editor.updatePalmVisualizers();
     }
     
     // 如果当前帧是关键帧，自动更新
@@ -450,17 +582,9 @@ export class BaseController {
       }
     });
     
-    // 更新 quaternion UI
-    ['x', 'y', 'z', 'w'].forEach(axis => {
-      const row = container.querySelector(`[data-quat-axis="${axis}"]`);
-      if (row) {
-        const slider = row.querySelector('input[type="range"]');
-        const numberInput = row.querySelector('input[type="number"]');
-        const value = quaternion[axis];
-        if (slider) slider.value = value;
-        if (numberInput) numberInput.value = value.toFixed(3);
-      }
-    });
+    this.updateRootRotationFromQuaternion();
+    this.updateRootRotationUI();
+    this.updateQuaternionUI();
     
     this.applyBaseTransform();
   }
@@ -588,7 +712,7 @@ export class BaseController {
   }
 
   resetQuaternion() {
-    // 重置整个四元数到base值
+    // 重置 root 旋转到 base 值
     if (this.editor.trajectoryManager.hasTrajectory()) {
       const currentFrame = this.editor.timelineController.getCurrentFrame();
       const baseState = this.editor.trajectoryManager.getBaseState(currentFrame);
@@ -596,21 +720,12 @@ export class BaseController {
         const baseQuat = baseState.base.quaternion;
         this.baseValues.quaternion = { ...baseQuat };
         
-        // 更新UI
-        const container = document.getElementById('base-controls');
-        ['x', 'y', 'z', 'w'].forEach(axis => {
-          const row = container.querySelector(`[data-quat-axis="${axis}"]`);
-          if (row) {
-            const slider = row.querySelector('input[type="range"]');
-            const numberInput = row.querySelector('input[type="number"]');
-            const value = baseQuat[axis];
-            if (slider) slider.value = value;
-            if (numberInput) numberInput.value = value.toFixed(3);
-          }
-        });
+        this.updateRootRotationFromQuaternion();
+        this.updateRootRotationUI();
+        this.updateQuaternionUI();
         
         this.applyBaseTransform();
-        console.log('✅ Quaternion 已重置到 base 值');
+        console.log('✅ Root rotation 已重置到 base 值');
       }
     }
   }

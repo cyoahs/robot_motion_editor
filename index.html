@@ -442,6 +442,12 @@
       <div id="viewport" style="position: relative;">
         <div style="position: absolute; top: 10px; left: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: var(--success-color); pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="baseTrajectory">原始轨迹 (Base)</div>
         <div style="position: absolute; top: 10px; right: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: var(--warning-color); pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="editedTrajectory">编辑后 (Modified)</div>
+        <div style="position: absolute; top: 42px; left: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: #00d4ff; pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px);">
+          <span data-i18n="palmDistance">掌距</span>: <span id="palm-distance-left">--</span>
+        </div>
+        <div style="position: absolute; top: 42px; right: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: #00d4ff; pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px);">
+          <span data-i18n="palmDistance">掌距</span>: <span id="palm-distance-right">--</span>
+        </div>
         <div style="position: absolute; top: 50%; left: 50%; width: 2px; height: 100%; background: var(--border-primary); transform: translateX(-50%); pointer-events: none; z-index: 99; transition: background-color 0.3s ease;"></div>
         
         <!-- 相机控制按钮 -->
@@ -457,6 +463,9 @@
           </button>
           <button id="toggle-com" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="comOn">
             🎯 重心: 开
+          </button>
+          <button id="toggle-palm" style="padding: 5px 10px; background: rgba(0, 212, 255, 0.25); color: var(--overlay-text); border: 1px solid rgba(0, 212, 255, 0.6); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="palmOn">
+            🖐 掌心: 开
           </button>
           <button id="refresh-footprint" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="refreshFootprint">
             👣 刷新包络线
