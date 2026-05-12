@@ -13,6 +13,7 @@ export class TimelineController {
     this.zoomLevel = 1.0; // 缩放级别
     this.minZoom = 1.0;
     this.maxZoom = 10.0;
+    this.selectedKeyframes = new Set(); // 选中的关键帧
     
     this.setupUI();
   }
@@ -297,6 +298,9 @@ export class TimelineController {
         const marker = document.createElement('div');
         marker.className = 'keyframe-marker';
         
+        // 检查是否被选中
+        const isSelected = this.selectedKeyframes.has(frameIndex);
+        
         // 计算位置：使用有效宽度
         const progress = frameIndex / (this.frameCount - 1);
         const leftPos = offset + progress * effectiveWidth;
@@ -305,7 +309,7 @@ export class TimelineController {
           position: absolute;
           width: 8px;
           height: 20px;
-          background: #4ec9b0;
+          background: ${isSelected ? '#ff6b6b' : '#4ec9b0'};
           cursor: pointer;
           border-radius: 2px;
           left: ${leftPos}px;
@@ -321,13 +325,63 @@ export class TimelineController {
         });
         
         marker.addEventListener('mouseleave', () => {
-          marker.style.background = '#4ec9b0';
+          const isSelected = this.selectedKeyframes.has(frameIndex);
+          marker.style.background = isSelected ? '#ff6b6b' : '#4ec9b0';
           marker.style.transform = 'translateX(-50%)';
         });
         
-        // 点击跳转到关键帧
-        marker.addEventListener('click', () => {
-          this.setCurrentFrame(frameIndex);
+        // 点击处理：普通点击取消所有选择，Ctrl/Cmd+点击单选，Shift+点击范围选择
+        marker.addEventListener('click', (e) => {
+          if (e.ctrlKey || e.metaKey) {
+            // Ctrl/Cmd+点击：切换单个关键帧的选中状态
+            if (this.selectedKeyframes.has(frameIndex)) {
+              this.selectedKeyframes.delete(frameIndex);
+              marker.style.background = '#4ec9b0';
+            } else {
+              this.selectedKeyframes.add(frameIndex);
+              marker.style.background = '#ff6b6b';
+            }
+            
+            // 更新平滑按钮显示状态
+            this.updateSmoothButtonVisibility();
+          } else if (e.shiftKey) {
+            // Shift+点击：范围选择（从第一个选中的到当前点击的）
+            const allKeyframes = Array.from(this.editor.trajectoryManager.keyframes.keys()).sort((a, b) => a - b);
+            
+            if (this.selectedKeyframes.size === 0) {
+              // 没有已选中的，直接选中当前的
+              this.selectedKeyframes.add(frameIndex);
+              marker.style.background = '#ff6b6b';
+            } else {
+              // 找到第一个和最后一个已选中的关键帧
+              const selectedArray = Array.from(this.selectedKeyframes).sort((a, b) => a - b);
+              const firstSelected = selectedArray[0];
+              const lastSelected = selectedArray[selectedArray.length - 1];
+              
+              // 确定范围的起点和终点
+              const rangeStart = Math.min(firstSelected, frameIndex);
+              const rangeEnd = Math.max(lastSelected, frameIndex);
+              
+              // 选中范围内的所有关键帧
+              allKeyframes.forEach(kf => {
+                if (kf >= rangeStart && kf <= rangeEnd) {
+                  this.selectedKeyframes.add(kf);
+                }
+              });
+              
+              // 更新所有标记的显示
+              this.updateKeyframeMarkers(allKeyframes);
+            }
+            
+            // 更新平滑按钮显示状态
+            this.updateSmoothButtonVisibility();
+          } else {
+            // 普通点击：取消所有选择并跳转到关键帧
+            this.selectedKeyframes.clear();
+            this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
+            this.updateSmoothButtonVisibility();
+            this.setCurrentFrame(frameIndex);
+          }
         });
         
         // 右键删除关键帧
@@ -344,6 +398,34 @@ export class TimelineController {
         this.keyframeMarkers.push(marker);
       });
     });
+  }
+
+  /**
+   * 获取选中的关键帧（排序后的数组）
+   */
+  getSelectedKeyframes() {
+    return Array.from(this.selectedKeyframes).sort((a, b) => a - b);
+  }
+
+  /**
+   * 清除关键帧选择
+   */
+  clearSelection() {
+    this.selectedKeyframes.clear();
+    this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
+    this.updateSmoothButtonVisibility();
+  }
+
+  /**
+   * 更新平滑按钮的显示状态
+   */
+  updateSmoothButtonVisibility() {
+    const smoothBtn = document.getElementById('smooth-keyframes');
+    if (smoothBtn) {
+      const selectedCount = this.selectedKeyframes.size;
+      // 至少选中3个关键帧才显示平滑按钮
+      smoothBtn.style.display = selectedCount >= 3 ? 'inline-block' : 'none';
+    }
   }
 
   play() {

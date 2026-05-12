@@ -327,7 +327,20 @@ export class URDFLoader {
         throw new Error('文件映射中未找到URDF文件');
       }
       
-      const urdfText = await urdfFile.text();
+      // 处理字符串或 File 对象
+      let urdfText;
+      if (typeof urdfFile === 'string') {
+        // 已经是字符串（从 Cookie 恢复）
+        urdfText = urdfFile;
+        console.log('📝 使用字符串格式的 URDF 内容');
+      } else if (urdfFile.text && typeof urdfFile.text === 'function') {
+        // 是 File/Blob 对象
+        urdfText = await urdfFile.text();
+        console.log('📝 从 File 对象读取 URDF 内容');
+      } else {
+        throw new Error('无效的 URDF 文件格式');
+      }
+      
       const basePath = urdfPath.substring(0, urdfPath.lastIndexOf('/') + 1);
       
       // 设置加载管理器
@@ -368,7 +381,25 @@ export class URDFLoader {
         }
         
         if (file) {
-          const blobUrl = URL.createObjectURL(file);
+          // 处理不同类型的文件内容
+          let blobUrl;
+          if (typeof file === 'string') {
+            // 从 Cookie 恢复的字符串内容
+            if (file.startsWith('blob:')) {
+              // 已经是 blob URL，直接返回
+              blobUrl = file;
+            } else {
+              // 字符串内容（文本文件），创建 Blob
+              const blob = new Blob([file], { type: 'text/plain' });
+              blobUrl = URL.createObjectURL(blob);
+            }
+          } else if (file instanceof Blob || file instanceof File) {
+            // File/Blob 对象，直接创建 URL
+            blobUrl = URL.createObjectURL(file);
+          } else {
+            console.warn('⚠️ 未知的文件类型:', typeof file, file);
+            return url;
+          }
           console.log(`✅ 映射成功: ${url} -> ${blobUrl}`);
           return blobUrl;
         }
@@ -383,6 +414,12 @@ export class URDFLoader {
       
       const newRobot = loader.parse(urdfText);
       console.log('✅ 新机器人实例创建成功');
+      
+      // 提取关节信息（只在第一次加载时提取，避免重复）
+      if (this.joints.length === 0) {
+        this.extractJoints(newRobot);
+        console.log(`✅ 提取到 ${this.joints.length} 个关节`);
+      }
       
       if (onComplete) {
         onComplete(newRobot);

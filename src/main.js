@@ -11,6 +11,7 @@ import { ThemeManager } from './themeManager.js';
 import { CurveEditor } from './curveEditor.js';
 import { AxisGizmo } from './axisGizmo.js';
 import { VideoExporter } from './videoExporter.js';
+import { CookieManager } from './cookieManager.js';
 import { DEFAULT_FPS_BY_FORMAT, TRAJECTORY_FORMATS } from './trajectoryFormatConverter.js';
 
 class RobotKeyframeEditor {
@@ -18,6 +19,12 @@ class RobotKeyframeEditor {
     // 初始化主题管理器
     this.themeManager = new ThemeManager();
     this.themeManager.watchSystemTheme();
+    
+    // 初始化 Cookie 管理器
+    this.cookieManager = new CookieManager();
+    
+    // i18n 引用（用于 CookieManager 显示状态）
+    this.i18n = i18n;
     
     // 左侧场景 (原始轨迹)
     this.sceneLeft = null;
@@ -72,8 +79,12 @@ class RobotKeyframeEditor {
     this.showCOM = true; // 默认显示重心
     this.autoRefreshFootprint = false; // 自动刷新包络线开关，默认关闭
     this.footprintUpdateTimer = null; // 包络线更新防抖定时器
+    this.footprintHeightThresholdCm = 10; // 包络线link高度阈值（cm）
     this.defaultCameraPosition = new THREE.Vector3(3, 3, 2);
     this.defaultCameraTarget = new THREE.Vector3(0, 0, 0.5);
+    
+    // 脚部识别数据：[{ linkName, ankleJoints: [] }]
+    this.identifiedFeet = [];
 
     this.init();
     this.setupEventListeners();
@@ -84,8 +95,14 @@ class RobotKeyframeEditor {
     const statusText = document.getElementById('status-text');
     if (statusText) {
       statusText.textContent = message;
-      statusText.style.color = type === 'error' ? 'var(--warning-color)' : 
-                                type === 'success' ? 'var(--success-color)' : 'var(--text-tertiary)';
+      // 只修改文字颜色
+      if (type === 'error') {
+        statusText.style.color = 'var(--warning-color)';
+      } else if (type === 'success') {
+        statusText.style.color = 'var(--success-color)';
+      } else {
+        statusText.style.color = 'var(--text-secondary)';
+      }
     }
   }
 
@@ -239,6 +256,11 @@ class RobotKeyframeEditor {
 
     // 窗口大小调整
     window.addEventListener('resize', () => this.handleResize());
+    
+    // 尝试恢复上次保存的状态（异步）
+    this.restoreStateIfAvailable().catch(err => {
+      console.error('恢复状态错误:', err);
+    });
   }
 
   handleResize() {
@@ -286,6 +308,11 @@ class RobotKeyframeEditor {
     // 删除当前关键帧
     document.getElementById('delete-keyframe').addEventListener('click', () => {
       this.deleteCurrentKeyframe();
+    });
+
+    // 平滑关键帧
+    document.getElementById('smooth-keyframes').addEventListener('click', () => {
+      this.smoothSelectedKeyframes();
     });
 
     // 重置关节
@@ -356,9 +383,68 @@ class RobotKeyframeEditor {
       this.refreshFootprint();
     });
 
+    const footprintHeightInput = document.getElementById('footprint-height-threshold');
+    if (footprintHeightInput) {
+      // 防止输入框点击触发按钮刷新
+      footprintHeightInput.addEventListener('click', (event) => {
+        event.stopPropagation();
+      });
+      footprintHeightInput.addEventListener('keydown', (event) => {
+        event.stopPropagation();
+      });
+    }
+
     // 切换自动刷新包络线
     document.getElementById('toggle-auto-refresh').addEventListener('click', () => {
       this.toggleAutoRefreshFootprint();
+    });
+
+    // 自动旋转按钮
+    document.getElementById('auto-rotate-major').addEventListener('click', () => {
+      this.autoRotateToFootprint('major');
+    });
+
+    document.getElementById('auto-rotate-minor').addEventListener('click', () => {
+      this.autoRotateToFootprint('minor');
+    });
+    
+    // 脚部识别和控制
+    document.getElementById('identify-feet').addEventListener('click', () => {
+      this.identifyFeet();
+    });
+    
+    document.getElementById('level-feet').addEventListener('click', () => {
+      this.levelFeet();
+    });
+    
+    // 脚部控制面板折叠
+    document.getElementById('foot-control-header').addEventListener('click', () => {
+      const controls = document.getElementById('foot-controls');
+      const isHidden = controls.style.display === 'none';
+      controls.style.display = isHidden ? 'block' : 'none';
+      const header = document.getElementById('foot-control-header');
+      header.querySelector('h3').textContent = isHidden ? '▼ ' + header.querySelector('h3').textContent.slice(2) : '▶ ' + header.querySelector('h3').textContent.slice(2);
+    });
+    
+    // 重置应用
+    document.getElementById('reset-button').addEventListener('click', () => {
+      this.resetApplication();
+    });
+    
+    // Cookie 自动保存开关
+    const autoSaveToggle = document.getElementById('auto-save-toggle');
+    if (autoSaveToggle) {
+      // 初始化开关状态
+      autoSaveToggle.checked = this.cookieManager.isAutoSaveEnabled();
+      
+      autoSaveToggle.addEventListener('change', (e) => {
+        this.toggleAutoSave(e.target.checked);
+      });
+    }
+    
+    // 清除 Cookies 按钮
+    document.getElementById('clear-cookies').addEventListener('click', () => {
+      this.clearCookies();
     });
 
     // 主题切换
@@ -500,6 +586,9 @@ class RobotKeyframeEditor {
         console.log('========================================');
         this.updateStatus(i18n.t('urdfLoadSuccess', { count: joints.length }), 'success');
         alert(i18n.t('urdfLoadSuccess', { count: joints.length }));
+        
+        // 触发完整保存（包含 URDF）
+        this.triggerAutoSave(true);
       } else {
         console.error('❌ 机器人模型为 null 或 undefined');
         throw new Error('机器人模型创建失败');
@@ -569,6 +658,9 @@ class RobotKeyframeEditor {
       
       // 更新文件名显示
       this.updateCurrentFileName(file.name, 'csv');
+      
+      // 触发自动保存
+      this.triggerAutoSave();
     } catch (error) {
       console.error('CSV 加载失败:', error);
       this.updateStatus(i18n.t('csvLoadFailed'), 'error');
@@ -578,6 +670,12 @@ class RobotKeyframeEditor {
 
   updateRobotState(frameIndex) {
     if ((!this.robotLeft && !this.robotRight) || !this.trajectoryManager.hasTrajectory()) {
+      return;
+    }
+    
+    // 检查 jointController 是否已初始化
+    if (!this.jointController || !this.jointController.joints || this.jointController.joints.length === 0) {
+      console.warn('⚠️ jointController 未初始化，跳过更新机器人状态');
       return;
     }
 
@@ -601,8 +699,10 @@ class RobotKeyframeEditor {
       
       // 更新左侧关节
       baseState.joints.forEach((value, index) => {
-        const jointName = this.jointController.joints[index].name;
-        this.robotLeft.setJointValue(jointName, value);
+        if (index < this.jointController.joints.length) {
+          const jointName = this.jointController.joints[index].name;
+          this.robotLeft.setJointValue(jointName, value);
+        }
       });
     }
     
@@ -683,6 +783,9 @@ class RobotKeyframeEditor {
       this.curveEditor.updateCurves();
       this.curveEditor.draw();
     }
+    
+    // 触发自动保存
+    this.triggerAutoSave();
   }
 
   deleteCurrentKeyframe() {
@@ -717,10 +820,232 @@ class RobotKeyframeEditor {
         this.curveEditor.draw();
       }
       
+      // 触发自动保存
+      this.triggerAutoSave();
+      
       console.log('删除关键帧:', currentFrame);
     } else {
       alert('当前帧不是关键帧');
     }
+  }
+
+  /**
+   * 平滑选中的关键帧
+   * 要求：至少选中3个连续关键帧
+   * 效果：第一个和最后一个关键帧保持不变，中间关键帧的残差自动计算
+   *       使得叠加值等于前后关键帧叠加值的线性插值
+   */
+  smoothSelectedKeyframes() {
+    if (!this.trajectoryManager.hasTrajectory()) {
+      alert('请先加载 CSV 轨迹');
+      return;
+    }
+
+    // 获取选中的关键帧并排序
+    const selectedKeyframes = this.timelineController.getSelectedKeyframes();
+    
+    if (selectedKeyframes.length < 3) {
+      alert('请选择至少3个关键帧（使用 Shift+点击）');
+      return;
+    }
+
+    // 检查是否为连续关键帧
+    let isConsecutive = true;
+    for (let i = 1; i < selectedKeyframes.length; i++) {
+      const prevFrame = selectedKeyframes[i - 1];
+      const currentFrame = selectedKeyframes[i];
+      const keyframesBetween = Array.from(this.trajectoryManager.keyframes.keys())
+        .filter(f => f > prevFrame && f < currentFrame);
+      
+      if (keyframesBetween.length > 0) {
+        isConsecutive = false;
+        break;
+      }
+    }
+
+    if (!isConsecutive) {
+      alert('请选择连续的关键帧（中间不能有未选中的关键帧）');
+      return;
+    }
+
+    // 保持第一个和最后一个关键帧，平滑中间关键帧
+    const startFrame = selectedKeyframes[0];
+    const endFrame = selectedKeyframes[selectedKeyframes.length - 1];
+    const middleFrames = selectedKeyframes.slice(1, -1);
+
+    if (middleFrames.length === 0) {
+      alert('需要至少3个关键帧（包含中间帧）才能进行平滑');
+      return;
+    }
+
+    // 获取起始和结束关键帧数据
+    const startKeyframe = this.trajectoryManager.keyframes.get(startFrame);
+    const endKeyframe = this.trajectoryManager.keyframes.get(endFrame);
+
+    // 计算起始和结束的叠加值（原始值 + 残差）
+    const startOverlay = this.calculateOverlayValues(startFrame, startKeyframe);
+    const endOverlay = this.calculateOverlayValues(endFrame, endKeyframe);
+
+    // 对每个中间关键帧进行平滑
+    middleFrames.forEach(frame => {
+      const keyframe = this.trajectoryManager.keyframes.get(frame);
+      
+      // 计算插值比例
+      const t = (frame - startFrame) / (endFrame - startFrame);
+      
+      // 对关节角度进行线性插值并计算新残差
+      if (keyframe.residual && startOverlay.joints && endOverlay.joints) {
+        for (let i = 0; i < keyframe.residual.length; i++) {
+          // 线性插值叠加值
+          const interpolatedOverlay = startOverlay.joints[i] + t * (endOverlay.joints[i] - startOverlay.joints[i]);
+          
+          // 获取该帧的原始关节角度
+          const frameBaseState = this.trajectoryManager.getBaseState(frame);
+          const baseJointValue = frameBaseState ? frameBaseState.joints[i] : 0;
+          
+          // 新残差 = 插值叠加值 - 原始值
+          keyframe.residual[i] = interpolatedOverlay - baseJointValue;
+        }
+      }
+      
+      // 对基座位置进行线性插值并计算新残差
+      if (keyframe.baseResidual && startOverlay.basePosition && endOverlay.basePosition) {
+        const frameBaseState = this.trajectoryManager.getBaseState(frame);
+        if (frameBaseState) {
+          ['x', 'y', 'z'].forEach(axis => {
+            const interpolatedOverlay = startOverlay.basePosition[axis] + 
+              t * (endOverlay.basePosition[axis] - startOverlay.basePosition[axis]);
+            
+            const basePoseValue = frameBaseState.base.position[axis];
+            
+            if (!keyframe.baseResidual.position) {
+              keyframe.baseResidual.position = { x: 0, y: 0, z: 0 };
+            }
+            keyframe.baseResidual.position[axis] = interpolatedOverlay - basePoseValue;
+          });
+        }
+      }
+      
+      // 对基座旋转进行球面线性插值（SLERP）并计算新残差
+      if (keyframe.baseResidual && startOverlay.baseQuaternion && endOverlay.baseQuaternion) {
+        const startQuat = new THREE.Quaternion(
+          startOverlay.baseQuaternion.x,
+          startOverlay.baseQuaternion.y,
+          startOverlay.baseQuaternion.z,
+          startOverlay.baseQuaternion.w
+        );
+        const endQuat = new THREE.Quaternion(
+          endOverlay.baseQuaternion.x,
+          endOverlay.baseQuaternion.y,
+          endOverlay.baseQuaternion.z,
+          endOverlay.baseQuaternion.w
+        );
+        
+        const interpolatedQuat = new THREE.Quaternion();
+        interpolatedQuat.slerpQuaternions(startQuat, endQuat, t);
+        
+        const frameBaseState = this.trajectoryManager.getBaseState(frame);
+        if (frameBaseState) {
+          const baseQuat = new THREE.Quaternion(
+            frameBaseState.base.quaternion.x,
+            frameBaseState.base.quaternion.y,
+            frameBaseState.base.quaternion.z,
+            frameBaseState.base.quaternion.w
+          );
+          
+          // 计算残差四元数：interpolatedQuat = baseQuat * residualQuat
+          // residualQuat = baseQuat.inverse() * interpolatedQuat
+          const residualQuat = baseQuat.clone().invert().multiply(interpolatedQuat);
+          
+          if (!keyframe.baseResidual.quaternion) {
+            keyframe.baseResidual.quaternion = { x: 0, y: 0, z: 0, w: 1 };
+          }
+          keyframe.baseResidual.quaternion.x = residualQuat.x;
+          keyframe.baseResidual.quaternion.y = residualQuat.y;
+          keyframe.baseResidual.quaternion.z = residualQuat.z;
+          keyframe.baseResidual.quaternion.w = residualQuat.w;
+        }
+      }
+    });
+
+    // 更新显示
+    const currentFrame = this.timelineController.getCurrentFrame();
+    this.updateRobotState(currentFrame);
+    
+    // 更新曲线编辑器
+    if (this.curveEditor) {
+      this.curveEditor.updateCurves();
+    }
+    
+    // 清除选择状态
+    this.timelineController.clearSelection();
+    
+    // 触发自动保存
+    this.triggerAutoSave();
+    
+    console.log(`已平滑 ${middleFrames.length} 个中间关键帧`);
+    alert(`平滑完成！已处理 ${middleFrames.length} 个中间关键帧`);
+  }
+
+  /**
+   * 计算指定帧的叠加值（原始值 + 残差）
+   */
+  calculateOverlayValues(frame, keyframe) {
+    const result = {
+      joints: [],
+      basePosition: { x: 0, y: 0, z: 0 },
+      baseQuaternion: { x: 0, y: 0, z: 0, w: 1 }
+    };
+
+    // 计算关节角度叠加值
+    const baseState = this.trajectoryManager.getBaseState(frame);
+    if (keyframe.residual && baseState) {
+      for (let i = 0; i < keyframe.residual.length; i++) {
+        const baseValue = baseState.joints[i];
+        result.joints[i] = baseValue + keyframe.residual[i];
+      }
+    }
+
+    // 计算基座位置叠加值
+    if (!baseState) {
+      return result;
+    }
+    
+    if (keyframe.baseResidual && keyframe.baseResidual.position) {
+      result.basePosition.x = baseState.base.position.x + keyframe.baseResidual.position.x;
+      result.basePosition.y = baseState.base.position.y + keyframe.baseResidual.position.y;
+      result.basePosition.z = baseState.base.position.z + keyframe.baseResidual.position.z;
+    } else {
+      result.basePosition = { ...baseState.base.position };
+    }
+
+    // 计算基座旋转叠加值
+    if (keyframe.baseResidual && keyframe.baseResidual.quaternion) {
+      const baseQuat = new THREE.Quaternion(
+        baseState.base.quaternion.x,
+        baseState.base.quaternion.y,
+        baseState.base.quaternion.z,
+        baseState.base.quaternion.w
+      );
+      const residualQuat = new THREE.Quaternion(
+        keyframe.baseResidual.quaternion.x,
+        keyframe.baseResidual.quaternion.y,
+        keyframe.baseResidual.quaternion.z,
+        keyframe.baseResidual.quaternion.w
+      );
+      
+      const overlayQuat = baseQuat.multiply(residualQuat);
+      result.baseQuaternion = {
+        x: overlayQuat.x,
+        y: overlayQuat.y,
+        z: overlayQuat.z,
+        w: overlayQuat.w
+      };
+    } else {
+      result.baseQuaternion = { ...baseState.base.quaternion };
+    }
+
+    return result;
   }
 
   async showTrajectoryExportFormatDialog() {
@@ -1293,6 +1618,18 @@ class RobotKeyframeEditor {
     }, 2000);
   }
 
+  getFootprintHeightThresholdMeters() {
+    const input = document.getElementById('footprint-height-threshold');
+    if (!input) {
+      return this.footprintHeightThresholdCm / 100;
+    }
+    const rawValue = parseFloat(input.value);
+    if (Number.isFinite(rawValue)) {
+      this.footprintHeightThresholdCm = Math.max(0, rawValue);
+    }
+    return this.footprintHeightThresholdCm / 100;
+  }
+
   refreshFootprint() {
     if (!this.robotLeft && !this.robotRight) {
       alert(i18n.t('needRobot'));
@@ -1302,15 +1639,509 @@ class RobotKeyframeEditor {
     console.log('👣 刷新地面投影包络线...');
     
     // 使用setTimeout实现异步计算，避免阻塞UI
+    const heightThresholdMeters = this.getFootprintHeightThresholdMeters();
     setTimeout(() => {
       if (this.comVisualizerLeft && this.robotLeft) {
-        this.comVisualizerLeft.updateFootprint(this.robotLeft);
+        this.comVisualizerLeft.updateFootprint(this.robotLeft, heightThresholdMeters);
       }
       if (this.comVisualizerRight && this.robotRight) {
-        this.comVisualizerRight.updateFootprint(this.robotRight);
+        this.comVisualizerRight.updateFootprint(this.robotRight, heightThresholdMeters);
       }
       console.log('✅ 地面投影包络线刷新完成');
     }, 0);
+  }
+
+  /**
+   * 自动旋转功能：绕包络线主轴或次轴旋转，使重心投影靠近包络线
+   * @param {string} axisType - 'major' 或 'minor'
+   */
+  autoRotateToFootprint(axisType) {
+    if (!this.trajectoryManager.hasTrajectory()) {
+      alert('请先加载 CSV 轨迹');
+      return;
+    }
+
+    if (!this.robotLeft && !this.robotRight) {
+      alert(i18n.t('needRobot'));
+      return;
+    }
+
+    // 获取旋转角度上限
+    const clampInputId = axisType === 'major' ? 'rotation-clamp-major' : 'rotation-clamp-minor';
+    const clampInput = document.getElementById(clampInputId);
+    const clampValue = clampInput ? parseFloat(clampInput.value) : 0.02;
+    if (!Number.isFinite(clampValue) || clampValue <= 0) {
+      alert('请输入有效的旋转角度上限（弧度，大于0）');
+      return;
+    }
+
+    const currentFrame = this.timelineController.getCurrentFrame();
+
+    // 处理左右两侧机器人
+    let hasRotation = false;
+
+    if (this.robotLeft && this.comVisualizerLeft) {
+      const result = this.calculateAutoRotation(
+        this.robotLeft, 
+        this.comVisualizerLeft, 
+        axisType, 
+        clampValue
+      );
+      
+      if (result) {
+        this.applyRotationResidual(currentFrame, result);
+        hasRotation = true;
+        console.log(`🔄 左侧机器人自动旋转 (${axisType}): ${(result.angle * 180 / Math.PI).toFixed(2)}°`);
+      }
+    }
+
+    if (this.robotRight && this.comVisualizerRight) {
+      const result = this.calculateAutoRotation(
+        this.robotRight,
+        this.comVisualizerRight,
+        axisType,
+        clampValue
+      );
+      
+      if (result) {
+        this.applyRotationResidual(currentFrame, result);
+        hasRotation = true;
+        console.log(`🔄 右侧机器人自动旋转 (${axisType}): ${(result.angle * 180 / Math.PI).toFixed(2)}°`);
+      }
+    }
+
+    if (hasRotation) {
+      // 更新显示
+      this.updateRobotState(currentFrame);
+      
+      // 更新曲线编辑器
+      if (this.curveEditor) {
+        this.curveEditor.updateCurves();
+      }
+
+      // 触发自动保存
+      this.triggerAutoSave();
+      
+      const axisName = axisType === 'major' ? '主轴' : '次轴';
+      this.updateStatus(`✅ 自动旋转完成！绕${axisName}旋转`, 'success');
+    } else {
+      this.updateStatus('⚠️ 无法执行自动旋转，请先刷新包络线', 'error');
+    }
+  }
+
+  /**
+   * 计算自动旋转参数
+   */
+  calculateAutoRotation(robot, comVisualizer, axisType, clampValue) {
+    const data = comVisualizer.getFootprintData();
+    
+    if (!data.footprint || !data.centroid || !data.pca || !data.com) {
+      return null;
+    }
+
+    // 重心投影到地面的位置
+    const comProjection = { x: data.com.x, y: data.com.y };
+
+    // 选择旋转轴
+    const axisIndex = axisType === 'major' ? 0 : 1;
+    const rotationAxis = data.pca.eigenvectors[axisIndex];
+
+    // 计算旋转轴在3D空间中的向量（垂直于地面）
+    const axis3D = new THREE.Vector3(rotationAxis.x, rotationAxis.y, 0).normalize();
+
+    // 计算重心投影点到旋转轴的距离
+    // 旋转轴是通过质心、方向为rotationAxis的直线
+    // 点到直线的距离公式：|AP × v| / |v|，其中A是直线上一点，P是目标点，v是方向向量
+    const AP = {
+      x: comProjection.x - data.centroid.x,
+      y: comProjection.y - data.centroid.y
+    };
+    
+    // 2D叉积：AP × rotationAxis
+    const crossProduct = AP.x * rotationAxis.y - AP.y * rotationAxis.x;
+    const distToAxis = Math.abs(crossProduct); // rotationAxis已归一化
+    
+    if (distToAxis < 0.001) {
+      console.log('重心投影已经在旋转轴上或非常接近');
+      return null;
+    }
+
+    // 计算重心高度
+    const comHeight = data.com.z;
+    
+    if (Math.abs(comHeight) < 0.001) {
+      console.log('重心高度过小，无法计算旋转');
+      return null;
+    }
+
+    // 计算让重心投影准确落在旋转轴上所需的旋转角度
+    // 使用几何关系：tan(angle) = distToAxis / comHeight
+    const exactAngle = Math.atan2(distToAxis, comHeight);
+    
+    // 确定旋转方向：试探两个方向，选择让距离减小的那个
+    // 创建一个小的测试旋转
+    const testAngle = 0.01; // 1度左右的测试旋转
+    
+    // 测试正向旋转后重心的投影位置
+    const testRotationQuat = new THREE.Quaternion();
+    testRotationQuat.setFromAxisAngle(axis3D, testAngle);
+    
+    // 计算旋转后重心相对于质心的位置
+    const comRelative = new THREE.Vector3(
+      data.com.x - data.centroid.x,
+      data.com.y - data.centroid.y,
+      data.com.z
+    );
+    
+    const rotatedCom = comRelative.clone().applyQuaternion(testRotationQuat);
+    const rotatedComProjection = {
+      x: rotatedCom.x,
+      y: rotatedCom.y
+    };
+    
+    // 计算旋转后到轴的距离
+    const crossProductAfter = rotatedComProjection.x * rotationAxis.y - rotatedComProjection.y * rotationAxis.x;
+    const distToAxisAfter = Math.abs(crossProductAfter);
+    
+    // 判断方向：如果距离减小了，说明正向是对的；否则反向
+    const rotationSign = distToAxisAfter < distToAxis ? 1 : -1;
+    
+    // 应用旋转方向
+    const signedExactAngle = rotationSign * exactAngle;
+    
+    // 与clamp值比较，取较小值
+    const angle = Math.abs(signedExactAngle) <= clampValue 
+      ? signedExactAngle 
+      : rotationSign * clampValue;
+
+    console.log(`🔄 旋转角度计算: 精确=${(signedExactAngle * 180 / Math.PI).toFixed(2)}°, 实际=${(angle * 180 / Math.PI).toFixed(2)}°, 距离轴=${(distToAxis * 100).toFixed(1)}cm`);
+
+    if (Math.abs(angle) < 0.001) {
+      console.log('计算的旋转角度过小，跳过');
+      return null;
+    }
+
+    return {
+      axis: axis3D,
+      angle: angle,
+      centroid: data.centroid
+    };
+  }
+
+  /**
+   * 查找点到多边形最近的点
+   */
+  findClosestPointOnPolygon(point, polygon) {
+    let closestPoint = null;
+    let minDist = Infinity;
+
+    for (let i = 0; i < polygon.length; i++) {
+      const j = (i + 1) % polygon.length;
+      const p1 = polygon[i];
+      const p2 = polygon[j];
+
+      // 计算点到线段的最近点
+      const closest = this.closestPointOnSegment(point, p1, p2);
+      const dist = Math.sqrt(
+        (closest.x - point.x) ** 2 + (closest.y - point.y) ** 2
+      );
+
+      if (dist < minDist) {
+        minDist = dist;
+        closestPoint = closest;
+      }
+    }
+
+    return closestPoint;
+  }
+
+  /**
+   * 计算点到线段的最近点
+   */
+  closestPointOnSegment(point, segStart, segEnd) {
+    const dx = segEnd.x - segStart.x;
+    const dy = segEnd.y - segStart.y;
+    const lenSq = dx * dx + dy * dy;
+
+    if (lenSq < 1e-10) {
+      return { x: segStart.x, y: segStart.y };
+    }
+
+    const t = Math.max(0, Math.min(1, 
+      ((point.x - segStart.x) * dx + (point.y - segStart.y) * dy) / lenSq
+    ));
+
+    return {
+      x: segStart.x + t * dx,
+      y: segStart.y + t * dy
+    };
+  }
+
+  /**
+   * 应用旋转到base并生成残差
+   */
+  applyRotationResidual(frameIndex, rotationResult) {
+    const { axis, angle, centroid } = rotationResult;
+
+    // 获取当前帧的基座状态
+    const baseState = this.trajectoryManager.getBaseState(frameIndex);
+    if (!baseState) {
+      return;
+    }
+
+    // 创建旋转四元数
+    const rotationQuat = new THREE.Quaternion();
+    rotationQuat.setFromAxisAngle(axis, angle);
+
+    // 获取原始基座姿态
+    const originalQuat = new THREE.Quaternion(
+      baseState.base.quaternion.x,
+      baseState.base.quaternion.y,
+      baseState.base.quaternion.z,
+      baseState.base.quaternion.w
+    );
+
+    // 应用旋转：新四元数 = 旋转 * 原始
+    const newQuat = rotationQuat.clone().multiply(originalQuat);
+
+    // 计算基座位置的变化（绕质心旋转）
+    const originalPos = new THREE.Vector3(
+      baseState.base.position.x,
+      baseState.base.position.y,
+      baseState.base.position.z
+    );
+    
+    const centroid3D = new THREE.Vector3(centroid.x, centroid.y, 0);
+    
+    // 位置相对于质心的偏移
+    const offset = originalPos.clone().sub(centroid3D);
+    
+    // 旋转偏移向量
+    offset.applyQuaternion(rotationQuat);
+    
+    // 新位置
+    const newPos = centroid3D.clone().add(offset);
+
+    // 计算残差
+    const positionResidual = {
+      x: newPos.x - baseState.base.position.x,
+      y: newPos.y - baseState.base.position.y,
+      z: newPos.z - baseState.base.position.z
+    };
+
+    // 计算旋转残差：residualQuat = originalQuat.inverse() * newQuat
+    const quaternionResidual = originalQuat.clone().invert().multiply(newQuat);
+
+    // 确保或创建该帧的关键帧
+    if (!this.trajectoryManager.keyframes.has(frameIndex)) {
+      // 创建新关键帧
+      const jointCount = this.trajectoryManager.jointCount;
+      this.trajectoryManager.keyframes.set(frameIndex, {
+        residual: new Array(jointCount).fill(0),
+        baseResidual: {
+          position: { x: 0, y: 0, z: 0 },
+          quaternion: { x: 0, y: 0, z: 0, w: 1 }
+        }
+      });
+    }
+
+    const keyframe = this.trajectoryManager.keyframes.get(frameIndex);
+
+    // 叠加残差（累加位置，组合四元数）
+    if (!keyframe.baseResidual) {
+      keyframe.baseResidual = {
+        position: { x: 0, y: 0, z: 0 },
+        quaternion: { x: 0, y: 0, z: 0, w: 1 }
+      };
+    }
+
+    // 位置残差累加
+    keyframe.baseResidual.position.x += positionResidual.x;
+    keyframe.baseResidual.position.y += positionResidual.y;
+    keyframe.baseResidual.position.z += positionResidual.z;
+
+    // 四元数残差组合：newResidual = quaternionResidual * oldResidual
+    const oldResidualQuat = new THREE.Quaternion(
+      keyframe.baseResidual.quaternion.x,
+      keyframe.baseResidual.quaternion.y,
+      keyframe.baseResidual.quaternion.z,
+      keyframe.baseResidual.quaternion.w
+    );
+    
+    const combinedResidualQuat = quaternionResidual.multiply(oldResidualQuat);
+    
+    keyframe.baseResidual.quaternion.x = combinedResidualQuat.x;
+    keyframe.baseResidual.quaternion.y = combinedResidualQuat.y;
+    keyframe.baseResidual.quaternion.z = combinedResidualQuat.z;
+    keyframe.baseResidual.quaternion.w = combinedResidualQuat.w;
+
+    // 更新关键帧标记
+    const keyframes = Array.from(this.trajectoryManager.keyframes.keys());
+    this.timelineController.updateKeyframeMarkers(keyframes);
+  }
+  
+  /**
+   * 恢复保存的状态（如果可用）
+   */
+  async restoreStateIfAvailable() {
+    if (!this.cookieManager.isAutoSaveEnabled()) {
+      console.log('📕 自动保存未启用，跳过状态恢复');
+      return;
+    }
+    
+    const stateInfo = this.cookieManager.getStateInfo();
+    if (!stateInfo) {
+      console.log('📕 没有找到已保存的状态');
+      return;
+    }
+    
+    console.log('🔍 检测到已保存的状态:', stateInfo);
+    
+    try {
+      const restored = await this.cookieManager.restoreState(this);
+      if (restored) {
+        this.updateStatus(i18n.t('stateRestored'), 'success');
+        console.log('✅ 状态恢复成功');
+      } else {
+        console.log('⚠️ 状态恢复失败');
+      }
+    } catch (e) {
+      console.error('❌ 恢复状态异常:', e);
+    }
+  }
+  
+  /**
+   * 重置应用到初始状态
+   */
+  async resetApplication() {
+    if (!confirm(i18n.t('resetConfirm'))) {
+      return;
+    }
+    
+    console.log('🔄 重置应用...');
+    
+    // 清除轨迹管理器
+    if (this.trajectoryManager) {
+      this.trajectoryManager.clearAll();
+    }
+    
+    // 移除机器人模型
+    if (this.robotLeft) {
+      this.sceneLeft.remove(this.robotLeft);
+      this.robotLeft = null;
+    }
+    if (this.robotRight) {
+      this.sceneRight.remove(this.robotRight);
+      this.robotRight = null;
+      this.robot = null;
+    }
+    
+    // 清除控制器
+    if (this.jointController) {
+      const container = document.getElementById('joint-controls');
+      if (container) {
+        container.innerHTML = '';
+      }
+      this.jointController = null;
+    }
+    
+    if (this.baseController) {
+      this.baseController = null;
+    }
+    
+    // 重置时间轴
+    if (this.timelineController) {
+      this.timelineController.pause();
+      this.timelineController.updateTimeline(0, 0);
+      this.timelineController.updateKeyframeMarkers([]);
+      this.timelineController.setCurrentFrame(0);
+    }
+    
+    // 重置曲线编辑器
+    if (this.curveEditor) {
+      this.curveEditor.curves.clear();
+      this.curveEditor.draw();
+    }
+    
+    // 重置相机
+    this.resetCamera();
+    
+    // 重置 UI 状态
+    this.cameraMode = 'rotate';
+    this.followRobot = false;
+    this.showCOM = true;
+    this.autoRefreshFootprint = false;
+    this.footprintHeightThresholdCm = 10;
+    
+    // 更新按钮状态
+    document.getElementById('toggle-camera-mode').textContent = i18n.t('rotate');
+    document.getElementById('follow-robot').textContent = i18n.t('followOff');
+    document.getElementById('follow-robot').style.background = 'var(--overlay-bg)';
+    document.getElementById('follow-robot').style.borderColor = 'var(--border-primary)';
+    document.getElementById('toggle-com').textContent = i18n.t('comOn');
+    document.getElementById('toggle-com').style.background = 'rgba(255, 100, 100, 0.3)';
+    document.getElementById('toggle-com').style.borderColor = 'rgba(255, 100, 100, 0.6)';
+    document.getElementById('toggle-auto-refresh').textContent = i18n.t('autoRefreshOff');
+    document.getElementById('toggle-auto-refresh').style.background = 'var(--overlay-bg)';
+    document.getElementById('toggle-auto-refresh').style.borderColor = 'var(--border-primary)';
+    
+    // 清除文件名显示
+    this.clearCurrentFileName();
+    
+    // 清除 Cookie（如果启用了自动保存）
+    if (this.cookieManager.isAutoSaveEnabled()) {
+      await this.cookieManager.clearState();
+    }
+    
+    // 更新状态显示
+    this.updateStatus(i18n.t('ready'), 'info');
+    
+    console.log('✅ 应用已重置');
+  }
+  
+  /**
+   * 切换自动保存
+   */
+  async toggleAutoSave(enabled) {
+    await this.cookieManager.setAutoSaveEnabled(enabled);
+    
+    const notice = document.getElementById('cookie-notice');
+    if (notice) {
+      notice.style.display = enabled ? 'block' : 'none';
+    }
+    
+    if (enabled) {
+      console.log('💾 自动保存已启用');
+      this.updateStatus(i18n.t('autoSaveEnabled'), 'success');
+      // 立即执行一次完整保存（包含 URDF）
+      await this.cookieManager.saveState(this, true);
+    } else {
+      console.log('💾 自动保存已禁用');
+      this.updateStatus(i18n.t('autoSaveDisabled'), 'info');
+    }
+  }
+  
+  /**
+   * 清除已保存的 Cookies
+   */
+  async clearCookies() {
+    if (!confirm(i18n.t('clearCookiesConfirm'))) {
+      return;
+    }
+    
+    await this.cookieManager.clearState();
+    this.updateStatus(i18n.t('cookiesCleared'), 'success');
+    console.log('🗑️ 已清除 Cookies');
+  }
+  
+  /**
+   * 触发自动保存（防抖）
+   * @param {boolean} fullSave - 是否完整保存（包括 URDF）
+   */
+  triggerAutoSave(fullSave = false) {
+    if (this.cookieManager.isAutoSaveEnabled()) {
+      this.cookieManager.saveStateDebounced(this, fullSave);
+    }
   }
 
   /**
@@ -1748,5 +2579,750 @@ function initDropdowns() {
     }
   });
 }
+
+/**
+ * 识别脚部：根据URDF中的关节名称识别脚踝关节和脚部link
+ */
+RobotKeyframeEditor.prototype.identifyFeet = function() {
+    if (!this.robotLeft && !this.robotRight) {
+      alert(i18n.t('needRobot'));
+      return;
+    }
+
+    this.identifiedFeet = [];
+    
+    // 扩展的关键词匹配规则
+    const ankleKeywords = [
+      // 基本英文
+      'ankle', 'foot', 'feet', 'toe', 'heel', 'sole', 
+      // 解剖学术语
+      'talus', 'calcaneus', 'tarsus', 'metatarsal', 'phalange', 'hallux',
+      // 机器人术语
+      'end_effector', 'end-effector', 'endeffector',
+      'limb_end', 'limb-end', 'limbend',
+      'leg_end', 'leg-end', 'legend',
+      'chain_end', 'chain-end', 'chainend',
+      // 编号模式
+      '_tip', '-tip', 'tip_', 'tip-',
+      '_foot', '-foot', 'foot_', 'foot-',
+      '_ankle', '-ankle', 'ankle_', 'ankle-',
+      // 多语言（小写匹配）
+      'pied', 'cheville', // 法语
+      'fuss', 'knöchel', 'knoechel', // 德语
+      'pie', 'tobillo', // 西班牙语
+      'piede', 'caviglia', // 意大利语
+      'ashi', 'ashikubi', // 日语罗马音
+      'jiao', 'huaijiao' // 中文拼音
+    ];
+    
+    // 从机器人中提取关节信息
+    const robot = this.robotLeft || this.robotRight;
+    const allJoints = [];
+    const jointToChildren = new Map();
+    
+    robot.traverse((obj) => {
+      if (obj.isURDFJoint) {
+        const jointName = obj.name;
+        allJoints.push(obj);
+        
+        // 记录子link
+        if (obj.children && obj.children.length > 0) {
+          const childLinks = obj.children.filter(c => c.isURDFLink);
+          if (childLinks.length > 0) {
+            jointToChildren.set(obj, childLinks);
+          }
+        }
+      }
+    });
+
+    // 识别脚踝关节（名称包含关键词的）
+    const ankleJoints = allJoints.filter(joint => {
+      const nameLower = joint.name.toLowerCase();
+      return ankleKeywords.some(keyword => nameLower.includes(keyword));
+    });
+
+    console.log(`🦶 找到 ${ankleJoints.length} 个可能的脚踝关节:`, ankleJoints.map(j => j.name));
+
+    // 对每个脚踝关节，找到其末端link
+    const processedFeet = new Set();
+    
+    for (const ankleJoint of ankleJoints) {
+      // 找到该关节链的末端link
+      const endLink = this.findEndLink(ankleJoint);
+      
+      if (endLink && !processedFeet.has(endLink.name)) {
+        // 查找该脚的所有脚踝关节（连续的包含关键词的关节）
+        const footAnkleJoints = this.findConsecutiveAnkleJoints(ankleJoint, ankleKeywords);
+        
+        this.identifiedFeet.push({
+          linkName: endLink.name,
+          ankleJoints: footAnkleJoints.map(j => j.name)
+        });
+        
+        processedFeet.add(endLink.name);
+      }
+    }
+
+    console.log('🦶 识别的脚部:', this.identifiedFeet);
+    
+    // 显示模态框供用户调整
+    this.showFootIdentificationModal();
+  };
+
+/**
+ * 找到关节链的末端link
+ */
+RobotKeyframeEditor.prototype.findEndLink = function(joint) {
+    let current = joint;
+    let endLink = null;
+    
+    // 遍历子节点直到找不到更多的关节
+    while (current) {
+      const childLinks = current.children ? current.children.filter(c => c.isURDFLink) : [];
+      if (childLinks.length > 0) {
+        endLink = childLinks[0]; // 取第一个link
+        
+        // 查找该link下的子关节
+        const childJoints = endLink.children ? endLink.children.filter(c => c.isURDFJoint) : [];
+        if (childJoints.length > 0) {
+          current = childJoints[0];
+        } else {
+          break;
+        }
+      } else {
+        break;
+      }
+    }
+    
+    return endLink;
+  };
+
+/**
+ * 找到连续的脚踝关节
+ */
+RobotKeyframeEditor.prototype.findConsecutiveAnkleJoints = function(startJoint, keywords) {
+    const ankles = [startJoint];
+    let current = startJoint;
+    
+    // 向父级查找
+    let parent = current.parent;
+    while (parent && parent.isURDFJoint) {
+      const nameLower = parent.name.toLowerCase();
+      if (keywords.some(kw => nameLower.includes(kw))) {
+        ankles.unshift(parent);
+        parent = parent.parent;
+      } else {
+        break;
+      }
+    }
+    
+    // 向子级查找
+    const childLinks = current.children ? current.children.filter(c => c.isURDFLink) : [];
+    if (childLinks.length > 0) {
+      const childJoints = childLinks[0].children ? childLinks[0].children.filter(c => c.isURDFJoint) : [];
+      for (const childJoint of childJoints) {
+        const nameLower = childJoint.name.toLowerCase();
+        if (keywords.some(kw => nameLower.includes(kw))) {
+          ankles.push(childJoint);
+        }
+      }
+    }
+    
+    return ankles;
+  };
+
+/**
+ * 更新脚部控制UI
+ */
+RobotKeyframeEditor.prototype.updateFootControlsUI = function() {
+    const feetList = document.getElementById('feet-list');
+    const globalLevelButton = document.getElementById('level-feet');
+    
+    // 隐藏全局水平按钮
+    globalLevelButton.style.display = 'none';
+    feetList.innerHTML = '';
+    
+    // 显示每只脚的简化卡片
+    this.identifiedFeet.forEach((foot, index) => {
+      const footDiv = document.createElement('div');
+      footDiv.style.cssText = 'margin-bottom: 8px; padding: 8px; background: var(--bg-secondary); border-radius: 4px; border: 1px solid var(--border-primary);';
+      
+      footDiv.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <strong style="font-size: 12px; color: var(--text-primary);">🦶 ${foot.linkName}</strong>
+          <div style="display: flex; gap: 4px;">
+            <button class="edit-foot" data-index="${index}" style="padding: 3px 8px; font-size: 10px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 3px; cursor: pointer;" data-i18n="editFoot">编辑</button>
+            <button class="delete-foot" data-index="${index}" style="padding: 3px 8px; font-size: 10px; background: var(--warning-color); color: white; border: none; border-radius: 3px; cursor: pointer;" data-i18n="deleteFoot">删除</button>
+          </div>
+        </div>
+        <div style="display: flex; gap: 4px;">
+          <button class="level-single-foot" data-index="${index}" style="flex: 1; padding: 4px; font-size: 11px; background: var(--accent-primary); color: white; border: none; border-radius: 3px; cursor: pointer;" data-i18n="levelThisFoot">⚖️ 水平化</button>
+          <button class="reset-single-foot" data-index="${index}" style="flex: 1; padding: 4px; font-size: 11px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 3px; cursor: pointer;" data-i18n="resetThisFoot">🔄 复原</button>
+        </div>
+      `;
+      
+      feetList.appendChild(footDiv);
+    });
+    
+    // 添加"创建脚"按钮
+    const createFootDiv = document.createElement('div');
+    createFootDiv.style.cssText = 'margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-primary);';
+    createFootDiv.innerHTML = `
+      <button id="create-foot-btn" style="width: 100%; padding: 6px; font-size: 12px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer;" data-i18n="createFoot">➕ 创建脚</button>
+    `;
+    feetList.appendChild(createFootDiv);
+    
+    // 绑定编辑按钮
+    feetList.querySelectorAll('.edit-foot').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const index = parseInt(e.target.dataset.index);
+        this.showFootEditModal(index);
+      });
+    });
+    
+    // 绑定删除按钮
+    feetList.querySelectorAll('.delete-foot').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const index = parseInt(e.target.dataset.index);
+        this.identifiedFeet.splice(index, 1);
+        this.updateFootControlsUI();
+      });
+    });
+    
+    // 绑定单独水平按钮
+    feetList.querySelectorAll('.level-single-foot').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const index = parseInt(e.target.dataset.index);
+        this.levelFeet(index);
+      });
+    });
+    
+    // 绑定复原按钮
+    feetList.querySelectorAll('.reset-single-foot').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const index = parseInt(e.target.dataset.index);
+        this.resetFoot(index);
+      });
+    });
+    
+    // 绑定创建脚按钮
+    document.getElementById('create-foot-btn').addEventListener('click', () => {
+      this.showFootEditModal(null);
+    });
+    
+    // 应用i18n
+    if (this.i18n && this.i18n.updatePageText) {
+      this.i18n.updatePageText();
+    }
+  };
+
+/**
+ * 脚部水平：计算脚踝关节残差使脚部link水平
+ * @param {number|null} footIndex - 指定要水平化的脚的索引，如果为null则水平化所有脚
+ */
+RobotKeyframeEditor.prototype.levelFeet = function(footIndex = null) {
+    if (!this.trajectoryManager.hasTrajectory()) {
+      alert('请先加载 CSV 轨迹');
+      return;
+    }
+    
+    if (this.identifiedFeet.length === 0) {
+      alert('请先识别脚部');
+      return;
+    }
+    
+    // 确定要处理的脚
+    const feetToProcess = footIndex !== null 
+      ? [this.identifiedFeet[footIndex]]
+      : this.identifiedFeet;
+    
+    if (footIndex !== null && !feetToProcess[0]) {
+      alert('指定的脚不存在');
+      return;
+    }
+
+    const currentFrame = this.timelineController.getCurrentFrame();
+    const robot = this.robotLeft || this.robotRight;
+    
+    if (!robot) {
+      alert(i18n.t('needRobot'));
+      return;
+    }
+
+    // 确保该帧有关键帧
+    if (!this.trajectoryManager.keyframes.has(currentFrame)) {
+      const jointCount = this.trajectoryManager.jointCount;
+      this.trajectoryManager.keyframes.set(currentFrame, {
+        residual: new Array(jointCount).fill(0),
+        baseResidual: {
+          position: { x: 0, y: 0, z: 0 },
+          quaternion: { x: 0, y: 0, z: 0, w: 1 }
+        }
+      });
+    }
+
+    const keyframe = this.trajectoryManager.keyframes.get(currentFrame);
+    let modifiedCount = 0;
+
+    // 构建关节名称到索引的映射
+    const jointNameToIndex = new Map();
+    this.urdfLoader.joints.forEach((joint, index) => {
+      jointNameToIndex.set(joint.name, index);
+    });
+
+    // 对每只脚进行水平化
+    feetToProcess.forEach(foot => {
+      // 找到脚部link
+      let footLink = null;
+      robot.traverse(obj => {
+        if (obj.isURDFLink && obj.name === foot.linkName) {
+          footLink = obj;
+        }
+      });
+
+      if (!footLink) {
+        console.warn(`未找到脚部link: ${foot.linkName}`);
+        return;
+      }
+
+      // 获取脚部link的局部z轴在世界坐标系中的方向
+      const localZ = new THREE.Vector3(0, 0, 1);
+      const worldZ = localZ.clone().applyQuaternion(footLink.getWorldQuaternion(new THREE.Quaternion()));
+      const targetZ = new THREE.Vector3(0, 0, 1); // 世界坐标系的z轴
+      
+      // 计算当前z轴与目标z轴的夹角（弧度）
+      const currentAngle = worldZ.angleTo(targetZ);
+      console.log(`🦶 脚部 ${foot.linkName} 当前z轴偏离角度: ${(currentAngle * 180 / Math.PI).toFixed(2)}°`);
+      
+      // 如果已经接近水平（偏差小于1度），跳过
+      if (currentAngle < 0.017) { // 1度 = 0.017弧度
+        console.log('  ✅ 已经接近水平，跳过');
+        return;
+      }
+
+      // 使用试错法：对每个脚踝关节，尝试小幅度调整，看哪个方向能减小角度
+      const testStep = 0.05; // 测试步长：约2.86度
+      const bestAdjustments = {};
+      
+      foot.ankleJoints.forEach(jointName => {
+        const jointIndex = jointNameToIndex.get(jointName);
+        if (jointIndex === undefined) {
+          console.warn(`未找到关节: ${jointName}`);
+          return;
+        }
+        
+        // 保存当前残差
+        const originalResidual = keyframe.residual[jointIndex];
+        
+        // 尝试正向调整
+        keyframe.residual[jointIndex] = originalResidual + testStep;
+        this.updateRobotState(currentFrame);
+        const worldZPositive = localZ.clone().applyQuaternion(footLink.getWorldQuaternion(new THREE.Quaternion()));
+        const anglePositive = worldZPositive.angleTo(targetZ);
+        
+        // 尝试负向调整
+        keyframe.residual[jointIndex] = originalResidual - testStep;
+        this.updateRobotState(currentFrame);
+        const worldZNegative = localZ.clone().applyQuaternion(footLink.getWorldQuaternion(new THREE.Quaternion()));
+        const angleNegative = worldZNegative.angleTo(targetZ);
+        
+        // 恢复原值
+        keyframe.residual[jointIndex] = originalResidual;
+        
+        // 选择更好的方向
+        const improvementPositive = currentAngle - anglePositive;
+        const improvementNegative = currentAngle - angleNegative;
+        
+        console.log(`  关节 ${jointName}: 当前角度=${(currentAngle * 180 / Math.PI).toFixed(2)}°, 正向→${(anglePositive * 180 / Math.PI).toFixed(2)}° (改善${(improvementPositive * 180 / Math.PI).toFixed(2)}°), 负向→${(angleNegative * 180 / Math.PI).toFixed(2)}° (改善${(improvementNegative * 180 / Math.PI).toFixed(2)}°)`);
+        
+        // 选择改善最大的方向（即使很小也选择）
+        if (Math.abs(improvementPositive) > 0.0001 || Math.abs(improvementNegative) > 0.0001) {
+          if (improvementPositive > improvementNegative) {
+            bestAdjustments[jointIndex] = testStep;
+            console.log(`    → 选择正向调整 +${testStep.toFixed(3)}`);
+          } else {
+            bestAdjustments[jointIndex] = -testStep;
+            console.log(`    → 选择负向调整 ${(-testStep).toFixed(3)}`);
+          }
+        } else {
+          console.log(`    → 跳过（无明显改善）`);
+        }
+      });
+      
+      // 恢复机器人状态到测试前
+      this.updateRobotState(currentFrame);
+      
+      // 应用最佳调整
+      const adjustmentCount = Object.keys(bestAdjustments).length;
+      console.log(`  准备应用 ${adjustmentCount} 个调整`);
+      
+      if (adjustmentCount > 0) {
+        for (const [jointIndex, adjustment] of Object.entries(bestAdjustments)) {
+          keyframe.residual[parseInt(jointIndex)] += adjustment;
+          modifiedCount++;
+          console.log(`    应用: keyframe.residual[${jointIndex}] += ${adjustment.toFixed(3)}`);
+        }
+        console.log(`  ✅ 已应用 ${adjustmentCount} 个关节的调整, modifiedCount=${modifiedCount}`);
+      } else {
+        console.log('  ⚠️ 未找到改善方向');
+      }
+    });
+    
+    console.log(`🔄 水平化完成，总共修改了 ${modifiedCount} 个关节残差`);
+
+    if (modifiedCount > 0) {
+      // 更新关键帧标记
+      const keyframes = Array.from(this.trajectoryManager.keyframes.keys());
+      this.timelineController.updateKeyframeMarkers(keyframes);
+
+      // 更新显示
+      this.updateRobotState(currentFrame);
+
+      // 更新曲线编辑器
+      if (this.curveEditor) {
+        this.curveEditor.updateCurves();
+      }
+
+      // 触发自动保存
+      this.triggerAutoSave();
+
+      const footCountText = footIndex !== null ? `脚 ${footIndex + 1}` : `${feetToProcess.length} 只脚`;
+      this.updateStatus(`✅ 已水平化 ${footCountText}`, 'success');
+    } else {
+      this.updateStatus('⚠️ 未能应用水平化', 'error');
+    }
+  };
+
+/**
+ * 复原单只脚：重置该脚所有脚踝关节的残差为0
+ * @param {number} footIndex - 要复原的脚的索引
+ */
+RobotKeyframeEditor.prototype.resetFoot = function(footIndex) {
+    if (!this.trajectoryManager.hasTrajectory()) {
+      alert('请先加载 CSV 轨迹');
+      return;
+    }
+    
+    if (this.identifiedFeet.length === 0 || !this.identifiedFeet[footIndex]) {
+      alert('指定的脚不存在');
+      return;
+    }
+    
+    const foot = this.identifiedFeet[footIndex];
+    const currentFrame = this.timelineController.currentFrame;
+    
+    // 确保该帧有关键帧
+    if (!this.trajectoryManager.keyframes.has(currentFrame)) {
+      const jointCount = this.trajectoryManager.jointCount;
+      this.trajectoryManager.keyframes.set(currentFrame, {
+        residual: new Array(jointCount).fill(0),
+        baseResidual: {
+          position: { x: 0, y: 0, z: 0 },
+          quaternion: { x: 0, y: 0, z: 0, w: 1 }
+        }
+      });
+    }
+    
+    const keyframe = this.trajectoryManager.keyframes.get(currentFrame);
+    let resetCount = 0;
+    
+    // 构建关节名称到索引的映射
+    const jointNameToIndex = new Map();
+    this.urdfLoader.joints.forEach((joint, index) => {
+      jointNameToIndex.set(joint.name, index);
+    });
+    
+    // 重置该脚所有脚踝关节的残差
+    foot.ankleJoints.forEach(jointName => {
+      const jointIndex = jointNameToIndex.get(jointName);
+      if (jointIndex !== undefined) {
+        keyframe.residual[jointIndex] = 0;
+        resetCount++;
+      }
+    });
+    
+    if (resetCount > 0) {
+      // 更新关键帧标记
+      const keyframes = Array.from(this.trajectoryManager.keyframes.keys());
+      this.timelineController.updateKeyframeMarkers(keyframes);
+      
+      // 更新显示
+      this.updateRobotState(currentFrame);
+      
+      // 更新曲线编辑器
+      if (this.curveEditor) {
+        this.curveEditor.updateCurves();
+      }
+      
+      // 触发自动保存
+      this.triggerAutoSave();
+      
+      this.updateStatus(`✅ 已复原脚 ${footIndex + 1} 的 ${resetCount} 个关节`, 'success');
+    } else {
+      this.updateStatus('⚠️ 未找到可复原的关节', 'error');
+    }
+  };
+
+/**
+ * 显示脚部识别结果模态框
+ */
+RobotKeyframeEditor.prototype.showFootIdentificationModal = function() {
+    const modal = document.getElementById('foot-identification-modal');
+    const modalBody = document.getElementById('foot-modal-list');
+    
+    // 临时存储当前编辑的脚部列表
+    this.tempIdentifiedFeet = JSON.parse(JSON.stringify(this.identifiedFeet));
+    
+    // 渲染脚部列表
+    this.renderModalFootList();
+    
+    // 显示模态框
+    modal.classList.add('show');
+    
+    // 绑定事件（只绑定一次）
+    if (!this._footModalEventsAttached) {
+      this._footModalEventsAttached = true;
+      
+      // 关闭按钮
+      modal.querySelector('.modal-close').addEventListener('click', () => {
+        modal.classList.remove('show');
+      });
+      
+      // 取消按钮
+      document.getElementById('foot-modal-cancel').addEventListener('click', () => {
+        modal.classList.remove('show');
+      });
+      
+      // 确认按钮
+      document.getElementById('foot-modal-confirm').addEventListener('click', () => {
+        this.identifiedFeet = JSON.parse(JSON.stringify(this.tempIdentifiedFeet));
+        this.updateFootControlsUI();
+        modal.classList.remove('show');
+        this.updateStatus(`✅ ${i18n.t('confirm')} ${this.identifiedFeet.length} 只脚`, 'success');
+      });
+      
+      // 点击背景关闭
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          modal.classList.remove('show');
+        }
+      });
+    }
+  };
+
+/**
+ * 渲染模态框中的脚部列表
+ */
+RobotKeyframeEditor.prototype.renderModalFootList = function() {
+    const modalBody = document.getElementById('foot-modal-list');
+    
+    if (this.tempIdentifiedFeet.length === 0) {
+      modalBody.innerHTML = `<div class="modal-empty-message">${i18n.t('noFeetIdentified')}</div>`;
+      return;
+    }
+    
+    modalBody.innerHTML = '';
+    
+    this.tempIdentifiedFeet.forEach((foot, index) => {
+      const footItem = document.createElement('div');
+      footItem.className = 'foot-item';
+      
+      footItem.innerHTML = `
+        <div class="foot-item-info">
+          <div class="foot-item-label">🦶 ${i18n.t('footLink')}: ${foot.linkName}</div>
+          <div class="foot-item-details">${i18n.t('ankleJoints')}: ${foot.ankleJoints.join(', ')}</div>
+        </div>
+        <div class="foot-item-actions">
+          <button class="delete-foot-btn" data-index="${index}">${i18n.t('deleteFoot')}</button>
+        </div>
+      `;
+      
+      modalBody.appendChild(footItem);
+    });
+    
+    // 绑定删除按钮事件
+    modalBody.querySelectorAll('.delete-foot-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const index = parseInt(e.target.getAttribute('data-index'));
+        this.tempIdentifiedFeet.splice(index, 1);
+        this.renderModalFootList();
+      });
+    });
+  };
+
+/**
+ * 显示脚部编辑/创建弹窗
+ * @param {number|null} footIndex - 要编辑的脚的索引，null表示创建新脚
+ */
+RobotKeyframeEditor.prototype.showFootEditModal = function(footIndex) {
+    const modal = document.getElementById('foot-edit-modal');
+    const modalTitle = document.getElementById('foot-edit-modal-title');
+    const linkSelect = document.getElementById('foot-edit-link-select');
+    const jointSelect = document.getElementById('foot-edit-joint-select');
+    const jointList = document.getElementById('foot-edit-joint-list');
+    
+    // 设置标题
+    const isEdit = footIndex !== null;
+    modalTitle.textContent = isEdit ? i18n.t('editFootTitle') : i18n.t('createFootTitle');
+    
+    // 获取机器人的所有link和joint
+    const robot = this.robotLeft || this.robotRight;
+    if (!robot) {
+      alert(i18n.t('needRobot'));
+      return;
+    }
+    
+    const allLinks = [];
+    const allJoints = [];
+    
+    robot.traverse((obj) => {
+      if (obj.isURDFLink) {
+        allLinks.push(obj.name);
+      }
+      if (obj.isURDFJoint) {
+        allJoints.push(obj.name);
+      }
+    });
+    
+    // 填充link下拉列表
+    linkSelect.innerHTML = '<option value="">选择 Link</option>';
+    allLinks.forEach(linkName => {
+      const option = document.createElement('option');
+      option.value = linkName;
+      option.textContent = linkName;
+      linkSelect.appendChild(option);
+    });
+    
+    // 填充joint下拉列表
+    jointSelect.innerHTML = '<option value="">选择关节</option>';
+    allJoints.forEach(jointName => {
+      const option = document.createElement('option');
+      option.value = jointName;
+      option.textContent = jointName;
+      jointSelect.appendChild(option);
+    });
+    
+    // 临时编辑数据
+    if (isEdit) {
+      this.tempEditFoot = JSON.parse(JSON.stringify(this.identifiedFeet[footIndex]));
+    } else {
+      this.tempEditFoot = {
+        linkName: '',
+        ankleJoints: []
+      };
+    }
+    
+    // 设置当前值
+    linkSelect.value = this.tempEditFoot.linkName;
+    this.renderEditJointList();
+    
+    // 显示弹窗
+    modal.classList.add('show');
+    
+    // 绑定事件（只绑定一次）
+    if (!this._footEditModalEventsAttached) {
+      this._footEditModalEventsAttached = true;
+      
+      // 关闭按钮
+      modal.querySelector('.modal-close').addEventListener('click', () => {
+        modal.classList.remove('show');
+      });
+      
+      // 取消按钮
+      document.getElementById('foot-edit-cancel').addEventListener('click', () => {
+        modal.classList.remove('show');
+      });
+      
+      // 确认按钮
+      document.getElementById('foot-edit-confirm').addEventListener('click', () => {
+        // 验证
+        if (!this.tempEditFoot.linkName) {
+          alert('请选择脚部 Link');
+          return;
+        }
+        if (this.tempEditFoot.ankleJoints.length === 0) {
+          alert('请至少添加一个脚踝关节');
+          return;
+        }
+        
+        // 保存或创建
+        if (isEdit) {
+          this.identifiedFeet[footIndex] = JSON.parse(JSON.stringify(this.tempEditFoot));
+          this.updateStatus(i18n.t('footUpdated'), 'success');
+        } else {
+          this.identifiedFeet.push(JSON.parse(JSON.stringify(this.tempEditFoot)));
+          this.updateStatus(i18n.t('footAdded'), 'success');
+        }
+        
+        this.updateFootControlsUI();
+        modal.classList.remove('show');
+      });
+      
+      // Link选择变化
+      linkSelect.addEventListener('change', (e) => {
+        this.tempEditFoot.linkName = e.target.value;
+      });
+      
+      // 添加关节按钮
+      document.getElementById('foot-edit-add-joint').addEventListener('click', () => {
+        const selectedJoint = jointSelect.value;
+        if (!selectedJoint) {
+          return;
+        }
+        
+        // 检查是否已存在
+        if (!this.tempEditFoot.ankleJoints.includes(selectedJoint)) {
+          this.tempEditFoot.ankleJoints.push(selectedJoint);
+          this.renderEditJointList();
+          jointSelect.value = '';
+        }
+      });
+      
+      // 点击背景关闭
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          modal.classList.remove('show');
+        }
+      });
+    }
+    
+    // 每次打开时重新绑定footIndex
+    this._currentEditFootIndex = footIndex;
+  };
+
+/**
+ * 渲染编辑弹窗中的关节列表
+ */
+RobotKeyframeEditor.prototype.renderEditJointList = function() {
+    const jointList = document.getElementById('foot-edit-joint-list');
+    
+    if (this.tempEditFoot.ankleJoints.length === 0) {
+      jointList.innerHTML = '<div style="text-align: center; color: var(--text-tertiary); font-size: 11px; padding: 8px;">暂无关节</div>';
+      return;
+    }
+    
+    jointList.innerHTML = '';
+    
+    this.tempEditFoot.ankleJoints.forEach((jointName, index) => {
+      const jointItem = document.createElement('div');
+      jointItem.className = 'joint-item';
+      
+      jointItem.innerHTML = `
+        <span>${jointName}</span>
+        <button class="remove-joint-btn" data-index="${index}">移除</button>
+      `;
+      
+      jointList.appendChild(jointItem);
+    });
+    
+    // 绑定移除按钮
+    jointList.querySelectorAll('.remove-joint-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const index = parseInt(e.target.getAttribute('data-index'));
+        this.tempEditFoot.ankleJoints.splice(index, 1);
+        this.renderEditJointList();
+      });
+    });
+  };
 
 initDropdowns();
