@@ -79,7 +79,7 @@ Frame,root_translateX,root_translateY,root_translateZ,root_rotateX,root_rotateY,
 ```
 
 - root_translateX/Y/Z：单位 cm，加载时转换为 m
-- root_rotateX/Y/Z：单位 degree，按 XYZ Euler 转换为四元数
+- root_rotateX/Y/Z：单位 degree，按 ZYX roll/pitch/yaw 语义转换为四元数
 - 后续关节列：单位 degree，加载时转换为弧度
 - 默认 FPS：120
 

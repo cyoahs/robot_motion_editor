@@ -1,6 +1,6 @@
 # Seed Format
 
-BONES-SEED 的 G1 CSV 是 MuJoCo/Unitree 世界系，X 前、Y 左、Z 上；平移单位为 cm，旋转/关节角单位为 degree。默认fps为120hz。
+BONES-SEED 的 G1 CSV 是 MuJoCo/Unitree 世界系，X 前、Y 左、Z 上；平移单位为 cm，旋转/关节角单位为 degree。root_rotateX/Y/Z 按 ZYX roll/pitch/yaw 语义转换。默认fps为120hz。
 
 示例：
 

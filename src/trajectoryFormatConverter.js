@@ -10,7 +10,9 @@ export const DEFAULT_FPS_BY_FORMAT = Object.freeze({
   [TRAJECTORY_FORMATS.SEED]: 120
 });
 
-export const SEED_EULER_ORDER = 'XYZ';
+// Seed root_rotateX/Y/Z are roll/pitch/yaw values. Three.js order ZYX matches
+// the fixed-axis composition Rz(yaw) * Ry(pitch) * Rx(roll).
+export const SEED_EULER_ORDER = 'ZYX';
 
 const SEED_BASE_COLUMNS = [
   'Frame',
@@ -149,14 +151,7 @@ function parseSeedCSV(csvText, fileName) {
       continue;
     }
 
-    const quaternion = new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(
-        THREE.MathUtils.degToRad(values[4]),
-        THREE.MathUtils.degToRad(values[5]),
-        THREE.MathUtils.degToRad(values[6]),
-        SEED_EULER_ORDER
-      )
-    );
+    const quaternion = seedEulerDegreesToQuaternion(values[4], values[5], values[6]);
 
     const base = {
       position: {
@@ -215,19 +210,16 @@ function exportSeedCSV(states, options) {
 
   states.forEach((state, frameIndex) => {
     const quaternion = normalizeQuaternion(state.base.quaternion);
-    const euler = new THREE.Euler().setFromQuaternion(
-      new THREE.Quaternion(quaternion.x, quaternion.y, quaternion.z, quaternion.w),
-      SEED_EULER_ORDER
-    );
+    const euler = quaternionToSeedEulerDegrees(quaternion);
 
     lines.push([
       frameIndex,
       state.base.position.x * CM_PER_METER,
       state.base.position.y * CM_PER_METER,
       state.base.position.z * CM_PER_METER,
-      THREE.MathUtils.radToDeg(euler.x),
-      THREE.MathUtils.radToDeg(euler.y),
-      THREE.MathUtils.radToDeg(euler.z),
+      euler.x,
+      euler.y,
+      euler.z,
       ...state.joints.map(value => THREE.MathUtils.radToDeg(value))
     ].join(','));
   });
@@ -265,6 +257,30 @@ function splitCSVLine(line) {
 
 function parseNumericRow(line) {
   return splitCSVLine(line).map(value => parseFloat(value));
+}
+
+function seedEulerDegreesToQuaternion(rollDegrees, pitchDegrees, yawDegrees) {
+  return new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(
+      THREE.MathUtils.degToRad(rollDegrees),
+      THREE.MathUtils.degToRad(pitchDegrees),
+      THREE.MathUtils.degToRad(yawDegrees),
+      SEED_EULER_ORDER
+    )
+  );
+}
+
+function quaternionToSeedEulerDegrees(quaternionLike) {
+  const euler = new THREE.Euler().setFromQuaternion(
+    new THREE.Quaternion(quaternionLike.x, quaternionLike.y, quaternionLike.z, quaternionLike.w),
+    SEED_EULER_ORDER
+  );
+
+  return {
+    x: THREE.MathUtils.radToDeg(euler.x),
+    y: THREE.MathUtils.radToDeg(euler.y),
+    z: THREE.MathUtils.radToDeg(euler.z)
+  };
 }
 
 function normalizeQuaternion(quaternionLike) {

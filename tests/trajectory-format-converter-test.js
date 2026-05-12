@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {
+  SEED_EULER_ORDER,
   TRAJECTORY_FORMATS,
   convertTrajectoryCSV,
   exportTrajectoryCSV,
@@ -18,6 +19,13 @@ function approx(actual, expected, epsilon = 1e-6) {
 
 function parseNumbers(line) {
   return line.split(',').map(value => parseFloat(value));
+}
+
+function seedRPYQuaternion(rollDegrees, pitchDegrees, yawDegrees) {
+  return new THREE.Quaternion()
+    .setFromAxisAngle(new THREE.Vector3(0, 0, 1), THREE.MathUtils.degToRad(yawDegrees))
+    .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(pitchDegrees)))
+    .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), THREE.MathUtils.degToRad(rollDegrees)));
 }
 
 const seedCSV = `Frame,root_translateX,root_translateY,root_translateZ,root_rotateX,root_rotateY,root_rotateZ,left_hip_pitch_joint_dof
@@ -39,9 +47,29 @@ const parsedEuler = new THREE.Euler().setFromQuaternion(
     parsedSeed.baseTrajectory[0].base.quaternion.z,
     parsedSeed.baseTrajectory[0].base.quaternion.w
   ),
-  'XYZ'
+  SEED_EULER_ORDER
 );
 approx(THREE.MathUtils.radToDeg(parsedEuler.z), 90);
+
+const combinedRotationSeedCSV = `Frame,root_translateX,root_translateY,root_translateZ,root_rotateX,root_rotateY,root_rotateZ,joint_dof
+0,0,0,0,10,20,30,0`;
+const parsedCombinedRotation = parseTrajectoryCSV(combinedRotationSeedCSV, 'combined_seed.csv');
+const parsedCombinedQuaternion = new THREE.Quaternion(
+  parsedCombinedRotation.baseTrajectory[0].base.quaternion.x,
+  parsedCombinedRotation.baseTrajectory[0].base.quaternion.y,
+  parsedCombinedRotation.baseTrajectory[0].base.quaternion.z,
+  parsedCombinedRotation.baseTrajectory[0].base.quaternion.w
+);
+approx(parsedCombinedQuaternion.angleTo(seedRPYQuaternion(10, 20, 30)), 0, 1e-10);
+
+const exportedCombinedRotation = exportTrajectoryCSV(parsedCombinedRotation.baseTrajectory, {
+  format: TRAJECTORY_FORMATS.SEED,
+  seedJointColumns: parsedCombinedRotation.metadata.seedJointColumns
+});
+const exportedCombinedValues = parseNumbers(exportedCombinedRotation.split('\n')[1]);
+approx(exportedCombinedValues[4], 10);
+approx(exportedCombinedValues[5], 20);
+approx(exportedCombinedValues[6], 30);
 
 const unitreeCSV = exportTrajectoryCSV(parsedSeed.baseTrajectory, { format: TRAJECTORY_FORMATS.UNITREE });
 const unitreeValues = parseNumbers(unitreeCSV);
