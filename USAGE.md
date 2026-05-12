@@ -40,7 +40,7 @@
 
 4. **加载轨迹**
    - 点击"加载 CSV 轨迹"
-   - 选择 CSV 文件（或使用 example_trajectory.csv）
+   - 选择 unitree CSV 或 seed CSV 文件（或使用 example_trajectory.csv）
    - 时间轴会更新为轨迹长度
 
 5. **编辑关键帧**
@@ -56,8 +56,13 @@
 7. **导出轨迹**
    - 点击"导出轨迹"
    - 会下载合并后的 CSV 文件（base + residual）
+   - 可选择 unitree 或 seed 格式，并设置导出 FPS
+   - seed 格式默认 120 FPS；unitree 格式默认当前工程 FPS
+   - 导出 FPS 与当前工程 FPS 不同时，会自动插值重采样
 
 ## CSV 格式
+
+### unitree 格式（内部格式）
 
 ```csv
 x, y, z, qx, qy, qz, qw, joint1, joint2, joint3, ...
@@ -66,6 +71,17 @@ x, y, z, qx, qy, qz, qw, joint1, joint2, joint3, ...
 - 前3列：base 位置 (x, y, z)
 - 4-7列：base 姿态四元数 (qx, qy, qz, qw)
 - 后续列：关节角度（弧度）
+
+### seed 格式
+
+```csv
+Frame,root_translateX,root_translateY,root_translateZ,root_rotateX,root_rotateY,root_rotateZ,joint_dof,...
+```
+
+- root_translateX/Y/Z：单位 cm，加载时转换为 m
+- root_rotateX/Y/Z：单位 degree，按 XYZ Euler 转换为四元数
+- 后续关节列：单位 degree，加载时转换为弧度
+- 默认 FPS：120
 
 ## 关键帧残差系统
 
