@@ -36,10 +36,10 @@ npm run build         # Production build
 ### Basic Workflow
 
 1. **Load URDF**: Select a folder containing URDF and mesh files
-2. **Load Trajectory**: Load a CSV file (first 7 columns: base xyz + quaternion xyzw, followed by joint angles)
+2. **Load Trajectory**: Load a unitree CSV (base xyz + quaternion xyzw + joint radians) or seed CSV (Frame + cm/degrees); data is converted to unitree internally
 3. **Edit Keyframes**: Click DOF names to show curves, adjust parameters and add keyframes (Shift+click for multiple curves)
 4. **Save Project**: Save the complete editing state (can be loaded to restore)
-5. **Export Trajectory**: Export the combined CSV trajectory
+5. **Export Trajectory**: Select unitree/seed format and export FPS, then export the combined CSV trajectory; differing FPS values are resampled automatically
 
 ### Project Management
 
@@ -72,6 +72,7 @@ src/
 ├── main.js              # Application entry point (dual-viewport rendering)
 ├── urdfLoader.js        # URDF loading and parsing
 ├── trajectoryManager.js # Trajectory and keyframe management
+├── trajectoryFormatConverter.js # unitree/seed CSV format conversion
 ├── jointController.js   # Joint control UI
 ├── baseController.js    # Base control UI (with align feature)
 ├── curveEditor.js       # Curve editor

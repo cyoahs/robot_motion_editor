@@ -1,5 +1,12 @@
 import * as THREE from 'three';
 import { i18n } from './i18n.js';
+import {
+  DEFAULT_FPS_BY_FORMAT,
+  TRAJECTORY_FORMATS,
+  exportTrajectoryCSV,
+  normalizeTrajectoryFormat,
+  parseTrajectoryCSV
+} from './trajectoryFormatConverter.js';
 
 /**
  * 轨迹管理器 - 管理基础轨迹和关键帧残差
@@ -21,43 +28,31 @@ export class TrajectoryManager {
     this.originalFileName = ''; // 原始CSV文件名
     this.fps = 50; // 默认帧率
     this.interpolationMode = 'linear'; // 插值模式: 'linear' 或 'bezier'
+    this.sourceFormat = TRAJECTORY_FORMATS.UNITREE;
+    this.seedHeader = null;
+    this.seedJointColumns = [];
   }
 
   parseCSV(csvText, fileName = '') {
-    const lines = csvText.trim().split('\n');
-    this.baseTrajectory = [];
+    const parsed = parseTrajectoryCSV(csvText, fileName);
+
+    this.baseTrajectory = parsed.baseTrajectory;
+    this.jointCount = parsed.jointCount;
     this.originalFileName = fileName;
+    this.sourceFormat = parsed.format;
+    this.seedHeader = parsed.metadata.seedHeader;
+    this.seedJointColumns = parsed.metadata.seedJointColumns || [];
+    this.fps = parsed.fps || DEFAULT_FPS_BY_FORMAT[this.sourceFormat] || 50;
 
-    for (const line of lines) {
-      // 跳过空行和注释
-      if (!line.trim() || line.trim().startsWith('#')) {
-        continue;
-      }
+    console.log('解析 CSV:', this.baseTrajectory.length, '帧,', this.jointCount, '个关节, 格式:', this.sourceFormat);
+  }
 
-      const values = line.split(',').map(v => parseFloat(v.trim()));
-      
-      if (values.length < 7) {
-        console.warn('CSV 行数据不足 7 列:', line);
-        continue;
-      }
-
-      // 前 7 列: x, y, z, qx, qy, qz, qw
-      const base = {
-        position: { x: values[0], y: values[1], z: values[2] },
-        quaternion: { x: values[3], y: values[4], z: values[5], w: values[6] }
-      };
-
-      // 后面的列是关节位置
-      const joints = values.slice(7);
-      
-      if (this.jointCount === 0) {
-        this.jointCount = joints.length;
-      }
-
-      this.baseTrajectory.push({ base, joints });
+  resolveExportFormat(format = 'source') {
+    if (format === 'source') {
+      return this.sourceFormat || TRAJECTORY_FORMATS.UNITREE;
     }
 
-    console.log('解析 CSV:', this.baseTrajectory.length, '帧,', this.jointCount, '个关节');
+    return normalizeTrajectoryFormat(format);
   }
 
   hasTrajectory() {
@@ -95,12 +90,76 @@ export class TrajectoryManager {
     return this.baseTrajectory[frameIndex];
   }
 
+  getInterpolatedBaseState(framePosition) {
+    if (this.baseTrajectory.length === 0) {
+      return null;
+    }
+
+    const clampedFrame = Math.max(0, Math.min(framePosition, this.baseTrajectory.length - 1));
+    const prevIndex = Math.floor(clampedFrame);
+    const nextIndex = Math.ceil(clampedFrame);
+
+    if (prevIndex === nextIndex) {
+      return this.cloneTrajectoryState(this.baseTrajectory[prevIndex]);
+    }
+
+    const t = clampedFrame - prevIndex;
+    const prevState = this.baseTrajectory[prevIndex];
+    const nextState = this.baseTrajectory[nextIndex];
+    const qPrev = new THREE.Quaternion(
+      prevState.base.quaternion.x,
+      prevState.base.quaternion.y,
+      prevState.base.quaternion.z,
+      prevState.base.quaternion.w
+    );
+    const qNext = new THREE.Quaternion(
+      nextState.base.quaternion.x,
+      nextState.base.quaternion.y,
+      nextState.base.quaternion.z,
+      nextState.base.quaternion.w
+    );
+    const qInterpolated = qPrev.clone().slerp(qNext, t).normalize();
+
+    return {
+      base: {
+        position: {
+          x: prevState.base.position.x + (nextState.base.position.x - prevState.base.position.x) * t,
+          y: prevState.base.position.y + (nextState.base.position.y - prevState.base.position.y) * t,
+          z: prevState.base.position.z + (nextState.base.position.z - prevState.base.position.z) * t
+        },
+        quaternion: {
+          x: qInterpolated.x,
+          y: qInterpolated.y,
+          z: qInterpolated.z,
+          w: qInterpolated.w
+        }
+      },
+      joints: prevState.joints.map((prevValue, idx) => {
+        const nextValue = nextState.joints[idx] ?? prevValue;
+        return prevValue + (nextValue - prevValue) * t;
+      })
+    };
+  }
+
   getCombinedState(frameIndex) {
     const baseState = this.getBaseState(frameIndex);
     if (!baseState) {
       return null;
     }
 
+    return this.applyResidualsToState(baseState, frameIndex);
+  }
+
+  getCombinedStateAtFrame(framePosition) {
+    const baseState = this.getInterpolatedBaseState(framePosition);
+    if (!baseState) {
+      return null;
+    }
+
+    return this.applyResidualsToState(baseState, framePosition);
+  }
+
+  applyResidualsToState(baseState, frameIndex) {
     // 获取关键帧残差
     const residual = this.getInterpolatedResidual(frameIndex);
     const baseResidual = this.getInterpolatedBaseResidual(frameIndex);
@@ -154,6 +213,36 @@ export class TrajectoryManager {
       base: combinedBase,
       joints: combinedJoints
     };
+  }
+
+  cloneTrajectoryState(state) {
+    return {
+      base: {
+        position: { ...state.base.position },
+        quaternion: { ...state.base.quaternion }
+      },
+      joints: [...state.joints]
+    };
+  }
+
+  getExportFramePositions(targetFPS = this.fps) {
+    const sourceFPS = this.fps || 50;
+    const exportFPS = parseInt(targetFPS) || sourceFPS;
+
+    if (this.baseTrajectory.length === 0) {
+      return [];
+    }
+
+    const targetFrameCount = Math.max(1, Math.round(this.baseTrajectory.length * exportFPS / sourceFPS));
+    const lastFrameIndex = this.baseTrajectory.length - 1;
+
+    if (targetFrameCount === 1) {
+      return [0];
+    }
+
+    return Array.from({ length: targetFrameCount }, (_, index) => {
+      return index * lastFrameIndex / (targetFrameCount - 1);
+    });
   }
 
   getInterpolatedResidual(frameIndex) {
@@ -384,58 +473,34 @@ export class TrajectoryManager {
     console.log('🗑️ 已清除所有关键帧');
   }
 
-  getExportFileName() {
+  getExportFileName(format = 'source') {
     if (this.originalFileName) {
       const nameWithoutExt = this.originalFileName.replace(/\.csv$/i, '');
-      return `${nameWithoutExt}_modified.csv`;
+      const exportFormat = this.resolveExportFormat(format);
+      const formatSuffix = exportFormat === this.sourceFormat ? '' : `_${exportFormat}`;
+      return `${nameWithoutExt}_modified${formatSuffix}.csv`;
     }
     return 'trajectory_modified.csv';
   }
 
-  exportCombinedTrajectory() {
-    const lines = [];
-    
-    for (let i = 0; i < this.baseTrajectory.length; i++) {
-      const state = this.getCombinedState(i);
-      
-      const values = [
-        state.base.position.x,
-        state.base.position.y,
-        state.base.position.z,
-        state.base.quaternion.x,
-        state.base.quaternion.y,
-        state.base.quaternion.z,
-        state.base.quaternion.w,
-        ...state.joints
-      ];
-      
-      lines.push(values.join(','));
-    }
-    
-    return lines.join('\n');
+  exportCombinedTrajectory(format = 'source', targetFPS = this.fps) {
+    const states = this.getExportFramePositions(targetFPS)
+      .map(framePosition => this.getCombinedStateAtFrame(framePosition));
+
+    return exportTrajectoryCSV(states, {
+      format: this.resolveExportFormat(format),
+      seedJointColumns: this.seedJointColumns
+    });
   }
 
-  exportBaseTrajectory() {
-    const lines = [];
-    
-    for (let i = 0; i < this.baseTrajectory.length; i++) {
-      const state = this.baseTrajectory[i];
-      
-      const values = [
-        state.base.position.x,
-        state.base.position.y,
-        state.base.position.z,
-        state.base.quaternion.x,
-        state.base.quaternion.y,
-        state.base.quaternion.z,
-        state.base.quaternion.w,
-        ...state.joints
-      ];
-      
-      lines.push(values.join(','));
-    }
-    
-    return lines.join('\n');
+  exportBaseTrajectory(format = 'source', targetFPS = this.fps) {
+    const states = this.getExportFramePositions(targetFPS)
+      .map(framePosition => this.getInterpolatedBaseState(framePosition));
+
+    return exportTrajectoryCSV(states, {
+      format: this.resolveExportFormat(format),
+      seedJointColumns: this.seedJointColumns
+    });
   }
 
   getProjectData() {
@@ -447,13 +512,16 @@ export class TrajectoryManager {
     }));
 
     return {
-      version: '2.1', // 升级：支持贝塞尔曲线插值
+      version: '2.2', // 升级：支持轨迹 CSV 格式元数据
       baseTrajectory: this.baseTrajectory,
       keyframes: keyframesArray,
       jointCount: this.jointCount,
       originalFileName: this.originalFileName,
       fps: this.fps || 50,
-      interpolationMode: this.interpolationMode || 'linear'
+      interpolationMode: this.interpolationMode || 'linear',
+      sourceFormat: this.sourceFormat || TRAJECTORY_FORMATS.UNITREE,
+      seedHeader: this.seedHeader,
+      seedJointColumns: this.seedJointColumns || []
     };
   }
 
@@ -480,6 +548,9 @@ export class TrajectoryManager {
     this.fps = projectData.fps || 50;
     // 加载插值模式（兼容旧版本，默认为线性）
     this.interpolationMode = projectData.interpolationMode || 'linear';
+    this.sourceFormat = normalizeTrajectoryFormat(projectData.sourceFormat);
+    this.seedHeader = projectData.seedHeader || null;
+    this.seedJointColumns = projectData.seedJointColumns || [];
     
     // 加载基础轨迹数据
     if (projectData.baseTrajectory) {
@@ -559,6 +630,9 @@ export class TrajectoryManager {
     this.keyframes.clear();
     this.jointCount = 0;
     this.originalFileName = '';
+    this.sourceFormat = TRAJECTORY_FORMATS.UNITREE;
+    this.seedHeader = null;
+    this.seedJointColumns = [];
     console.log('🗑️ 已清除所有轨迹和关键帧');
   }
 }
