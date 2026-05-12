@@ -12,6 +12,7 @@ import { CurveEditor } from './curveEditor.js';
 import { AxisGizmo } from './axisGizmo.js';
 import { VideoExporter } from './videoExporter.js';
 import { CookieManager } from './cookieManager.js';
+import { DEFAULT_FPS_BY_FORMAT, TRAJECTORY_FORMATS } from './trajectoryFormatConverter.js';
 
 class RobotKeyframeEditor {
   constructor() {
@@ -626,8 +627,10 @@ class RobotKeyframeEditor {
       this.trajectoryManager.parseCSV(text, file.name);
       
       // 设置 FPS
-      const fpsInput = prompt('请设置轨迹 FPS（帧率）:', '50');
-      const fps = parseInt(fpsInput) || 50;
+      const defaultFPS = this.trajectoryManager.fps || 50;
+      const fpsInput = prompt('请设置轨迹 FPS（帧率）:', String(defaultFPS));
+      const fps = parseInt(fpsInput) || defaultFPS;
+      this.trajectoryManager.setFPS(fps);
       this.timelineController.setFPS(fps);
       
       // 更新时间轴
@@ -1045,14 +1048,292 @@ class RobotKeyframeEditor {
     return result;
   }
 
-  exportTrajectory() {
+  async showTrajectoryExportFormatDialog() {
+    return new Promise((resolve) => {
+      const sourceFormat = this.trajectoryManager.resolveExportFormat('source');
+      const currentFPS = this.trajectoryManager.fps || 50;
+      const getDefaultFPSForFormat = (format) => {
+        if (format === TRAJECTORY_FORMATS.SEED) {
+          return DEFAULT_FPS_BY_FORMAT[TRAJECTORY_FORMATS.SEED];
+        }
+
+        return currentFPS;
+      };
+      const formatOptions = [
+        {
+          value: TRAJECTORY_FORMATS.UNITREE,
+          label: i18n.t('unitreeFormat'),
+          description: i18n.t('unitreeFormatDescription')
+        },
+        {
+          value: TRAJECTORY_FORMATS.SEED,
+          label: i18n.t('seedFormat'),
+          description: i18n.t('seedFormatDescription')
+        }
+      ];
+
+      const dialog = document.createElement('div');
+      dialog.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        z-index: 10002;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      `;
+
+      const content = document.createElement('div');
+      content.style.cssText = `
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-primary);
+        border-radius: 8px;
+        padding: 24px;
+        min-width: 360px;
+        max-width: 460px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+      `;
+
+      const title = document.createElement('h3');
+      title.style.cssText = `
+        margin: 0 0 16px 0;
+        color: var(--text-primary);
+        font-size: 16px;
+        font-weight: 600;
+      `;
+      title.textContent = i18n.t('exportFormat');
+
+      const optionElements = [];
+      const optionsContainer = document.createElement('div');
+
+      formatOptions.forEach((format) => {
+        const option = document.createElement('label');
+        option.style.cssText = `
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          margin-bottom: 12px;
+          padding: 14px;
+          border: 2px solid var(--border-primary);
+          border-radius: 6px;
+          cursor: pointer;
+          transition: border-color 0.2s, background-color 0.2s;
+        `;
+
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'trajectory-export-format';
+        radio.value = format.value;
+        radio.checked = format.value === sourceFormat;
+        radio.style.marginTop = '3px';
+
+        const text = document.createElement('div');
+        text.style.flex = '1';
+
+        const label = document.createElement('div');
+        label.style.cssText = `
+          color: var(--text-primary);
+          font-weight: 600;
+          margin-bottom: 4px;
+        `;
+        label.textContent = format.value === sourceFormat
+          ? `${format.label} (${i18n.t('sourceFormat')})`
+          : format.label;
+
+        const description = document.createElement('div');
+        description.style.cssText = `
+          color: var(--text-tertiary);
+          font-size: 12px;
+          line-height: 1.4;
+        `;
+        description.textContent = format.description;
+
+        text.appendChild(label);
+        text.appendChild(description);
+        option.appendChild(radio);
+        option.appendChild(text);
+        optionsContainer.appendChild(option);
+        optionElements.push({ option, radio });
+      });
+
+      const fpsSection = document.createElement('div');
+      fpsSection.style.cssText = `
+        margin-top: 4px;
+        padding: 14px;
+        background: var(--bg-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: 6px;
+      `;
+
+      const fpsLabel = document.createElement('label');
+      fpsLabel.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--text-primary);
+        font-size: 13px;
+        font-weight: 600;
+      `;
+      fpsLabel.textContent = i18n.t('exportFPS');
+
+      const fpsInput = document.createElement('input');
+      fpsInput.type = 'number';
+      fpsInput.min = '1';
+      fpsInput.max = '240';
+      fpsInput.step = '1';
+      fpsInput.value = String(getDefaultFPSForFormat(sourceFormat));
+      fpsInput.style.cssText = `
+        width: 86px;
+        padding: 6px 8px;
+        background: var(--bg-input);
+        color: var(--text-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: 4px;
+        font-size: 13px;
+      `;
+
+      const fpsHint = document.createElement('div');
+      fpsHint.style.cssText = `
+        margin-top: 8px;
+        color: var(--text-tertiary);
+        font-size: 12px;
+        line-height: 1.4;
+      `;
+
+      fpsLabel.appendChild(fpsInput);
+      fpsSection.appendChild(fpsLabel);
+      fpsSection.appendChild(fpsHint);
+
+      const buttonContainer = document.createElement('div');
+      buttonContainer.style.cssText = `
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 18px;
+      `;
+
+      const confirmBtn = document.createElement('button');
+      confirmBtn.textContent = i18n.t('confirm');
+      confirmBtn.style.cssText = `
+        padding: 8px 18px;
+        background: var(--accent-primary);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      `;
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = i18n.t('cancel');
+      cancelBtn.style.cssText = `
+        padding: 8px 18px;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: 4px;
+        cursor: pointer;
+      `;
+
+      buttonContainer.appendChild(confirmBtn);
+      buttonContainer.appendChild(cancelBtn);
+      content.appendChild(title);
+      content.appendChild(optionsContainer);
+      content.appendChild(fpsSection);
+      content.appendChild(buttonContainer);
+      dialog.appendChild(content);
+      document.body.appendChild(dialog);
+
+      const getSelectedFormat = () => {
+        return optionElements.find(({ radio }) => radio.checked)?.radio.value || sourceFormat;
+      };
+
+      const updateFPSHint = () => {
+        const targetFPS = parseInt(fpsInput.value) || currentFPS;
+        const currentFPSLabel = i18n.t('currentFPS').replace('{fps}', currentFPS);
+        fpsHint.textContent = targetFPS === currentFPS
+          ? currentFPSLabel
+          : `${currentFPSLabel} · ${i18n.t('resampleOnExport')}`;
+      };
+
+      const updateSelectedStyle = () => {
+        optionElements.forEach(({ option, radio }) => {
+          option.style.borderColor = radio.checked ? 'var(--accent-primary)' : 'var(--border-primary)';
+          option.style.backgroundColor = radio.checked ? 'var(--bg-tertiary)' : 'transparent';
+        });
+        fpsInput.value = String(getDefaultFPSForFormat(getSelectedFormat()));
+        updateFPSHint();
+      };
+
+      const cleanup = () => {
+        document.removeEventListener('keydown', handleKeyDown);
+        if (dialog.parentNode) {
+          document.body.removeChild(dialog);
+        }
+      };
+
+      const finish = (value) => {
+        cleanup();
+        resolve(value);
+      };
+
+      const handleKeyDown = (event) => {
+        if (event.key === 'Escape') {
+          finish(null);
+        }
+      };
+
+      optionElements.forEach(({ option, radio }) => {
+        option.addEventListener('click', () => {
+          radio.checked = true;
+          updateSelectedStyle();
+        });
+      });
+
+      fpsInput.addEventListener('input', updateFPSHint);
+
+      confirmBtn.addEventListener('click', () => {
+        const selectedFormat = getSelectedFormat();
+        const selectedFPS = Math.max(1, parseInt(fpsInput.value) || getDefaultFPSForFormat(selectedFormat));
+        finish({ format: selectedFormat, fps: selectedFPS });
+      });
+
+      cancelBtn.addEventListener('click', () => finish(null));
+      document.addEventListener('keydown', handleKeyDown);
+      updateSelectedStyle();
+    });
+  }
+
+  downloadCSV(csv, fileName) {
+    const finalFileName = fileName.endsWith('.csv') ? fileName : fileName + '.csv';
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = finalFileName;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    return finalFileName;
+  }
+
+  async exportTrajectory() {
     if (!this.trajectoryManager.hasTrajectory()) {
       alert(i18n.t('needTrajectory'));
       return;
     }
 
-    const csv = this.trajectoryManager.exportCombinedTrajectory();
-    const defaultFileName = this.trajectoryManager.getExportFileName();
+    const exportOptions = await this.showTrajectoryExportFormatDialog();
+    if (!exportOptions) {
+      console.log(i18n.t('userCancel'));
+      return;
+    }
+
+    const csv = this.trajectoryManager.exportCombinedTrajectory(exportOptions.format, exportOptions.fps);
+    const defaultFileName = this.trajectoryManager.getExportFileName(exportOptions.format);
     
     // 让用户确认或修改文件名
     const fileName = prompt(i18n.t('exportFileName'), defaultFileName);
@@ -1061,31 +1342,30 @@ class RobotKeyframeEditor {
       return;
     }
     
-    // 确保文件名以.csv结尾
-    const finalFileName = fileName.endsWith('.csv') ? fileName : fileName + '.csv';
-    
-    // 创建下载
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = finalFileName;
-    a.click();
-    URL.revokeObjectURL(url);
+    const finalFileName = this.downloadCSV(csv, fileName);
     
     console.log('✅ 轨迹已导出:', finalFileName);
     this.updateStatus(i18n.t('trajectoryExported'), 'success');
   }
 
-  exportBaseTrajectory() {
+  async exportBaseTrajectory() {
     if (!this.trajectoryManager.hasTrajectory()) {
       alert(i18n.t('needTrajectory'));
       return;
     }
 
-    const csv = this.trajectoryManager.exportBaseTrajectory();
+    const exportOptions = await this.showTrajectoryExportFormatDialog();
+    if (!exportOptions) {
+      console.log(i18n.t('userCancel'));
+      return;
+    }
+
+    const csv = this.trajectoryManager.exportBaseTrajectory(exportOptions.format, exportOptions.fps);
     const originalFileName = this.trajectoryManager.originalFileName || 'trajectory';
-    const defaultFileName = originalFileName.replace(/\.csv$/i, '') + '_base.csv';
+    const nameWithoutExt = originalFileName.replace(/\.csv$/i, '');
+    const sourceFormat = this.trajectoryManager.resolveExportFormat('source');
+    const formatSuffix = exportOptions.format === sourceFormat ? '' : `_${exportOptions.format}`;
+    const defaultFileName = `${nameWithoutExt}_base${formatSuffix}.csv`;
     
     // 让用户确认或修改文件名
     const fileName = prompt(i18n.t('exportFileName'), defaultFileName);
@@ -1094,17 +1374,7 @@ class RobotKeyframeEditor {
       return;
     }
     
-    // 确保文件名以.csv结尾
-    const finalFileName = fileName.endsWith('.csv') ? fileName : fileName + '.csv';
-    
-    // 创建下载
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = finalFileName;
-    a.click();
-    URL.revokeObjectURL(url);
+    const finalFileName = this.downloadCSV(csv, fileName);
     
     console.log('✅ 原始轨迹已导出:', finalFileName);
     this.updateStatus(i18n.t('baseTrajectoryExported'), 'success');
