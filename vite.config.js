@@ -48,6 +48,10 @@ const gitInfo = getGitInfo();
 const hostingEnv = getHostingEnvironment();
 
 export default defineConfig({
+  optimizeDeps: {
+    // 仅使用子路径导入 core/urdfHelpers，勿预构建整包（会拉入与 Three r160 不兼容的 IKJointHelper）
+    exclude: ['closed-chain-ik']
+  },
   server: {
     port: 3000,
     open: true,

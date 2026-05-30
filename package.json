@@ -12,6 +12,7 @@
     "vite": "^5.0.0"
   },
   "dependencies": {
+    "closed-chain-ik": "^0.0.3",
     "three": "^0.160.0",
     "urdf-loader": "^0.12.3"
   }
