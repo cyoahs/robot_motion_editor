@@ -235,6 +235,10 @@ export class TimelineController {
     if (this.editor.curveEditor) {
       this.editor.curveEditor.draw();
     }
+
+    if (this.editor.endEffectorControls) {
+      this.editor.endEffectorControls.onFrameChanged();
+    }
   }
 
   getCurrentFrame() {
@@ -432,6 +436,9 @@ export class TimelineController {
     if (this.isPlaying || this.frameCount === 0) return;
     
     this.isPlaying = true;
+    if (this.editor.endEffectorControls) {
+      this.editor.endEffectorControls.onPlaybackChanged(true);
+    }
     const playBtn = document.getElementById('play-pause');
     if (playBtn) playBtn.textContent = i18n.t('pause');
     
@@ -449,6 +456,9 @@ export class TimelineController {
     if (!this.isPlaying) return;
     
     this.isPlaying = false;
+    if (this.editor.endEffectorControls) {
+      this.editor.endEffectorControls.onPlaybackChanged(false);
+    }
     const playBtn = document.getElementById('play-pause');
     if (playBtn) playBtn.textContent = i18n.t('play');
     

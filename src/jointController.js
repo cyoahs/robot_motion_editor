@@ -277,6 +277,10 @@ export class JointController {
       return;
     }
     
+    if (this.editor.isIkDragging) {
+      return;
+    }
+    
     // 防止递归调用
     if (this.editor.isUpdatingKeyframe) {
       return;
@@ -344,6 +348,26 @@ export class JointController {
 
   getCurrentJointValues() {
     return [...this.jointValues];
+  }
+
+  /** IK 求解后同步：更新模型与 UI，不触发自动关键帧 */
+  syncFromRobotSilent(robot) {
+    if (!robot) return;
+    const container = document.getElementById('joint-controls');
+    this.joints.forEach((joint, index) => {
+      const val = robot.joints[joint.name]?.angle ?? this.jointValues[index] ?? 0;
+      this.jointValues[index] = val;
+      if (joint.joint) {
+        joint.joint.setJointValue(val);
+      }
+      const control = container?.querySelector(`.joint-control[data-joint-index="${index}"]`);
+      if (control) {
+        const slider = control.querySelector('input[type="range"]');
+        const numberInput = control.querySelector('input[type="number"]');
+        if (slider) slider.value = val;
+        if (numberInput) numberInput.value = val.toFixed(3);
+      }
+    });
   }
 
   resetToBase() {
