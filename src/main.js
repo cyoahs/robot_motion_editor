@@ -12,6 +12,7 @@ import { CurveEditor } from './curveEditor.js';
 import { AxisGizmo } from './axisGizmo.js';
 import { VideoExporter } from './videoExporter.js';
 import { CookieManager } from './cookieManager.js';
+import { ViewportManager } from './viewportManager.js';
 import { DEFAULT_FPS_BY_FORMAT, TRAJECTORY_FORMATS } from './trajectoryFormatConverter.js';
 
 class RobotKeyframeEditor {
@@ -85,6 +86,11 @@ class RobotKeyframeEditor {
     
     // 脚部识别数据：[{ linkName, ankleJoints: [] }]
     this.identifiedFeet = [];
+
+    this.viewportManager = null;
+    this.endEffectorControls = null;
+    this.ikPanel = null;
+    this.isIkDragging = false;
 
     this.init();
     this.setupEventListeners();
@@ -206,12 +212,21 @@ class RobotKeyframeEditor {
     this.controls.dampingFactor = 0.05;
     this.controls.target.set(0, 0, 0.5);
     
-    // 同步左侧相机跟随右侧相机（位置、旋转、缩放）
+    // 分屏模式下同步左侧相机；叠显模式由 cameraMain 驱动
     this.controls.addEventListener('change', () => {
-      this.cameraLeft.position.copy(this.cameraRight.position);
-      this.cameraLeft.quaternion.copy(this.cameraRight.quaternion);
-      this.cameraLeft.zoom = this.cameraRight.zoom;
-      this.cameraLeft.updateProjectionMatrix();
+      const mode = this.viewportManager?.mode;
+      const active = this.controls.object;
+      if (mode === 'split') {
+        this.cameraLeft.position.copy(this.cameraRight.position);
+        this.cameraLeft.quaternion.copy(this.cameraRight.quaternion);
+        this.cameraLeft.zoom = this.cameraRight.zoom;
+        this.cameraLeft.updateProjectionMatrix();
+      } else if (mode === 'overlay' && active === this.viewportManager?.cameraMain) {
+        this.cameraRight.position.copy(active.position);
+        this.cameraRight.quaternion.copy(active.quaternion);
+        this.cameraRight.zoom = active.zoom;
+        this.cameraRight.updateProjectionMatrix();
+      }
     });
     
     // 兼容双控制器引用
@@ -254,6 +269,15 @@ class RobotKeyframeEditor {
     // 初始化坐标轴指示器（右侧视口）
     this.axisGizmo = new AxisGizmo(this, this.cameraRight, this.controls, 'right');
 
+    this.viewportManager = new ViewportManager(this);
+    this.viewportManager.initScenes(this.themeManager.getCurrentTheme(), this.frustumSize);
+    this.viewportManager.setMode(this.viewportManager.mode, { skipStorage: true });
+    this.viewportManager.setupUi();
+
+    this._ikReady = this.initIkModules().catch((err) => {
+      console.warn('IK 模块加载失败，其余功能仍可用:', err);
+    });
+
     // 窗口大小调整
     window.addEventListener('resize', () => this.handleResize());
     
@@ -263,27 +287,34 @@ class RobotKeyframeEditor {
     });
   }
 
+  /** @returns {import('urdf-loader').URDFRobot | null} */
+  get robotGhost() {
+    return this.robotLeft;
+  }
+
+  /** @returns {import('urdf-loader').URDFRobot | null} */
+  get robotEdited() {
+    return this.robotRight;
+  }
+
   handleResize() {
-    const viewport = document.getElementById('viewport');
-    const fullWidth = viewport.clientWidth;
-    const fullHeight = viewport.clientHeight;
-    const halfWidth = fullWidth / 2;
-    const aspect = halfWidth / fullHeight;
-    
-    // 更新正交相机的frustum
-    this.cameraLeft.left = this.frustumSize * aspect / -2;
-    this.cameraLeft.right = this.frustumSize * aspect / 2;
-    this.cameraLeft.top = this.frustumSize / 2;
-    this.cameraLeft.bottom = this.frustumSize / -2;
-    this.cameraLeft.updateProjectionMatrix();
-    
-    this.cameraRight.left = this.frustumSize * aspect / -2;
-    this.cameraRight.right = this.frustumSize * aspect / 2;
-    this.cameraRight.top = this.frustumSize / 2;
-    this.cameraRight.bottom = this.frustumSize / -2;
-    this.cameraRight.updateProjectionMatrix();
-    
-    this.renderer.setSize(fullWidth, fullHeight);
+    this.viewportManager?.handleResize();
+  }
+
+  async initIkModules() {
+    const [{ IkPanel }, { EndEffectorControls }] = await Promise.all([
+      import('./ik/ikPanel.js'),
+      import('./ik/endEffectorControls.js')
+    ]);
+    this.endEffectorControls = new EndEffectorControls(this);
+    this.ikPanel = new IkPanel(this);
+    if (this._pendingIkProjectSettings) {
+      this.ikPanel.applyProjectSettings(this._pendingIkProjectSettings);
+      this._pendingIkProjectSettings = null;
+    }
+    if (this.robotRight) {
+      this.ikPanel.onUrdfLoaded();
+    }
   }
 
   setupEventListeners() {
@@ -425,6 +456,16 @@ class RobotKeyframeEditor {
       const header = document.getElementById('foot-control-header');
       header.querySelector('h3').textContent = isHidden ? '▼ ' + header.querySelector('h3').textContent.slice(2) : '▶ ' + header.querySelector('h3').textContent.slice(2);
     });
+
+    // IK 面板折叠（页面加载即可用，不依赖 IK 模块异步加载）
+    document.getElementById('ik-control-header')?.addEventListener('click', () => {
+      const controls = document.getElementById('ik-controls');
+      const title = document.querySelector('#ik-control-header h3');
+      if (!controls || !title) return;
+      const isHidden = controls.style.display === 'none' || !controls.style.display;
+      controls.style.display = isHidden ? 'block' : 'none';
+      title.textContent = isHidden ? i18n.t('ikControlOpen') : i18n.t('ikControl');
+    });
     
     // 重置应用
     document.getElementById('reset-button').addEventListener('click', () => {
@@ -537,14 +578,16 @@ class RobotKeyframeEditor {
         
         // 为右侧场景使用原始机器人
         this.robotRight = this.robot;
-        this.sceneRight.add(this.robotRight);
+        this.viewportManager.applyEditedRenderOrder(this.robotRight);
         
         // 为左侧场景创建第二个机器人实例
         console.log('🔄 为左侧场景创建第二个机器人实例...');
         const fileMapCopy = new Map(this.urdfLoader.fileMap);
         this.urdfLoader.loadFromMap(fileMapCopy, (leftRobot) => {
           this.robotLeft = leftRobot;
-          this.sceneLeft.add(this.robotLeft);
+          this.viewportManager.applyGhostMaterialWhenReady(this.robotLeft);
+          this.viewportManager.applyEditedRenderOrder(this.robotRight);
+          this.viewportManager.attachRobots();
           console.log('✅ 左侧机器人模型已添加');
           
           // 如果已经加载了轨迹，更新左侧机器人状态
@@ -569,6 +612,13 @@ class RobotKeyframeEditor {
         
         this.jointController = new JointController(joints, this);
         this.baseController = new BaseController(this);
+        if (this.ikPanel) {
+          this.ikPanel.onUrdfLoaded();
+        } else {
+          this.initIkModules().then(() => {
+            this.ikPanel?.onUrdfLoaded();
+          }).catch(() => {});
+        }
         
         // 更新COM显示（无论是否有轨迹，都显示当前状态的COM）
         if (this.showCOM) {
@@ -1387,6 +1437,10 @@ class RobotKeyframeEditor {
     }
 
     const projectData = this.trajectoryManager.getProjectData();
+    projectData.viewport = this.viewportManager.getSettingsForProject();
+    if (this.ikPanel) {
+      projectData.ik = this.ikPanel.getSettingsForProject();
+    }
     const json = JSON.stringify(projectData, null, 2);
     
     const originalFileName = this.trajectoryManager.originalFileName || 'project';
@@ -1431,6 +1485,16 @@ class RobotKeyframeEditor {
       
       // 加载新数据
       this.trajectoryManager.loadProjectData(projectData);
+      if (projectData.viewport) {
+        this.viewportManager.applyProjectSettings(projectData.viewport);
+      }
+      if (projectData.ik) {
+        this._pendingIkProjectSettings = projectData.ik;
+        if (this.ikPanel) {
+          this.ikPanel.applyProjectSettings(projectData.ik);
+          this._pendingIkProjectSettings = null;
+        }
+      }
       
       // 如果有URDF，更新机器人状态
       if (this.robotLeft && this.robotRight) {
@@ -2027,14 +2091,17 @@ class RobotKeyframeEditor {
     
     // 移除机器人模型
     if (this.robotLeft) {
-      this.sceneLeft.remove(this.robotLeft);
+      this.sceneLeft?.remove(this.robotLeft);
+      this.viewportManager?.sceneMain?.remove(this.robotLeft);
       this.robotLeft = null;
     }
     if (this.robotRight) {
-      this.sceneRight.remove(this.robotRight);
+      this.sceneRight?.remove(this.robotRight);
+      this.viewportManager?.sceneMain?.remove(this.robotRight);
       this.robotRight = null;
       this.robot = null;
     }
+    this.viewportManager?.attachRobots();
     
     // 清除控制器
     if (this.jointController) {
@@ -2158,23 +2225,7 @@ class RobotKeyframeEditor {
    * 根据主题更新场景背景颜色
    */
   updateSceneBackgrounds(theme) {
-    if (theme === 'light') {
-      // 浅色模式背景
-      if (this.sceneLeft) {
-        this.sceneLeft.background = new THREE.Color(0xf0f0f0);
-      }
-      if (this.sceneRight) {
-        this.sceneRight.background = new THREE.Color(0xe8e8e8);
-      }
-    } else {
-      // 深色模式背景
-      if (this.sceneLeft) {
-        this.sceneLeft.background = new THREE.Color(0x1a1a1a);
-      }
-      if (this.sceneRight) {
-        this.sceneRight.background = new THREE.Color(0x263238);
-      }
-    }
+    this.viewportManager?.updateSceneBackgrounds(theme);
   }
 
   animate() {
@@ -2188,32 +2239,7 @@ class RobotKeyframeEditor {
       this.controls.target.set(robotPos.x, robotPos.y, robotPos.z + 0.5);
     }
     
-    // 获取整个viewport的尺寸
-    const viewport = document.getElementById('viewport');
-    const fullWidth = viewport.clientWidth;
-    const fullHeight = viewport.clientHeight;
-    const halfWidth = fullWidth / 2;
-    
-    // 清除整个画布
-    this.renderer.clear();
-    
-    // 渲染左侧视口 (原始轨迹)
-    this.renderer.setViewport(0, 0, halfWidth, fullHeight);
-    this.renderer.setScissor(0, 0, halfWidth, fullHeight);
-    this.renderer.setScissorTest(true);
-    this.renderer.render(this.sceneLeft, this.cameraLeft);
-    
-    // 渲染右侧视口 (编辑后轨迹)
-    this.renderer.setViewport(halfWidth, 0, halfWidth, fullHeight);
-    this.renderer.setScissor(halfWidth, 0, halfWidth, fullHeight);
-    this.renderer.setScissorTest(true);
-    this.renderer.render(this.sceneRight, this.cameraRight);
-    
-    // 渲染坐标轴指示器
-    if (this.axisGizmo) {
-      this.axisGizmo.update();
-      this.axisGizmo.render(this.renderer);
-    }
+    this.viewportManager?.render();
   }
 }
 
