@@ -796,21 +796,22 @@ export class VideoExporter {
     this.ctx.fillStyle = '#1a1a1a';
     this.ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     
-    // 渲染左侧场景
     renderer.clear();
-    renderer.setViewport(0, 0, halfWidth, canvasHeight);
-    renderer.setScissor(0, 0, halfWidth, canvasHeight);
-    renderer.setScissorTest(true);
-    renderer.render(this.editor.sceneLeft, this.editor.cameraLeft);
-    
-    // 渲染右侧场景
-    renderer.setViewport(halfWidth, 0, halfWidth, canvasHeight);
-    renderer.setScissor(halfWidth, 0, halfWidth, canvasHeight);
-    renderer.setScissorTest(true);
-    renderer.render(this.editor.sceneRight, this.editor.cameraRight);
-    
-    // 禁用scissor test
-    renderer.setScissorTest(false);
+    const vm = this.editor.viewportManager;
+    if (vm?.mode === 'overlay' && vm.sceneMain && vm.cameraMain) {
+      renderer.setScissorTest(false);
+      renderer.setViewport(0, 0, canvasWidth, canvasHeight);
+      renderer.render(vm.sceneMain, vm.cameraMain);
+    } else {
+      renderer.setViewport(0, 0, halfWidth, canvasHeight);
+      renderer.setScissor(0, 0, halfWidth, canvasHeight);
+      renderer.setScissorTest(true);
+      renderer.render(this.editor.sceneLeft, this.editor.cameraLeft);
+      renderer.setViewport(halfWidth, 0, halfWidth, canvasHeight);
+      renderer.setScissor(halfWidth, 0, halfWidth, canvasHeight);
+      renderer.render(this.editor.sceneRight, this.editor.cameraRight);
+      renderer.setScissorTest(false);
+    }
     
     // 复制到录制canvas
     this.ctx.drawImage(renderer.domElement, 0, 0);

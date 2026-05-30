@@ -609,6 +609,25 @@ export class COMVisualizer {
     }
   }
 
+  /** 切换附着场景（overlay / split 视口切换时） */
+  setScene(newScene) {
+    if (!newScene || newScene === this.scene) return;
+    const objs = [
+      this.comMarker,
+      this.comLine,
+      this.comProjection,
+      this.footprintLine,
+      this.footprintCenter,
+      this.footprintAxis1,
+      this.footprintAxis2
+    ].filter(Boolean);
+    for (const obj of objs) {
+      this.scene.remove(obj);
+      newScene.add(obj);
+    }
+    this.scene = newScene;
+  }
+
   dispose() {
     this.scene.remove(this.comMarker);
     this.scene.remove(this.comLine);

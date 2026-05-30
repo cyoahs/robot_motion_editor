@@ -453,14 +453,15 @@ console.log('  🔧 开始加载 URDF...');
             editor.urdfLoader.loadFromMap(fileMap, (robot) => {
               console.log('  🤖 右侧机器人已创建');
               editor.robotRight = robot;
-              editor.sceneRight.add(editor.robotRight);
               editor.robot = robot;
+              editor.viewportManager?.applyEditedRenderOrder(editor.robotRight);
               
               // 创建左侧机器人副本
               editor.urdfLoader.loadFromMap(new Map(fileMap), async (leftRobot) => {
                 console.log('  🤖 左侧机器人已创建');
                 editor.robotLeft = leftRobot;
-                editor.sceneLeft.add(editor.robotLeft);
+                editor.viewportManager?.applyGhostMaterialWhenReady(editor.robotLeft);
+                editor.viewportManager?.attachRobots();
                 
                 // 初始化控制器
                 const joints = editor.urdfLoader.getJoints();
@@ -469,6 +470,9 @@ console.log('  🔧 开始加载 URDF...');
                 const { BaseController } = await import('./baseController.js');
                 editor.jointController = new JointController(joints, editor);
                 editor.baseController = new BaseController(editor);
+                if (editor.ikPanel) {
+                  editor.ikPanel.onUrdfLoaded();
+                }
                 
                 resolve();
               });
