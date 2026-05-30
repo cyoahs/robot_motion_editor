@@ -12,23 +12,106 @@ export class IkPanel {
     this.endEffectorLink = '';
     this.goalMode = 'pose';
     this.lockFootZ = false;
+
     this._container = document.getElementById('ik-controls');
+    this._body = document.getElementById('ik-controls-body');
+    this._hint = document.getElementById('ik-load-hint');
     this._header = document.getElementById('ik-control-header');
-    this._render();
+    this._select = document.getElementById('ik-end-link');
+    this._presets = document.getElementById('ik-preset-buttons');
+
+    this._bindStaticControls();
+    this._syncUrdfUi(false);
+  }
+
+  _bindStaticControls() {
+    document.getElementById('ik-enable')?.addEventListener('change', async (e) => {
+      this.enabled = e.target.checked;
+      if (this.enabled && !this.editor.robotRight) {
+        alert(i18n.t('ikNeedUrdf'));
+        this.enabled = false;
+        e.target.checked = false;
+        return;
+      }
+      await this._applyToControls();
+      if (!this.enabled) e.target.checked = false;
+    });
+
+    this._select?.addEventListener('change', async (e) => {
+      this.endEffectorLink = e.target.value;
+      await this._onEndLinkChanged();
+    });
+
+    document.querySelectorAll('input[name="ik-goal-mode"]').forEach((radio) => {
+      radio.addEventListener('change', async (e) => {
+        if (e.target.checked) {
+          this.goalMode = e.target.value;
+          await this._applyToControls();
+        }
+      });
+    });
+
+    document.getElementById('ik-lock-foot-z')?.addEventListener('change', async (e) => {
+      this.lockFootZ = e.target.checked;
+      await this._applyToControls();
+    });
+  }
+
+  _syncUrdfUi(hasUrdf) {
+    if (this._hint) this._hint.style.display = hasUrdf ? 'none' : 'block';
+    if (this._body) this._body.style.display = hasUrdf ? 'block' : 'none';
   }
 
   onUrdfLoaded() {
     const robot = this.editor.robotRight;
     if (!robot) return;
+
     const links = listUrdfLinks(robot);
     this.endEffectorLink = guessDefaultEndLink(robot);
-    this._render(links);
+    this._populateLinkSelect(links);
+    this._populatePresets(links);
+    this._syncUrdfUi(true);
+
     if (this._container) {
       this._container.style.display = 'block';
       const title = this._header?.querySelector('h3');
       if (title) title.textContent = i18n.t('ikControlOpen');
     }
-    this._applyToControls();
+
+    void this._onEndLinkChanged();
+  }
+
+  _populateLinkSelect(links) {
+    if (!this._select) return;
+    this._select.innerHTML = links.map((l) =>
+      `<option value="${l}"${l === this.endEffectorLink ? ' selected' : ''}>${l}</option>`
+    ).join('');
+    if (links.length && !links.includes(this.endEffectorLink)) {
+      this.endEffectorLink = links[0];
+      this._select.value = this.endEffectorLink;
+    }
+  }
+
+  _populatePresets(links) {
+    if (!this._presets) return;
+    this._presets.innerHTML = G1_END_EFFECTOR_PRESETS.map((p) => {
+      const match = links.find((l) => p.patterns.some((rx) => rx.test(l)));
+      if (!match) return '';
+      return `<button type="button" class="ik-preset-btn" data-link="${match}" style="margin: 2px; padding: 4px 8px; font-size: 11px; cursor: pointer;">${p.id}</button>`;
+    }).join('');
+
+    this._presets.querySelectorAll('.ik-preset-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        this.endEffectorLink = btn.getAttribute('data-link');
+        if (this._select) this._select.value = this.endEffectorLink;
+        await this._onEndLinkChanged();
+      });
+    });
+  }
+
+  async _onEndLinkChanged() {
+    await this._applyToControls();
+    this.editor.curveEditor?.setActiveEndEffector(this.endEffectorLink);
   }
 
   getSettingsForProject() {
@@ -49,107 +132,42 @@ export class IkPanel {
     if (typeof ik.enabled === 'boolean') {
       this.enabled = ik.enabled && !!this.editor.robotRight;
     }
-    this._render(listUrdfLinks(this.editor.robotRight));
+
+    const enableCb = document.getElementById('ik-enable');
+    if (enableCb) enableCb.checked = this.enabled;
+    const lockCb = document.getElementById('ik-lock-foot-z');
+    if (lockCb) lockCb.checked = this.lockFootZ;
+    document.querySelectorAll('input[name="ik-goal-mode"]').forEach((r) => {
+      r.checked = r.value === this.goalMode;
+    });
+
+    if (this.editor.robotRight) {
+      const links = listUrdfLinks(this.editor.robotRight);
+      this._populateLinkSelect(links);
+      this._populatePresets(links);
+      this._syncUrdfUi(true);
+    }
+
     void this._applyToControls();
   }
 
   async _applyToControls() {
-    if (this.editor._ikReady) {
-      await this.editor._ikReady;
-    }
     const ec = this.editor.endEffectorControls;
-    if (!ec) {
-      console.warn('IK controls not ready');
-      return;
-    }
+    if (!ec) return;
+
     ec.setGoalMode(this.goalMode);
     ec.setLockFootZ(this.lockFootZ);
     ec.setEndLink(this.endEffectorLink);
+
     const ok = ec.setEnabled(this.enabled);
     if (this.enabled && !ok) {
       this.enabled = false;
       const cb = document.getElementById('ik-enable');
       if (cb) cb.checked = false;
     }
-  }
 
-  _render(links = []) {
-    if (!this._container) return;
-
-    const presetButtons = G1_END_EFFECTOR_PRESETS.map((p) => {
-      const match = links.find((l) => p.patterns.some((rx) => rx.test(l)));
-      if (!match) return '';
-      return `<button type="button" class="ik-preset-btn" data-link="${match}" style="margin: 2px; padding: 4px 8px; font-size: 11px;">${p.id}</button>`;
-    }).join('');
-
-    const options = links.map((l) =>
-      `<option value="${l}"${l === this.endEffectorLink ? ' selected' : ''}>${l}</option>`
-    ).join('');
-
-    this._container.innerHTML = `
-      <label style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
-        <input type="checkbox" id="ik-enable" ${this.enabled ? 'checked' : ''} />
-        <span data-i18n="ikEnable">${i18n.t('ikEnable')}</span>
-      </label>
-      <label style="display: block; margin-bottom: 6px;">
-        <span data-i18n="ikEndLink">${i18n.t('ikEndLink')}</span>
-        <select id="ik-end-link" style="width: 100%; margin-top: 4px; padding: 4px; font-size: 12px;">${options}</select>
-      </label>
-      <div style="margin-bottom: 8px;">${presetButtons}</div>
-      <div style="margin-bottom: 8px;">
-        <label style="margin-right: 10px;">
-          <input type="radio" name="ik-goal-mode" value="pose" ${this.goalMode === 'pose' ? 'checked' : ''} />
-          ${i18n.t('ikGoalPose')}
-        </label>
-        <label>
-          <input type="radio" name="ik-goal-mode" value="position" ${this.goalMode === 'position' ? 'checked' : ''} />
-          ${i18n.t('ikGoalPosition')}
-        </label>
-      </div>
-      <label style="display: flex; align-items: center; gap: 6px;">
-        <input type="checkbox" id="ik-lock-foot-z" ${this.lockFootZ ? 'checked' : ''} />
-        <span data-i18n="ikLockFootZ">${i18n.t('ikLockFootZ')}</span>
-      </label>
-    `;
-
-    document.getElementById('ik-enable')?.addEventListener('change', async (e) => {
-      this.enabled = e.target.checked;
-      if (this.enabled && !this.editor.robotRight) {
-        alert(i18n.t('ikNeedUrdf'));
-        this.enabled = false;
-        e.target.checked = false;
-        return;
-      }
-      await this._applyToControls();
-      if (!this.enabled) e.target.checked = false;
-    });
-
-    document.getElementById('ik-end-link')?.addEventListener('change', async (e) => {
-      this.endEffectorLink = e.target.value;
-      await this._applyToControls();
-    });
-
-    document.querySelectorAll('.ik-preset-btn').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        this.endEffectorLink = btn.getAttribute('data-link');
-        const sel = document.getElementById('ik-end-link');
-        if (sel) sel.value = this.endEffectorLink;
-        await this._applyToControls();
-      });
-    });
-
-    document.querySelectorAll('input[name="ik-goal-mode"]').forEach((radio) => {
-      radio.addEventListener('change', async (e) => {
-        if (e.target.checked) {
-          this.goalMode = e.target.value;
-          await this._applyToControls();
-        }
-      });
-    });
-
-    document.getElementById('ik-lock-foot-z')?.addEventListener('change', async (e) => {
-      this.lockFootZ = e.target.checked;
-      await this._applyToControls();
-    });
+    if (this.endEffectorLink) {
+      this.editor.curveEditor?.setActiveEndEffector(this.endEffectorLink);
+    }
   }
 }

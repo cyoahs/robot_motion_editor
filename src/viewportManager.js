@@ -129,7 +129,7 @@ export class ViewportManager {
     const directional = new THREE.DirectionalLight(0xffffff, 0.8);
     directional.position.set(5, 5, 10);
     scene.add(directional);
-    const grid = new THREE.GridHelper(10, 20);
+    const grid = new THREE.GridHelper(10, 20, 0x555555, 0x333333);
     grid.rotation.x = Math.PI / 2;
     scene.add(grid);
     const axes = new THREE.AxesHelper(1);
@@ -345,7 +345,8 @@ export class ViewportManager {
 
     const fullWidth = viewport.clientWidth;
     const fullHeight = viewport.clientHeight;
-    e.renderer.setSize(fullWidth, fullHeight);
+    e.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    e.renderer.setSize(fullWidth, fullHeight, false);
 
     if (this.mode === 'overlay' && this.cameraMain) {
       const aspect = fullWidth / fullHeight;
@@ -377,6 +378,14 @@ export class ViewportManager {
 
     const fullWidth = Math.max(viewport.clientWidth, 1);
     const fullHeight = Math.max(viewport.clientHeight, 1);
+
+    const canvas = e.renderer.domElement;
+    const dpr = e.renderer.getPixelRatio();
+    const needW = Math.floor(fullWidth * dpr);
+    const needH = Math.floor(fullHeight * dpr);
+    if (canvas.width !== needW || canvas.height !== needH) {
+      e.renderer.setSize(fullWidth, fullHeight, false);
+    }
 
     e.renderer.setScissorTest(false);
     e.renderer.setViewport(0, 0, fullWidth, fullHeight);
@@ -415,6 +424,9 @@ export class ViewportManager {
       e.axisGizmo.update();
       e.axisGizmo.render(e.renderer);
     }
+
+    e.renderer.setScissorTest(false);
+    e.renderer.setViewport(0, 0, fullWidth, fullHeight);
   }
 }
 

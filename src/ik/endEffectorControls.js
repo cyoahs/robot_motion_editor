@@ -97,6 +97,9 @@ export class EndEffectorControls {
       this.rebuildIk();
       this.syncGizmoToLink();
     }
+    if (linkName) {
+      this.editor.curveEditor?.setActiveEndEffector(linkName);
+    }
   }
 
   setGoalMode(mode) {
@@ -192,6 +195,7 @@ export class EndEffectorControls {
       this._syncJointUi();
       this.editor.robotRight.updateMatrixWorld(true);
       this.syncGizmoToLink();
+      this.editor.curveEditor?.drawDebounced();
     } catch (err) {
       console.error('IK drag solve failed:', err);
       this._lastSolveSuccess = false;
@@ -252,9 +256,7 @@ export class EndEffectorControls {
     const keyframes = Array.from(editor.trajectoryManager.keyframes.keys());
     editor.timelineController.updateKeyframeMarkers(keyframes);
     editor.jointController.updateKeyframeIndicators();
-    if (editor.curveEditor) {
-      editor.curveEditor.drawDebounced();
-    }
+    editor.curveEditor?.drawDebounced();
 
     editor.updateStatus(isNew ? i18n.t('addKeyframe') : i18n.t('addKeyframe'), 'success');
   }

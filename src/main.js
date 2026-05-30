@@ -14,6 +14,15 @@ import { VideoExporter } from './videoExporter.js';
 import { CookieManager } from './cookieManager.js';
 import { ViewportManager } from './viewportManager.js';
 import { DEFAULT_FPS_BY_FORMAT, TRAJECTORY_FORMATS } from './trajectoryFormatConverter.js';
+import {
+  collectFilesFromDataTransfer,
+  hasFileTransfer,
+  classifyDroppedFiles
+} from './fileDropHandler.js';
+import {
+  captureRobotState,
+  restoreRobotState
+} from './ik/eePoseSampler.js';
 
 class RobotKeyframeEditor {
   constructor() {
@@ -92,9 +101,15 @@ class RobotKeyframeEditor {
     this.ikPanel = null;
     this.isIkDragging = false;
 
-    this.init();
-    this.setupEventListeners();
-    this.animate();
+    try {
+      this.init();
+      this.setupEventListeners();
+      this.animate();
+      this.updateStatus(i18n.t('ready'), 'success');
+    } catch (err) {
+      console.error('编辑器初始化失败:', err);
+      this.updateStatus(`${i18n.t('initFailed')}: ${err.message}`, 'error');
+    }
   }
 
   updateStatus(message, type = 'info') {
@@ -166,8 +181,8 @@ class RobotKeyframeEditor {
     this.comVisualizerRight = new COMVisualizer(this.sceneRight);
     // 创建相机 (Z-up 坐标系，正交投影)
     const viewport = document.getElementById('viewport');
-    const fullWidth = viewport.clientWidth;
-    const fullHeight = viewport.clientHeight;
+    const fullWidth = Math.max(viewport?.clientWidth || 1, 1);
+    const fullHeight = Math.max(viewport?.clientHeight || 1, 1);
     const halfWidth = fullWidth / 2;
     const aspect = halfWidth / fullHeight;
     const frustumSize = 5; // 可视范围大小
@@ -201,8 +216,9 @@ class RobotKeyframeEditor {
     this.camera = this.cameraRight;
 
     // 创建渲染器
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setSize(fullWidth, fullHeight);
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setSize(fullWidth, fullHeight, false);
     this.renderer.autoClear = false; // 手动控制清除，用于多视口渲染
     viewport.appendChild(this.renderer.domElement);
 
@@ -274,9 +290,7 @@ class RobotKeyframeEditor {
     this.viewportManager.setMode(this.viewportManager.mode, { skipStorage: true });
     this.viewportManager.setupUi();
 
-    this._ikReady = this.initIkModules().catch((err) => {
-      console.warn('IK 模块加载失败，其余功能仍可用:', err);
-    });
+    this._initIkModulesAsync();
 
     // 窗口大小调整
     window.addEventListener('resize', () => this.handleResize());
@@ -284,6 +298,12 @@ class RobotKeyframeEditor {
     // 尝试恢复上次保存的状态（异步）
     this.restoreStateIfAvailable().catch(err => {
       console.error('恢复状态错误:', err);
+    });
+
+    // 布局完成后再次校正视口尺寸（避免 flex 未算完时 aspect=0 导致黑屏）
+    requestAnimationFrame(() => {
+      this.handleResize();
+      this.viewportManager?.render();
     });
   }
 
@@ -301,19 +321,25 @@ class RobotKeyframeEditor {
     this.viewportManager?.handleResize();
   }
 
-  async initIkModules() {
-    const [{ IkPanel }, { EndEffectorControls }] = await Promise.all([
-      import('./ik/ikPanel.js'),
-      import('./ik/endEffectorControls.js')
-    ]);
-    this.endEffectorControls = new EndEffectorControls(this);
-    this.ikPanel = new IkPanel(this);
-    if (this._pendingIkProjectSettings) {
-      this.ikPanel.applyProjectSettings(this._pendingIkProjectSettings);
-      this._pendingIkProjectSettings = null;
-    }
-    if (this.robotRight) {
-      this.ikPanel.onUrdfLoaded();
+  async _initIkModulesAsync() {
+    try {
+      const [{ IkPanel }, { EndEffectorControls }] = await Promise.all([
+        import('./ik/ikPanel.js'),
+        import('./ik/endEffectorControls.js')
+      ]);
+      this.endEffectorControls = new EndEffectorControls(this);
+      this.ikPanel = new IkPanel(this);
+      if (this._pendingIkProjectSettings) {
+        this.ikPanel.applyProjectSettings(this._pendingIkProjectSettings);
+        this._pendingIkProjectSettings = null;
+      }
+      if (this.robotRight) {
+        this.ikPanel.onUrdfLoaded();
+      }
+    } catch (err) {
+      console.warn('IK 模块加载失败，3D 编辑仍可用:', err);
+      this.endEffectorControls = null;
+      this.ikPanel = null;
     }
   }
 
@@ -330,6 +356,8 @@ class RobotKeyframeEditor {
         this.loadCSV(file);
       }
     });
+
+    this.setupFileDrop();
 
     // 添加关键帧
     document.getElementById('add-keyframe').addEventListener('click', () => {
@@ -543,6 +571,79 @@ class RobotKeyframeEditor {
     });
   }
 
+  setupFileDrop() {
+    const overlay = document.getElementById('file-drop-overlay');
+    let dragDepth = 0;
+
+    const showOverlay = () => {
+      if (overlay) overlay.hidden = false;
+    };
+    const hideOverlay = () => {
+      dragDepth = 0;
+      if (overlay) overlay.hidden = true;
+    };
+
+    const onDragEnter = (e) => {
+      if (!hasFileTransfer(e.dataTransfer)) return;
+      e.preventDefault();
+      dragDepth++;
+      if (dragDepth === 1) showOverlay();
+    };
+
+    const onDragOver = (e) => {
+      if (!hasFileTransfer(e.dataTransfer)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
+
+    const onDragLeave = (e) => {
+      if (!hasFileTransfer(e.dataTransfer)) return;
+      e.preventDefault();
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) hideOverlay();
+    };
+
+    const onDrop = async (e) => {
+      if (!hasFileTransfer(e.dataTransfer)) return;
+      e.preventDefault();
+      hideOverlay();
+      try {
+        const files = await collectFilesFromDataTransfer(e.dataTransfer);
+        await this.handleDroppedFiles(files);
+      } catch (err) {
+        console.error('拖放加载失败:', err);
+        this.updateStatus(i18n.t('dropFailed'), 'error');
+      }
+    };
+
+    const app = document.getElementById('app');
+    if (app) {
+      app.addEventListener('dragenter', onDragEnter);
+      app.addEventListener('dragover', onDragOver);
+      app.addEventListener('dragleave', onDragLeave);
+      app.addEventListener('drop', onDrop);
+    }
+  }
+
+  async handleDroppedFiles(files) {
+    if (!files?.length) return;
+
+    const { urdfFiles, csvFiles } = classifyDroppedFiles(files);
+
+    if (urdfFiles.length === 0 && csvFiles.length === 0) {
+      this.updateStatus(i18n.t('dropUnsupported'), 'error');
+      return;
+    }
+
+    if (urdfFiles.length > 0) {
+      await this.loadURDFFolder(files);
+    }
+
+    if (csvFiles.length > 0) {
+      await this.loadCSV(csvFiles[0]);
+    }
+  }
+
   async loadURDFFolder(files) {
     console.log('========================================');
     console.log('📂 开始加载 URDF 文件夹...');
@@ -612,13 +713,7 @@ class RobotKeyframeEditor {
         
         this.jointController = new JointController(joints, this);
         this.baseController = new BaseController(this);
-        if (this.ikPanel) {
-          this.ikPanel.onUrdfLoaded();
-        } else {
-          this.initIkModules().then(() => {
-            this.ikPanel?.onUrdfLoaded();
-          }).catch(() => {});
-        }
+        this.ikPanel?.onUrdfLoaded();
         
         // 更新COM显示（无论是否有轨迹，都显示当前状态的COM）
         if (this.showCOM) {
@@ -635,7 +730,6 @@ class RobotKeyframeEditor {
         console.log('✅ 关节控制面板已初始化');
         console.log('========================================');
         this.updateStatus(i18n.t('urdfLoadSuccess', { count: joints.length }), 'success');
-        alert(i18n.t('urdfLoadSuccess', { count: joints.length }));
         
         // 触发完整保存（包含 URDF）
         this.triggerAutoSave(true);
@@ -716,6 +810,14 @@ class RobotKeyframeEditor {
       this.updateStatus(i18n.t('csvLoadFailed'), 'error');
       alert(i18n.t('csvLoadFailed') + ': ' + error.message);
     }
+  }
+
+  captureRobotRightState() {
+    return captureRobotState(this.robotRight, this.jointController);
+  }
+
+  restoreRobotRightState(snapshot) {
+    restoreRobotState(this.robotRight, snapshot);
   }
 
   updateRobotState(frameIndex) {
@@ -2230,15 +2332,21 @@ class RobotKeyframeEditor {
 
   animate() {
     requestAnimationFrame(() => this.animate());
-    
+
+    if (!this.renderer || !this.controls) return;
+
     this.controls.update();
-    
+
+    if (this.viewportManager?.mode === 'overlay') {
+      this.viewportManager.syncOverlayCameraFromActive();
+    }
+
     // 跟随机器人平移
     if (this.followRobot && this.robotRight) {
       const robotPos = this.robotRight.position;
       this.controls.target.set(robotPos.x, robotPos.y, robotPos.z + 0.5);
     }
-    
+
     this.viewportManager?.render();
   }
 }

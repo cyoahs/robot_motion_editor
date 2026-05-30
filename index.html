@@ -101,6 +101,29 @@
       display: flex;
       flex-direction: column;
       height: 100vh;
+      position: relative;
+    }
+
+    .file-drop-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 2000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--overlay-bg);
+      border: 3px dashed var(--accent-info);
+      border-radius: 8px;
+      margin: 8px;
+      pointer-events: none;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--overlay-text);
+      backdrop-filter: blur(4px);
+    }
+
+    .file-drop-overlay[hidden] {
+      display: none !important;
     }
 
     .toolbar {
@@ -261,6 +284,18 @@
       display: flex;
       flex-direction: column;
       transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+
+    #ik-controls select,
+    #ik-controls button.ik-preset-btn {
+      background: var(--bg-input);
+      color: var(--text-primary);
+      border: 1px solid var(--border-primary);
+      border-radius: 3px;
+    }
+
+    #ik-controls button.ik-preset-btn:hover {
+      background: var(--bg-tertiary);
     }
 
     .joint-control {
@@ -789,6 +824,7 @@
   </div>
 
   <div id="app">
+    <div id="file-drop-overlay" class="file-drop-overlay" hidden data-i18n="dropHint">拖放 URDF 文件夹或 CSV 轨迹文件到此处</div>
     <div class="toolbar">
       <label for="urdf-folder" data-i18n="loadURDF">
         加载 URDF 文件夹
@@ -931,7 +967,34 @@
           <div id="ik-control-header" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px; background: var(--bg-tertiary); border-radius: 4px;">
             <h3 style="margin: 0; font-size: 13px;" data-i18n="ikControl">▶ IK 编辑</h3>
           </div>
-          <div id="ik-controls" style="display: none; margin-top: 10px; font-size: 12px;"></div>
+          <div id="ik-controls" style="display: none; margin-top: 10px; font-size: 12px; color: var(--text-primary);">
+            <p id="ik-load-hint" style="margin: 0 0 8px; color: var(--text-tertiary); font-size: 11px;" data-i18n="ikNeedUrdf">请先加载 URDF</p>
+            <div id="ik-controls-body" style="display: none;">
+              <label style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px; cursor: pointer;">
+                <input type="checkbox" id="ik-enable" />
+                <span data-i18n="ikEnable">启用末端拖拽 IK</span>
+              </label>
+              <label style="display: block; margin-bottom: 6px;">
+                <span data-i18n="ikEndLink">末端 Link</span>
+                <select id="ik-end-link" style="width: 100%; margin-top: 4px; padding: 4px; font-size: 12px; background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 3px;"></select>
+              </label>
+              <div id="ik-preset-buttons" style="margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 2px;"></div>
+              <div style="margin-bottom: 8px;">
+                <label style="margin-right: 10px; cursor: pointer;">
+                  <input type="radio" name="ik-goal-mode" value="pose" checked />
+                  <span data-i18n="ikGoalPose">位置+姿态</span>
+                </label>
+                <label style="cursor: pointer;">
+                  <input type="radio" name="ik-goal-mode" value="position" />
+                  <span data-i18n="ikGoalPosition">仅位置</span>
+                </label>
+              </div>
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <input type="checkbox" id="ik-lock-foot-z" />
+                <span data-i18n="ikLockFootZ">锁定足底高度</span>
+              </label>
+            </div>
+          </div>
         </div>
         
         <!-- 关节控制 -->

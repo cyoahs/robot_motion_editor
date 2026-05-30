@@ -1,4 +1,10 @@
 import { i18n } from './i18n.js';
+import {
+  EE_POSE_COMPONENTS,
+  eeCurveKeyPrefix,
+  applyFrameStateToRobot,
+  sampleEndEffectorPose
+} from './ik/eePoseSampler.js';
 
 /**
  * 曲线编辑器 - 可视化和编辑关节角度和基体状态随时间的变化
@@ -461,12 +467,62 @@ export class CurveEditor {
         });
       }
     });
+
+    const eeLink = this.editor.ikPanel?.endEffectorLink;
+    if (eeLink) {
+      const prefix = eeCurveKeyPrefix(eeLink);
+      if (!this.curves.has(`${prefix}_px`)) {
+        this.setActiveEndEffector(eeLink);
+      }
+    }
   }
 
   getNextColor() {
     const color = this.colors[this.colorIndex % this.colors.length];
     this.colorIndex++;
     return color;
+  }
+
+  /** 移除所有末端位姿曲线 */
+  removeEndEffectorCurves() {
+    for (const key of [...this.curves.keys()]) {
+      if (key.startsWith('ee_')) {
+        this.curves.delete(key);
+      }
+    }
+  }
+
+  /**
+   * 为当前 IK 末端 Link 注册 6 条曲线（位置 XYZ + 姿态 RPY，世界系，rad/m）
+   */
+  setActiveEndEffector(linkName) {
+    this.removeEndEffectorCurves();
+    if (!linkName) {
+      this.drawDebounced();
+      return;
+    }
+
+    const prefix = eeCurveKeyPrefix(linkName);
+    const palette = ['#569cd6', '#6a9955', '#ce9178', '#c586c0', '#dcdcaa', '#4fc1ff'];
+    const compLabels = {
+      px: 'Pos X', py: 'Pos Y', pz: 'Pos Z',
+      rx: 'Rot X', ry: 'Rot Y', rz: 'Rot Z'
+    };
+
+    EE_POSE_COMPONENTS.forEach((comp, i) => {
+      const key = `${prefix}_${comp.key}`;
+      this.curves.set(key, {
+        name: `${linkName} ${compLabels[comp.key]}`,
+        type: 'ee_pose',
+        linkName,
+        component: comp.key,
+        visible: true,
+        color: palette[i % palette.length],
+        data: []
+      });
+    });
+
+    this.drawDebounced();
   }
 
   /**
@@ -848,6 +904,9 @@ export class CurveEditor {
   }
 
   drawCurves(left, top, width, height, frameCount, keyframes) {
+    const hasEeCurves = [...this.curves.values()].some((c) => c.visible && c.type === 'ee_pose');
+    const robotSnap = hasEeCurves ? this.editor.captureRobotRightState?.() : null;
+
     // 计算可见帧范围 (只计算屏幕上实际显示的部分)
     const visibleFrameStart = Math.max(0, this.xToFrame(left, left, width, frameCount));
     const visibleFrameEnd = Math.min(frameCount - 1, this.xToFrame(left + width, left, width, frameCount));
@@ -941,6 +1000,12 @@ export class CurveEditor {
         });
       }
     });
+
+    if (robotSnap) {
+      this.editor.restoreRobotRightState(robotSnap);
+      const frame = this.editor.timelineController?.getCurrentFrame() ?? 0;
+      this.editor.updateRobotState(frame);
+    }
   }
 
   drawValueLabels(left, top, height, minValue, maxValue) {
@@ -982,7 +1047,8 @@ export class CurveEditor {
       }
       return 0; // 没有残差返回0
     } else if (curve.type === 'base_euler') {
-      // 欧拉角只用于可视化，不能被编辑，返回null使其不可点击
+      return null;
+    } else if (curve.type === 'ee_pose') {
       return null;
     }
     return null;
@@ -1051,6 +1117,15 @@ export class CurveEditor {
       // 将四元数转换为欧拉角 (ZYX顺序，单位为度)
       const euler = this.quaternionToEuler(quat);
       return euler[curve.axis];
+
+    } else if (curve.type === 'ee_pose') {
+      const robot = this.editor.robotRight;
+      if (!robot || !curve.linkName) return null;
+      if (!applyFrameStateToRobot(this.editor, robot, frame, includeResiduals)) {
+        return null;
+      }
+      const pose = sampleEndEffectorPose(robot, curve.linkName);
+      return pose ? pose[curve.component] : null;
     }
     
     return null;
@@ -1139,6 +1214,9 @@ export class CurveEditor {
       return { minValue: -1, maxValue: 1 };
     }
 
+    const hasEeCurves = [...this.curves.values()].some((c) => c.visible && c.type === 'ee_pose');
+    const robotSnap = hasEeCurves ? this.editor.captureRobotRightState?.() : null;
+
     const keyframes = this.editor.trajectoryManager.getKeyframes();
     const frameCount = this.editor.trajectoryManager.getFrameCount();
     
@@ -1186,6 +1264,12 @@ export class CurveEditor {
     minValue -= margin;
     maxValue += margin;
     
+    if (robotSnap) {
+      this.editor.restoreRobotRightState(robotSnap);
+      const frame = this.editor.timelineController?.getCurrentFrame() ?? 0;
+      this.editor.updateRobotState(frame);
+    }
+
     // Y轴始终自适应，不应用缩放变换
     return { minValue, maxValue };
   }
