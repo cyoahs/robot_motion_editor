@@ -99,6 +99,7 @@ class RobotKeyframeEditor {
     this.viewportManager = null;
     this.endEffectorControls = null;
     this.ikPanel = null;
+    this._pendingUrdfForIk = false;
     this.isIkDragging = false;
 
     try {
@@ -333,13 +334,25 @@ class RobotKeyframeEditor {
         this.ikPanel.applyProjectSettings(this._pendingIkProjectSettings);
         this._pendingIkProjectSettings = null;
       }
-      if (this.robotRight) {
+      if (this.robotRight || this._pendingUrdfForIk) {
         this.ikPanel.onUrdfLoaded();
+        this._pendingUrdfForIk = false;
       }
     } catch (err) {
       console.warn('IK 模块加载失败，3D 编辑仍可用:', err);
       this.endEffectorControls = null;
       this.ikPanel = null;
+    }
+  }
+
+  /** URDF 就绪后通知 IK 面板（处理 IK 模块晚于 URDF 加载的竞态） */
+  notifyUrdfReady() {
+    if (!this.robotRight) return;
+    if (this.ikPanel) {
+      this.ikPanel.onUrdfLoaded();
+      this._pendingUrdfForIk = false;
+    } else {
+      this._pendingUrdfForIk = true;
     }
   }
 
@@ -713,7 +726,7 @@ class RobotKeyframeEditor {
         
         this.jointController = new JointController(joints, this);
         this.baseController = new BaseController(this);
-        this.ikPanel?.onUrdfLoaded();
+        this.notifyUrdfReady();
         
         // 更新COM显示（无论是否有轨迹，都显示当前状态的COM）
         if (this.showCOM) {

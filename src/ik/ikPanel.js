@@ -21,7 +21,11 @@ export class IkPanel {
     this._presets = document.getElementById('ik-preset-buttons');
 
     this._bindStaticControls();
-    this._syncUrdfUi(false);
+    if (this.editor.robotRight) {
+      this.onUrdfLoaded();
+    } else {
+      this._syncUrdfUi(false);
+    }
   }
 
   _bindStaticControls() {

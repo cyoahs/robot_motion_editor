@@ -470,9 +470,7 @@ console.log('  🔧 开始加载 URDF...');
                 const { BaseController } = await import('./baseController.js');
                 editor.jointController = new JointController(joints, editor);
                 editor.baseController = new BaseController(editor);
-                if (editor.ikPanel) {
-                  editor.ikPanel.onUrdfLoaded();
-                }
+                editor.notifyUrdfReady?.();
                 
                 resolve();
               });
