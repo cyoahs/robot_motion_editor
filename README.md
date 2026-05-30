@@ -37,11 +37,16 @@
 
 ## 快速开始
 
+**环境**：Node.js 18+（推荐 20+），现代浏览器。
+
 ```bash
 npm install           # 安装依赖
-npm run dev           # 启动开发服务器
-npm run build         # 生产构建
+npm run dev           # 启动开发服务器 → http://localhost:3000
+npm run build         # 生产构建（输出 dist/）
+npm run preview       # 预览构建结果
 ```
+
+本地开发、端口、构建与排错详见 **[DEVELOPMENT.md](./DEVELOPMENT.md)**。使用编辑器见 **[USAGE.md](./USAGE.md)**。
 
 ## 使用说明
 
@@ -95,10 +100,6 @@ src/
 ├── indexedDBManager.js  # 大文件存储（IndexedDB）
 ├── themeManager.js      # 主题管理
 └── i18n.js              # 多语言支持
-```
-├── axisGizmo.js         # 坐标轴指示器
-├── timelineController.js # 时间轴控制
-└── i18n.js              # 国际化（中文/英文）
 ```
 
 ## License
