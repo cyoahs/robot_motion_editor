@@ -980,19 +980,47 @@
               </label>
               <div id="ik-preset-buttons" style="margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 2px;"></div>
               <div style="margin-bottom: 8px;">
-                <label style="margin-right: 10px; cursor: pointer;">
-                  <input type="radio" name="ik-goal-mode" value="pose" checked />
-                  <span data-i18n="ikGoalPose">位置+姿态</span>
-                </label>
-                <label style="cursor: pointer;">
-                  <input type="radio" name="ik-goal-mode" value="position" />
-                  <span data-i18n="ikGoalPosition">仅位置</span>
-                </label>
+                <span data-i18n="ikAdjustMode">调整模式</span>
+                <div style="margin-top: 4px;">
+                  <label style="margin-right: 10px; cursor: pointer;">
+                    <input type="radio" name="ik-goal-mode" value="pose" checked />
+                    <span data-i18n="ikGoalPose">位置+姿态</span>
+                  </label>
+                  <label style="margin-right: 10px; cursor: pointer;">
+                    <input type="radio" name="ik-goal-mode" value="position" />
+                    <span data-i18n="ikGoalPosition">仅位置</span>
+                  </label>
+                  <label style="cursor: pointer;">
+                    <input type="radio" name="ik-goal-mode" value="orientation" />
+                    <span data-i18n="ikGoalOrientation">仅姿态</span>
+                  </label>
+                </div>
               </div>
-              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                <input type="checkbox" id="ik-lock-foot-z" />
-                <span data-i18n="ikLockFootZ">锁定足底高度</span>
-              </label>
+              <button type="button" id="ik-reset-reference" style="width: 100%; margin-bottom: 8px; padding: 6px 8px; font-size: 11px; cursor: pointer; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px;" data-i18n="ikResetReference">重置到参考位姿</button>
+              <div style="margin-bottom: 8px; font-size: 11px;">
+                <div style="margin-bottom: 4px;">
+                  <span data-i18n="ikNudgePosition">位置增量</span>
+                  <input type="number" id="ik-pos-step" value="0.01" min="0.001" step="0.001" style="width: 56px; margin-left: 6px; padding: 2px 4px; font-size: 11px;" />
+                  <span>m</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;">
+                  <div style="display: flex; gap: 2px;"><button type="button" class="ik-nudge-btn" data-kind="pos" data-axis="x" data-sign="-1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">X−</button><button type="button" class="ik-nudge-btn" data-kind="pos" data-axis="x" data-sign="1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">X+</button></div>
+                  <div style="display: flex; gap: 2px;"><button type="button" class="ik-nudge-btn" data-kind="pos" data-axis="y" data-sign="-1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">Y−</button><button type="button" class="ik-nudge-btn" data-kind="pos" data-axis="y" data-sign="1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">Y+</button></div>
+                  <div style="display: flex; gap: 2px;"><button type="button" class="ik-nudge-btn" data-kind="pos" data-axis="z" data-sign="-1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">Z−</button><button type="button" class="ik-nudge-btn" data-kind="pos" data-axis="z" data-sign="1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">Z+</button></div>
+                </div>
+              </div>
+              <div style="margin-bottom: 4px; font-size: 11px;">
+                <div style="margin-bottom: 4px;">
+                  <span data-i18n="ikNudgeOrientation">姿态增量</span>
+                  <input type="number" id="ik-rot-step" value="3" min="0.1" step="0.5" style="width: 48px; margin-left: 6px; padding: 2px 4px; font-size: 11px;" />
+                  <span>°</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;">
+                  <div style="display: flex; gap: 2px;"><button type="button" class="ik-nudge-btn" data-kind="rot" data-axis="x" data-sign="-1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">RX−</button><button type="button" class="ik-nudge-btn" data-kind="rot" data-axis="x" data-sign="1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">RX+</button></div>
+                  <div style="display: flex; gap: 2px;"><button type="button" class="ik-nudge-btn" data-kind="rot" data-axis="y" data-sign="-1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">RY−</button><button type="button" class="ik-nudge-btn" data-kind="rot" data-axis="y" data-sign="1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">RY+</button></div>
+                  <div style="display: flex; gap: 2px;"><button type="button" class="ik-nudge-btn" data-kind="rot" data-axis="z" data-sign="-1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">RZ−</button><button type="button" class="ik-nudge-btn" data-kind="rot" data-axis="z" data-sign="1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">RZ+</button></div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

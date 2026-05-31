@@ -50,7 +50,9 @@ const hostingEnv = getHostingEnvironment();
 export default defineConfig({
   optimizeDeps: {
     // 仅使用子路径导入 core/urdfHelpers，勿预构建整包（会拉入与 Three r160 不兼容的 IKJointHelper）
-    exclude: ['closed-chain-ik']
+    exclude: ['closed-chain-ik'],
+    // closed-chain-ik 的 CJS 依赖在 dev 下需预构建，否则 default import 报错
+    include: ['linear-solve', 'svd-js']
   },
   server: {
     port: 3000,

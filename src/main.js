@@ -100,6 +100,7 @@ class RobotKeyframeEditor {
     this.endEffectorControls = null;
     this.ikPanel = null;
     this._pendingUrdfForIk = false;
+    this._ikModuleFailed = false;
     this.isIkDragging = false;
 
     try {
@@ -340,20 +341,56 @@ class RobotKeyframeEditor {
       }
     } catch (err) {
       console.warn('IK 模块加载失败，3D 编辑仍可用:', err);
+      this._ikModuleLoadError = err?.message || String(err);
+      this._ikModuleFailed = true;
       this.endEffectorControls = null;
       this.ikPanel = null;
+      this.refreshIkPanelUi();
     }
+  }
+
+  /** 同步 IK 区域 DOM（不依赖 IkPanel 是否已构造） */
+  refreshIkPanelUi() {
+    const hint = document.getElementById('ik-load-hint');
+    const body = document.getElementById('ik-controls-body');
+    const robot = this.robotRight;
+
+    if (!robot) {
+      if (hint) {
+        hint.style.display = 'block';
+        hint.textContent = i18n.t('ikNeedUrdf');
+      }
+      if (body) body.style.display = 'none';
+      return;
+    }
+
+    if (!this.ikPanel) {
+      if (hint) {
+        hint.style.display = 'block';
+        hint.textContent = this._ikModuleFailed
+          ? `${i18n.t('ikModuleFailed')}${this._ikModuleLoadError ? ` (${this._ikModuleLoadError})` : ''}`
+          : i18n.t('ikModuleLoading');
+      }
+      if (body) body.style.display = 'none';
+      return;
+    }
+
+    if (hint) hint.style.display = 'none';
+    if (body) body.style.display = 'block';
   }
 
   /** URDF 就绪后通知 IK 面板（处理 IK 模块晚于 URDF 加载的竞态） */
   notifyUrdfReady() {
-    if (!this.robotRight) return;
+    if (!this.robotRight) {
+      this.refreshIkPanelUi();
+      return;
+    }
+    this._pendingUrdfForIk = true;
     if (this.ikPanel) {
       this.ikPanel.onUrdfLoaded();
       this._pendingUrdfForIk = false;
-    } else {
-      this._pendingUrdfForIk = true;
     }
+    this.refreshIkPanelUi();
   }
 
   setupEventListeners() {
@@ -506,6 +543,9 @@ class RobotKeyframeEditor {
       const isHidden = controls.style.display === 'none' || !controls.style.display;
       controls.style.display = isHidden ? 'block' : 'none';
       title.textContent = isHidden ? i18n.t('ikControlOpen') : i18n.t('ikControl');
+      if (isHidden) {
+        this.notifyUrdfReady();
+      }
     });
     
     // 重置应用

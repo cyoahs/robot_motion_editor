@@ -61,6 +61,53 @@ export function applyFrameStateToRobot(editor, robot, frameIndex, edited = true)
 }
 
 /** 世界系末端位姿：位置 m + 欧拉角 rad (ZYX) */
+const _ghostBasePos = new THREE.Vector3();
+const _ghostBaseQuat = new THREE.Quaternion();
+const _editedBasePos = new THREE.Vector3();
+const _editedBaseQuat = new THREE.Quaternion();
+const _eeLocalPos = new THREE.Vector3();
+const _eeLocalQuat = new THREE.Quaternion();
+const _invGhostBaseQuat = new THREE.Quaternion();
+const _targetQuat = new THREE.Quaternion();
+
+/**
+ * Ghost 末端位姿变换到编辑机器人当前 base 下的世界系目标（位置 m + 四元数）
+ */
+export function computeReferenceEeWorldPose(editor, linkName) {
+  const ghost = editor.robotLeft;
+  const edited = editor.robotRight;
+  if (!ghost || !edited || !linkName) return null;
+
+  const ref = sampleEndEffectorPose(ghost, linkName);
+  if (!ref) return null;
+
+  ghost.getWorldPosition(_ghostBasePos);
+  ghost.getWorldQuaternion(_ghostBaseQuat);
+  edited.getWorldPosition(_editedBasePos);
+  edited.getWorldQuaternion(_editedBaseQuat);
+
+  _pos.set(ref.px, ref.py, ref.pz);
+  _euler.set(ref.rx, ref.ry, ref.rz);
+  _quat.setFromEuler(_euler);
+
+  _invGhostBaseQuat.copy(_ghostBaseQuat).invert();
+  _eeLocalPos.copy(_pos).sub(_ghostBasePos).applyQuaternion(_invGhostBaseQuat);
+  _eeLocalQuat.copy(_invGhostBaseQuat).multiply(_quat);
+
+  _targetQuat.copy(_editedBaseQuat).multiply(_eeLocalQuat);
+  _pos.copy(_eeLocalPos).applyQuaternion(_editedBaseQuat).add(_editedBasePos);
+
+  return {
+    px: _pos.x,
+    py: _pos.y,
+    pz: _pos.z,
+    qx: _targetQuat.x,
+    qy: _targetQuat.y,
+    qz: _targetQuat.z,
+    qw: _targetQuat.w
+  };
+}
+
 export function sampleEndEffectorPose(robot, linkName) {
   const link = getUrdfLinkObject(robot, linkName);
   if (!link) return null;

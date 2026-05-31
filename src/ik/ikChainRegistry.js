@@ -14,15 +14,21 @@ const CHAIN_STOP_KEYWORDS = [
  * 枚举 URDF 中所有 link 名称
  */
 export function listUrdfLinks(robot) {
-  const names = [];
-  if (robot?.links) {
-    names.push(...Object.keys(robot.links));
-  } else {
-    robot?.traverse((obj) => {
-      if (obj.isURDFLink && obj.name) names.push(obj.name);
+  const names = new Set();
+  if (!robot) return [];
+
+  if (robot.links) {
+    Object.keys(robot.links).forEach((n) => names.add(n));
+  }
+  if (typeof robot.traverse === 'function') {
+    robot.traverse((obj) => {
+      if (obj.isURDFLink) {
+        const n = obj.urdfName || obj.name;
+        if (n) names.add(n);
+      }
     });
   }
-  return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+  return [...names].sort((a, b) => a.localeCompare(b));
 }
 
 /**
@@ -82,7 +88,9 @@ export function getUrdfLinkObject(robot, linkName) {
   if (robot?.links?.[linkName]) return robot.links[linkName];
   let found = null;
   robot?.traverse((obj) => {
-    if (obj.isURDFLink && obj.name === linkName) found = obj;
+    if (obj.isURDFLink && (obj.urdfName === linkName || obj.name === linkName)) {
+      found = obj;
+    }
   });
   return found;
 }

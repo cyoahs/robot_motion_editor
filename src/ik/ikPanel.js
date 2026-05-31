@@ -11,7 +11,6 @@ export class IkPanel {
     this.enabled = false;
     this.endEffectorLink = '';
     this.goalMode = 'pose';
-    this.lockFootZ = false;
 
     this._container = document.getElementById('ik-controls');
     this._body = document.getElementById('ik-controls-body');
@@ -50,14 +49,31 @@ export class IkPanel {
       radio.addEventListener('change', async (e) => {
         if (e.target.checked) {
           this.goalMode = e.target.value;
-          await this._applyToControls();
+          const ec = this.editor.endEffectorControls;
+          if (ec) {
+            ec.setGoalMode(this.goalMode);
+          }
         }
       });
     });
 
-    document.getElementById('ik-lock-foot-z')?.addEventListener('change', async (e) => {
-      this.lockFootZ = e.target.checked;
-      await this._applyToControls();
+    document.getElementById('ik-reset-reference')?.addEventListener('click', () => {
+      this.editor.endEffectorControls?.resetToReference();
+    });
+
+    this._body?.querySelectorAll('.ik-nudge-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const ec = this.editor.endEffectorControls;
+        if (!ec?.enabled) return;
+        const kind = btn.getAttribute('data-kind');
+        const axis = btn.getAttribute('data-axis');
+        const sign = parseInt(btn.getAttribute('data-sign'), 10);
+        if (kind === 'pos') {
+          ec.nudgePosition(axis, sign);
+        } else if (kind === 'rot') {
+          ec.nudgeOrientation(axis, sign);
+        }
+      });
     });
   }
 
@@ -68,13 +84,17 @@ export class IkPanel {
 
   onUrdfLoaded() {
     const robot = this.editor.robotRight;
-    if (!robot) return;
+    if (!robot) {
+      this.editor.refreshIkPanelUi?.();
+      return;
+    }
 
     const links = listUrdfLinks(robot);
     this.endEffectorLink = guessDefaultEndLink(robot);
     this._populateLinkSelect(links);
     this._populatePresets(links);
     this._syncUrdfUi(true);
+    this.editor.refreshIkPanelUi?.();
 
     if (this._container) {
       this._container.style.display = 'block';
@@ -123,7 +143,6 @@ export class IkPanel {
       enabled: this.enabled,
       endEffectorLink: this.endEffectorLink,
       chainRootJoint: null,
-      legLockFootZ: this.lockFootZ,
       goalMode: this.goalMode
     };
   }
@@ -131,16 +150,15 @@ export class IkPanel {
   applyProjectSettings(ik) {
     if (!ik) return;
     if (typeof ik.endEffectorLink === 'string') this.endEffectorLink = ik.endEffectorLink;
-    if (ik.goalMode === 'position' || ik.goalMode === 'pose') this.goalMode = ik.goalMode;
-    if (typeof ik.legLockFootZ === 'boolean') this.lockFootZ = ik.legLockFootZ;
+    if (ik.goalMode === 'pose' || ik.goalMode === 'position' || ik.goalMode === 'orientation') {
+      this.goalMode = ik.goalMode;
+    }
     if (typeof ik.enabled === 'boolean') {
       this.enabled = ik.enabled && !!this.editor.robotRight;
     }
 
     const enableCb = document.getElementById('ik-enable');
     if (enableCb) enableCb.checked = this.enabled;
-    const lockCb = document.getElementById('ik-lock-foot-z');
-    if (lockCb) lockCb.checked = this.lockFootZ;
     document.querySelectorAll('input[name="ik-goal-mode"]').forEach((r) => {
       r.checked = r.value === this.goalMode;
     });
@@ -160,7 +178,6 @@ export class IkPanel {
     if (!ec) return;
 
     ec.setGoalMode(this.goalMode);
-    ec.setLockFootZ(this.lockFootZ);
     ec.setEndLink(this.endEffectorLink);
 
     const ok = ec.setEnabled(this.enabled);
