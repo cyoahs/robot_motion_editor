@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import {
   IkSolverService,
+  POSITION_SOFT_ROT_FACTOR,
   ORIENTATION_HOLD_TRANS_FACTOR,
   ORIENTATION_HOLD_ROT_FACTOR
 } from './ikSolverService.js';
@@ -14,7 +15,6 @@ const _axis = new THREE.Vector3();
 const _deltaQuat = new THREE.Quaternion();
 
 const SNAP_POSITION_EPS = 0.008;
-const SOFT_ORIENTATION_HOLD_WEIGHT = 0.12;
 
 export class EndEffectorControls {
   constructor(editor) {
@@ -461,8 +461,8 @@ export class EndEffectorControls {
         _pos,
         this._refQuaternion,
         {
-          rotationFactor: SOFT_ORIENTATION_HOLD_WEIGHT,
-          maxIterations: 16,
+          rotationFactor: POSITION_SOFT_ROT_FACTOR,
+          maxIterations: 18,
           ...extraOptions
         }
       );
@@ -534,8 +534,16 @@ export class EndEffectorControls {
 
   nudgeOrientation(axis, sign) {
     if (!this.enabled) return false;
-    // 确保位置锁从实际 FK 拿
-    this._lockOrientationPositionFromFk();
+    // 姿态 nudge 开始时才从 FK 刷新锁点（避免多次连续 nudge 因 IK 误差累积漂移）
+    // 只有在第一次调用时（_orientationLockPosition 已在 drag/setGoalMode 时设定）刷新
+    // 如果 _refPosition 与实际 FK 偏差较大，才重新锁
+    const link = getUrdfLinkObject(this.editor.robotRight, this.endEffectorLinkName);
+    if (link) {
+      link.getWorldPosition(_pos);
+      if (_pos.distanceTo(this._orientationLockPosition) > 0.005) {
+        this._lockOrientationPositionFromFk();
+      }
+    }
     this._proxy.position.copy(this._orientationLockPosition);
 
     const step = this._getRotationStepRad() * sign;
@@ -611,19 +619,17 @@ export class EndEffectorControls {
     const isOrientationEnd = endMode === 'orientation';
 
     if (isPositionEnd && robot) {
-      // 做最终高精度位置求解（松手时多迭代）
+      // 松手时做更高精度求解（更多迭代）
       this._buildPositionTarget();
-      result: {
-        const r = this.ikService.solveHoldPositionSoftOrientation(
-          robot,
-          _pos,
-          this._refQuaternion,
-          { maxIterations: 20, rotationFactor: SOFT_ORIENTATION_HOLD_WEIGHT }
-        );
-        this._lastSolveSuccess = r.success;
-      }
+      const finalR = this.ikService.solveHoldPositionSoftOrientation(
+        robot,
+        _pos,
+        this._refQuaternion,
+        { maxIterations: 24, rotationFactor: POSITION_SOFT_ROT_FACTOR }
+      );
+      this._lastSolveSuccess = finalR.success;
       robot.updateMatrixWorld(true);
-      // 更新参考为实际 FK 位置
+      // 更新参考为实际 FK 位置（供后续姿态锁定使用）
       this._commitActualPositionAsRef(robot);
       this._syncJointUi();
     } else if (isOrientationEnd && robot) {

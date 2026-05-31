@@ -15,9 +15,13 @@ const _quat = new THREE.Quaternion();
 const DEFAULT_TRANS_FACTOR = 1;
 const DEFAULT_ROT_FACTOR = 1;
 
-/** 姿态编辑：位置权重远高于旋转，全程 6DOF 联合求解 */
-export const ORIENTATION_HOLD_TRANS_FACTOR = 120;
-export const ORIENTATION_HOLD_ROT_FACTOR = 0.04;
+/** 调位置：软混合时位置仍占主导，姿态仅轻微趋近参考 */
+export const POSITION_HOLD_TRANS_FACTOR = 80;
+export const POSITION_SOFT_ROT_FACTOR = 0.012;
+
+/** 调姿态：位置尽量不变，姿态软趋近（允许较大姿态误差） */
+export const ORIENTATION_HOLD_TRANS_FACTOR = 280;
+export const ORIENTATION_HOLD_ROT_FACTOR = 0.01;
 
 export class IkSolverService {
   constructor() {
@@ -219,7 +223,7 @@ export class IkSolverService {
    */
   solveOrientationHoldPosition(robot, refPosition, targetQuat, options = {}) {
     const iter = options.maxIterations ?? 20;
-    const passes = options.solvePasses ?? 5;
+    const passes = options.solvePasses ?? 4;
     const transW = options.translationFactor ?? ORIENTATION_HOLD_TRANS_FACTOR;
     const rotW = options.rotationFactor ?? ORIENTATION_HOLD_ROT_FACTOR;
 
@@ -231,11 +235,13 @@ export class IkSolverService {
       solvePasses: 1
     };
 
+    // 6DOF 软姿态趋近 + 强位置权重
     for (let i = 0; i < passes; i++) {
       this.solve(robot, refPosition, targetQuat, weighted);
     }
 
-    for (let i = 0; i < 2; i++) {
+    // 末尾纯位置收紧，确保 XYZ 贴近锁点
+    for (let i = 0; i < 3; i++) {
       this.solve(robot, refPosition, targetQuat, {
         positionOnly: true,
         maxIterations: iter
@@ -249,21 +255,30 @@ export class IkSolverService {
     };
   }
 
-  /** 调位置：跟 gizmo 位置，姿态锁定 refQuat（软权重趋近） */
+  /**
+   * 调位置：强力跟随 gizmo 目标，姿态软约束（不修改姿态参考）。
+   * 策略：先纯位置收敛，再姿态软混合，最后两次纯位置补偿，确保位置尽量接近目标。
+   */
   solveHoldPositionSoftOrientation(robot, targetPos, refQuat, options = {}) {
     const iter = options.maxIterations ?? 16;
-    const rotWeight = options.rotationFactor ?? 0.12;
+    const transW = options.translationFactor ?? POSITION_HOLD_TRANS_FACTOR;
+    const rotW = options.rotationFactor ?? POSITION_SOFT_ROT_FACTOR;
 
-    this.solve(robot, targetPos, refQuat, { positionOnly: true, maxIterations: iter });
+    // 纯位置：优先贴近 gizmo
     for (let i = 0; i < 2; i++) {
-      this.solve(robot, targetPos, refQuat, {
-        translationFactor: 1,
-        rotationFactor: rotWeight,
-        maxIterations: iter,
-        positionSoftOrientation: true
-      });
+      this.solve(robot, targetPos, refQuat, { positionOnly: true, maxIterations: iter });
     }
-    this.solve(robot, targetPos, refQuat, { positionOnly: true, maxIterations: iter });
+    // 单次软姿态趋近（姿态权重极小，位置仍占主导）
+    this.solve(robot, targetPos, refQuat, {
+      translationFactor: transW,
+      rotationFactor: rotW,
+      maxIterations: iter,
+      positionSoftOrientation: true
+    });
+    // 纯位置补偿
+    for (let i = 0; i < 3; i++) {
+      this.solve(robot, targetPos, refQuat, { positionOnly: true, maxIterations: iter });
+    }
 
     const err = this._estimateError(robot, targetPos, refQuat);
     return {
