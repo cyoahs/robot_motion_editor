@@ -13,6 +13,7 @@ import { AxisGizmo } from './axisGizmo.js';
 import { VideoExporter } from './videoExporter.js';
 import { CookieManager } from './cookieManager.js';
 import { ViewportManager } from './viewportManager.js';
+import { ViewportToolbar } from './viewportToolbar.js';
 import { DEFAULT_FPS_BY_FORMAT, TRAJECTORY_FORMATS } from './trajectoryFormatConverter.js';
 import {
   collectFilesFromDataTransfer,
@@ -87,9 +88,6 @@ class RobotKeyframeEditor {
     this.cameraMode = 'rotate'; // 'rotate' 或 'pan'
     this.followRobot = false;
     this.showCOM = true; // 默认显示重心
-    this.autoRefreshFootprint = false; // 自动刷新包络线开关，默认关闭
-    this.footprintUpdateTimer = null; // 包络线更新防抖定时器
-    this.footprintHeightThresholdCm = 10; // 包络线link高度阈值（cm）
     this.defaultCameraPosition = new THREE.Vector3(3, 3, 2);
     this.defaultCameraTarget = new THREE.Vector3(0, 0, 0.5);
     
@@ -292,6 +290,11 @@ class RobotKeyframeEditor {
     this.viewportManager.setMode(this.viewportManager.mode, { skipStorage: true });
     this.viewportManager.setupUi();
 
+    this.viewportToolbar = new ViewportToolbar();
+    this.viewportToolbar.init();
+    this.viewportManager.syncUiFromState();
+    this.viewportToolbar.syncAllMirrors();
+
     this._initIkModulesAsync();
 
     // 窗口大小调整
@@ -487,36 +490,6 @@ class RobotKeyframeEditor {
       this.toggleCOM();
     });
 
-    // 刷新地面投影包络线
-    document.getElementById('refresh-footprint').addEventListener('click', () => {
-      this.refreshFootprint();
-    });
-
-    const footprintHeightInput = document.getElementById('footprint-height-threshold');
-    if (footprintHeightInput) {
-      // 防止输入框点击触发按钮刷新
-      footprintHeightInput.addEventListener('click', (event) => {
-        event.stopPropagation();
-      });
-      footprintHeightInput.addEventListener('keydown', (event) => {
-        event.stopPropagation();
-      });
-    }
-
-    // 切换自动刷新包络线
-    document.getElementById('toggle-auto-refresh').addEventListener('click', () => {
-      this.toggleAutoRefreshFootprint();
-    });
-
-    // 自动旋转按钮
-    document.getElementById('auto-rotate-major').addEventListener('click', () => {
-      this.autoRotateToFootprint('major');
-    });
-
-    document.getElementById('auto-rotate-minor').addEventListener('click', () => {
-      this.autoRotateToFootprint('minor');
-    });
-    
     // 脚部识别和控制
     document.getElementById('identify-feet').addEventListener('click', () => {
       this.identifyFeet();
@@ -1793,412 +1766,6 @@ class RobotKeyframeEditor {
     }
   }
 
-  toggleAutoRefreshFootprint() {
-    this.autoRefreshFootprint = !this.autoRefreshFootprint;
-    const button = document.getElementById('toggle-auto-refresh');
-    
-    if (this.autoRefreshFootprint) {
-      button.textContent = i18n.t('autoRefreshOn');
-      button.style.background = 'rgba(0, 200, 0, 0.3)';
-      button.style.borderColor = 'rgba(0, 200, 0, 0.6)';
-      console.log('⏱️ 开启包络线自动刷新（2秒防抖）');
-      // 立即触发一次更新
-      this.scheduleFootprintUpdate();
-    } else {
-      button.textContent = i18n.t('autoRefreshOff');
-      button.style.background = 'var(--overlay-bg)';
-      button.style.borderColor = 'var(--border-primary)';
-      // 取消待执行的定时器
-      if (this.footprintUpdateTimer) {
-        clearTimeout(this.footprintUpdateTimer);
-        this.footprintUpdateTimer = null;
-      }
-      console.log('⏱️ 关闭包络线自动刷新');
-    }
-  }
-
-  scheduleFootprintUpdate() {
-    // 只有开启自动刷新时才执行
-    if (!this.autoRefreshFootprint) {
-      return;
-    }
-    
-    // 取消之前的定时器
-    if (this.footprintUpdateTimer) {
-      clearTimeout(this.footprintUpdateTimer);
-    }
-    
-    // 设置2秒后更新包络线
-    this.footprintUpdateTimer = setTimeout(() => {
-      if (this.showCOM) {
-        console.log('⏱️ 机器人状态稳定2秒，开始异步计算包络线...');
-        this.refreshFootprint();
-      }
-    }, 2000);
-  }
-
-  getFootprintHeightThresholdMeters() {
-    const input = document.getElementById('footprint-height-threshold');
-    if (!input) {
-      return this.footprintHeightThresholdCm / 100;
-    }
-    const rawValue = parseFloat(input.value);
-    if (Number.isFinite(rawValue)) {
-      this.footprintHeightThresholdCm = Math.max(0, rawValue);
-    }
-    return this.footprintHeightThresholdCm / 100;
-  }
-
-  refreshFootprint() {
-    if (!this.robotLeft && !this.robotRight) {
-      alert(i18n.t('needRobot'));
-      return;
-    }
-    
-    console.log('👣 刷新地面投影包络线...');
-    
-    // 使用setTimeout实现异步计算，避免阻塞UI
-    const heightThresholdMeters = this.getFootprintHeightThresholdMeters();
-    setTimeout(() => {
-      if (this.comVisualizerLeft && this.robotLeft) {
-        this.comVisualizerLeft.updateFootprint(this.robotLeft, heightThresholdMeters);
-      }
-      if (this.comVisualizerRight && this.robotRight) {
-        this.comVisualizerRight.updateFootprint(this.robotRight, heightThresholdMeters);
-      }
-      console.log('✅ 地面投影包络线刷新完成');
-    }, 0);
-  }
-
-  /**
-   * 自动旋转功能：绕包络线主轴或次轴旋转，使重心投影靠近包络线
-   * @param {string} axisType - 'major' 或 'minor'
-   */
-  autoRotateToFootprint(axisType) {
-    if (!this.trajectoryManager.hasTrajectory()) {
-      alert('请先加载 CSV 轨迹');
-      return;
-    }
-
-    if (!this.robotLeft && !this.robotRight) {
-      alert(i18n.t('needRobot'));
-      return;
-    }
-
-    // 获取旋转角度上限
-    const clampInputId = axisType === 'major' ? 'rotation-clamp-major' : 'rotation-clamp-minor';
-    const clampInput = document.getElementById(clampInputId);
-    const clampValue = clampInput ? parseFloat(clampInput.value) : 0.02;
-    if (!Number.isFinite(clampValue) || clampValue <= 0) {
-      alert('请输入有效的旋转角度上限（弧度，大于0）');
-      return;
-    }
-
-    const currentFrame = this.timelineController.getCurrentFrame();
-
-    // 处理左右两侧机器人
-    let hasRotation = false;
-
-    if (this.robotLeft && this.comVisualizerLeft) {
-      const result = this.calculateAutoRotation(
-        this.robotLeft, 
-        this.comVisualizerLeft, 
-        axisType, 
-        clampValue
-      );
-      
-      if (result) {
-        this.applyRotationResidual(currentFrame, result);
-        hasRotation = true;
-        console.log(`🔄 左侧机器人自动旋转 (${axisType}): ${(result.angle * 180 / Math.PI).toFixed(2)}°`);
-      }
-    }
-
-    if (this.robotRight && this.comVisualizerRight) {
-      const result = this.calculateAutoRotation(
-        this.robotRight,
-        this.comVisualizerRight,
-        axisType,
-        clampValue
-      );
-      
-      if (result) {
-        this.applyRotationResidual(currentFrame, result);
-        hasRotation = true;
-        console.log(`🔄 右侧机器人自动旋转 (${axisType}): ${(result.angle * 180 / Math.PI).toFixed(2)}°`);
-      }
-    }
-
-    if (hasRotation) {
-      // 更新显示
-      this.updateRobotState(currentFrame);
-      
-      // 更新曲线编辑器
-      if (this.curveEditor) {
-        this.curveEditor.updateCurves();
-      }
-
-      // 触发自动保存
-      this.triggerAutoSave();
-      
-      const axisName = axisType === 'major' ? '主轴' : '次轴';
-      this.updateStatus(`✅ 自动旋转完成！绕${axisName}旋转`, 'success');
-    } else {
-      this.updateStatus('⚠️ 无法执行自动旋转，请先刷新包络线', 'error');
-    }
-  }
-
-  /**
-   * 计算自动旋转参数
-   */
-  calculateAutoRotation(robot, comVisualizer, axisType, clampValue) {
-    const data = comVisualizer.getFootprintData();
-    
-    if (!data.footprint || !data.centroid || !data.pca || !data.com) {
-      return null;
-    }
-
-    // 重心投影到地面的位置
-    const comProjection = { x: data.com.x, y: data.com.y };
-
-    // 选择旋转轴
-    const axisIndex = axisType === 'major' ? 0 : 1;
-    const rotationAxis = data.pca.eigenvectors[axisIndex];
-
-    // 计算旋转轴在3D空间中的向量（垂直于地面）
-    const axis3D = new THREE.Vector3(rotationAxis.x, rotationAxis.y, 0).normalize();
-
-    // 计算重心投影点到旋转轴的距离
-    // 旋转轴是通过质心、方向为rotationAxis的直线
-    // 点到直线的距离公式：|AP × v| / |v|，其中A是直线上一点，P是目标点，v是方向向量
-    const AP = {
-      x: comProjection.x - data.centroid.x,
-      y: comProjection.y - data.centroid.y
-    };
-    
-    // 2D叉积：AP × rotationAxis
-    const crossProduct = AP.x * rotationAxis.y - AP.y * rotationAxis.x;
-    const distToAxis = Math.abs(crossProduct); // rotationAxis已归一化
-    
-    if (distToAxis < 0.001) {
-      console.log('重心投影已经在旋转轴上或非常接近');
-      return null;
-    }
-
-    // 计算重心高度
-    const comHeight = data.com.z;
-    
-    if (Math.abs(comHeight) < 0.001) {
-      console.log('重心高度过小，无法计算旋转');
-      return null;
-    }
-
-    // 计算让重心投影准确落在旋转轴上所需的旋转角度
-    // 使用几何关系：tan(angle) = distToAxis / comHeight
-    const exactAngle = Math.atan2(distToAxis, comHeight);
-    
-    // 确定旋转方向：试探两个方向，选择让距离减小的那个
-    // 创建一个小的测试旋转
-    const testAngle = 0.01; // 1度左右的测试旋转
-    
-    // 测试正向旋转后重心的投影位置
-    const testRotationQuat = new THREE.Quaternion();
-    testRotationQuat.setFromAxisAngle(axis3D, testAngle);
-    
-    // 计算旋转后重心相对于质心的位置
-    const comRelative = new THREE.Vector3(
-      data.com.x - data.centroid.x,
-      data.com.y - data.centroid.y,
-      data.com.z
-    );
-    
-    const rotatedCom = comRelative.clone().applyQuaternion(testRotationQuat);
-    const rotatedComProjection = {
-      x: rotatedCom.x,
-      y: rotatedCom.y
-    };
-    
-    // 计算旋转后到轴的距离
-    const crossProductAfter = rotatedComProjection.x * rotationAxis.y - rotatedComProjection.y * rotationAxis.x;
-    const distToAxisAfter = Math.abs(crossProductAfter);
-    
-    // 判断方向：如果距离减小了，说明正向是对的；否则反向
-    const rotationSign = distToAxisAfter < distToAxis ? 1 : -1;
-    
-    // 应用旋转方向
-    const signedExactAngle = rotationSign * exactAngle;
-    
-    // 与clamp值比较，取较小值
-    const angle = Math.abs(signedExactAngle) <= clampValue 
-      ? signedExactAngle 
-      : rotationSign * clampValue;
-
-    console.log(`🔄 旋转角度计算: 精确=${(signedExactAngle * 180 / Math.PI).toFixed(2)}°, 实际=${(angle * 180 / Math.PI).toFixed(2)}°, 距离轴=${(distToAxis * 100).toFixed(1)}cm`);
-
-    if (Math.abs(angle) < 0.001) {
-      console.log('计算的旋转角度过小，跳过');
-      return null;
-    }
-
-    return {
-      axis: axis3D,
-      angle: angle,
-      centroid: data.centroid
-    };
-  }
-
-  /**
-   * 查找点到多边形最近的点
-   */
-  findClosestPointOnPolygon(point, polygon) {
-    let closestPoint = null;
-    let minDist = Infinity;
-
-    for (let i = 0; i < polygon.length; i++) {
-      const j = (i + 1) % polygon.length;
-      const p1 = polygon[i];
-      const p2 = polygon[j];
-
-      // 计算点到线段的最近点
-      const closest = this.closestPointOnSegment(point, p1, p2);
-      const dist = Math.sqrt(
-        (closest.x - point.x) ** 2 + (closest.y - point.y) ** 2
-      );
-
-      if (dist < minDist) {
-        minDist = dist;
-        closestPoint = closest;
-      }
-    }
-
-    return closestPoint;
-  }
-
-  /**
-   * 计算点到线段的最近点
-   */
-  closestPointOnSegment(point, segStart, segEnd) {
-    const dx = segEnd.x - segStart.x;
-    const dy = segEnd.y - segStart.y;
-    const lenSq = dx * dx + dy * dy;
-
-    if (lenSq < 1e-10) {
-      return { x: segStart.x, y: segStart.y };
-    }
-
-    const t = Math.max(0, Math.min(1, 
-      ((point.x - segStart.x) * dx + (point.y - segStart.y) * dy) / lenSq
-    ));
-
-    return {
-      x: segStart.x + t * dx,
-      y: segStart.y + t * dy
-    };
-  }
-
-  /**
-   * 应用旋转到base并生成残差
-   */
-  applyRotationResidual(frameIndex, rotationResult) {
-    const { axis, angle, centroid } = rotationResult;
-
-    // 获取当前帧的基座状态
-    const baseState = this.trajectoryManager.getBaseState(frameIndex);
-    if (!baseState) {
-      return;
-    }
-
-    // 创建旋转四元数
-    const rotationQuat = new THREE.Quaternion();
-    rotationQuat.setFromAxisAngle(axis, angle);
-
-    // 获取原始基座姿态
-    const originalQuat = new THREE.Quaternion(
-      baseState.base.quaternion.x,
-      baseState.base.quaternion.y,
-      baseState.base.quaternion.z,
-      baseState.base.quaternion.w
-    );
-
-    // 应用旋转：新四元数 = 旋转 * 原始
-    const newQuat = rotationQuat.clone().multiply(originalQuat);
-
-    // 计算基座位置的变化（绕质心旋转）
-    const originalPos = new THREE.Vector3(
-      baseState.base.position.x,
-      baseState.base.position.y,
-      baseState.base.position.z
-    );
-    
-    const centroid3D = new THREE.Vector3(centroid.x, centroid.y, 0);
-    
-    // 位置相对于质心的偏移
-    const offset = originalPos.clone().sub(centroid3D);
-    
-    // 旋转偏移向量
-    offset.applyQuaternion(rotationQuat);
-    
-    // 新位置
-    const newPos = centroid3D.clone().add(offset);
-
-    // 计算残差
-    const positionResidual = {
-      x: newPos.x - baseState.base.position.x,
-      y: newPos.y - baseState.base.position.y,
-      z: newPos.z - baseState.base.position.z
-    };
-
-    // 计算旋转残差：residualQuat = originalQuat.inverse() * newQuat
-    const quaternionResidual = originalQuat.clone().invert().multiply(newQuat);
-
-    // 确保或创建该帧的关键帧
-    if (!this.trajectoryManager.keyframes.has(frameIndex)) {
-      // 创建新关键帧
-      const jointCount = this.trajectoryManager.jointCount;
-      this.trajectoryManager.keyframes.set(frameIndex, {
-        residual: new Array(jointCount).fill(0),
-        baseResidual: {
-          position: { x: 0, y: 0, z: 0 },
-          quaternion: { x: 0, y: 0, z: 0, w: 1 }
-        }
-      });
-    }
-
-    const keyframe = this.trajectoryManager.keyframes.get(frameIndex);
-
-    // 叠加残差（累加位置，组合四元数）
-    if (!keyframe.baseResidual) {
-      keyframe.baseResidual = {
-        position: { x: 0, y: 0, z: 0 },
-        quaternion: { x: 0, y: 0, z: 0, w: 1 }
-      };
-    }
-
-    // 位置残差累加
-    keyframe.baseResidual.position.x += positionResidual.x;
-    keyframe.baseResidual.position.y += positionResidual.y;
-    keyframe.baseResidual.position.z += positionResidual.z;
-
-    // 四元数残差组合：newResidual = quaternionResidual * oldResidual
-    const oldResidualQuat = new THREE.Quaternion(
-      keyframe.baseResidual.quaternion.x,
-      keyframe.baseResidual.quaternion.y,
-      keyframe.baseResidual.quaternion.z,
-      keyframe.baseResidual.quaternion.w
-    );
-    
-    const combinedResidualQuat = quaternionResidual.multiply(oldResidualQuat);
-    
-    keyframe.baseResidual.quaternion.x = combinedResidualQuat.x;
-    keyframe.baseResidual.quaternion.y = combinedResidualQuat.y;
-    keyframe.baseResidual.quaternion.z = combinedResidualQuat.z;
-    keyframe.baseResidual.quaternion.w = combinedResidualQuat.w;
-
-    // 更新关键帧标记
-    const keyframes = Array.from(this.trajectoryManager.keyframes.keys());
-    this.timelineController.updateKeyframeMarkers(keyframes);
-  }
-  
   /**
    * 恢复保存的状态（如果可用）
    */
@@ -2292,9 +1859,6 @@ class RobotKeyframeEditor {
     this.cameraMode = 'rotate';
     this.followRobot = false;
     this.showCOM = true;
-    this.autoRefreshFootprint = false;
-    this.footprintHeightThresholdCm = 10;
-    
     // 更新按钮状态
     document.getElementById('toggle-camera-mode').textContent = i18n.t('rotate');
     document.getElementById('follow-robot').textContent = i18n.t('followOff');
@@ -2303,10 +1867,6 @@ class RobotKeyframeEditor {
     document.getElementById('toggle-com').textContent = i18n.t('comOn');
     document.getElementById('toggle-com').style.background = 'rgba(255, 100, 100, 0.3)';
     document.getElementById('toggle-com').style.borderColor = 'rgba(255, 100, 100, 0.6)';
-    document.getElementById('toggle-auto-refresh').textContent = i18n.t('autoRefreshOff');
-    document.getElementById('toggle-auto-refresh').style.background = 'var(--overlay-bg)';
-    document.getElementById('toggle-auto-refresh').style.borderColor = 'var(--border-primary)';
-    
     // 清除文件名显示
     this.clearCurrentFileName();
     

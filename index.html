@@ -253,27 +253,291 @@
       height: 100% !important;
     }
 
-    #viewport-overlay-controls {
+    .viewport-toolbar {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      z-index: 150;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      pointer-events: none;
+      max-width: calc(100% - 20px);
+    }
+
+    .viewport-toolbar-row {
+      --viewport-toolbar-chip-h: 32px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      pointer-events: auto;
+      width: 100%;
+      min-height: var(--viewport-toolbar-chip-h);
+    }
+
+    .viewport-toolbar-pin {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 0;
+      background: transparent;
+      border: none;
+      backdrop-filter: none;
+      flex: 1;
+      min-width: 0;
+      min-height: var(--viewport-toolbar-chip-h);
+    }
+
+    .viewport-toolbar-pin:empty {
+      display: none;
+    }
+
+    .viewport-pin-item {
+      display: inline-flex;
+      align-items: center;
+      flex-shrink: 0;
+      height: var(--viewport-toolbar-chip-h);
+    }
+
+    .viewport-pin-block,
+    .viewport-toolbar-mirror.viewport-pin-block {
+      display: inline-flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      min-height: var(--viewport-toolbar-chip-h);
+      height: var(--viewport-toolbar-chip-h);
+      padding: 0 10px;
+      box-sizing: border-box;
+      background: var(--overlay-bg);
+      border: 1px solid var(--border-primary);
+      border-radius: 4px;
+      backdrop-filter: blur(5px);
+    }
+
+    .viewport-toolbar-mirror.viewport-pin-block {
+      background: var(--bg-secondary);
+    }
+
+    .viewport-pin-block button,
+    .viewport-toolbar-mirror button {
+      min-height: 24px;
+      padding: 4px 10px;
+      font-size: 11px;
+      box-sizing: border-box;
+    }
+
+    .viewport-pin-block-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      white-space: nowrap;
+      font-size: 11px;
+      color: var(--text-primary);
+    }
+
+    .viewport-toolbar-pin .viewport-pin-block-item,
+    .viewport-toolbar-mirror .viewport-pin-block-item {
+      color: var(--overlay-text);
+    }
+
+    .viewport-ghost-swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      background: #6a9955;
+      border: 1px solid var(--border-primary);
+      flex-shrink: 0;
+    }
+
+    .viewport-toolbar-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: var(--viewport-toolbar-chip-h);
+      min-height: var(--viewport-toolbar-chip-h);
+      padding: 0 12px;
+      box-sizing: border-box;
+      background: var(--overlay-bg);
+      color: var(--overlay-text);
+      border: 1px solid var(--border-primary);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      line-height: 1;
+      backdrop-filter: blur(5px);
+      white-space: nowrap;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 2;
+    }
+
+    .viewport-toolbar-toggle:hover {
+      border-color: var(--accent-primary);
+    }
+
+    .viewport-toolbar-panel {
+      display: none;
+      width: 100%;
+      max-width: min(520px, calc(100vw - 360px));
+      max-height: min(70vh, 480px);
+      overflow-y: auto;
+      padding: 10px 12px;
+      background: var(--overlay-bg);
+      border: 1px solid var(--border-primary);
+      border-radius: 6px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      font-size: 11px;
+      color: var(--text-primary);
       pointer-events: auto;
     }
 
-    .viewport-bottom-controls {
-      position: absolute;
-      bottom: 10px;
-      left: 10px;
-      right: 10px;
-      z-index: 100;
+    .viewport-toolbar-panel.is-open {
+      display: block;
+    }
+
+    .viewport-toolbar-panel.is-floating {
+      position: fixed;
+      z-index: 200;
+      margin: 0;
+      width: min(520px, calc(100vw - 24px));
+    }
+
+    .viewport-toolbar-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border-primary);
+      font-weight: 600;
+      cursor: move;
+      user-select: none;
+    }
+
+    .viewport-toolbar-panel-header .viewport-toolbar-panel-close {
+      cursor: pointer;
+    }
+
+    .viewport-toolbar-mirror {
+      pointer-events: auto;
+    }
+
+    .viewport-toolbar-panel-close {
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 4px;
+    }
+
+    .viewport-toolbar-section {
+      margin-bottom: 10px;
+    }
+
+    .viewport-toolbar-section-title {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--text-secondary);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .viewport-toolbar-section-body {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       gap: 6px;
-      max-width: calc(100% - 20px);
-      pointer-events: auto;
     }
 
-    .viewport-bottom-controls > button,
-    .viewport-bottom-controls > div {
+    .viewport-tool-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-primary);
+      border-radius: 4px;
+    }
+
+    .viewport-pin-settings {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed var(--border-primary);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 12px;
+    }
+
+    .viewport-pin-settings-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
       flex-shrink: 0;
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 500;
+      margin-right: 2px;
+    }
+
+    .viewport-pin-icon {
+      font-size: 12px;
+      line-height: 1;
+    }
+
+    .viewport-pin-options {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 12px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .viewport-pin-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .playback-rate-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .playback-rate-wrap select {
+      min-height: 28px;
+      padding: 4px 6px;
+      font-size: 12px;
+      border: 1px solid var(--border-primary);
+      border-radius: 3px;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      box-sizing: border-box;
+    }
+
+    #fps-display {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      font-size: 12px;
+      color: var(--text-secondary);
     }
 
     #sidebar {
@@ -372,18 +636,39 @@
     }
 
     #timeline {
-      height: 120px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 0;
+      height: auto;
       background: var(--bg-secondary);
       border-top: 1px solid var(--border-primary);
-      padding: 10px;
+      padding: 10px 10px 8px;
       transition: background-color 0.3s ease, border-color 0.3s ease;
       flex-shrink: 0;
+      overflow: visible;
+    }
+
+    #keyframe-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    #keyframe-controls button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 28px;
+      box-sizing: border-box;
     }
 
     #keyframe-markers {
       position: relative;
       height: 20px;
-      margin-bottom: 10px;
+      margin-bottom: 5px;
     }
 
     #timeline-slider {
@@ -395,15 +680,16 @@
       overflow-y: hidden;
       touch-action: none;
       position: relative;
+      flex-shrink: 0;
     }
     
     #timeline-scrollbar {
       width: 100%;
       height: 12px;
+      flex-shrink: 0;
       background: var(--bg-secondary);
       border-radius: 6px;
       position: relative;
-      margin-top: 5px;
       cursor: pointer;
       transition: background-color 0.3s ease;
     }
@@ -428,11 +714,18 @@
 
     .timeline-info {
       display: flex;
+      flex-wrap: wrap;
       justify-content: space-between;
+      align-items: center;
+      gap: 6px 12px;
+      flex-shrink: 0;
       font-size: 12px;
-      color: var(--text-tertiary);
+      line-height: 1.4;
+      color: var(--text-secondary);
       transition: color 0.3s ease;
-      padding-bottom: 8px;
+      padding: 4px 0 2px;
+      position: relative;
+      z-index: 2;
     }
     
     /* Toggle Switch 样式 - 大方形按钮 */
@@ -885,59 +1178,54 @@
         <div id="viewport-label-left" style="position: absolute; top: 10px; left: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: var(--success-color); pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px); display: none;" data-i18n="baseTrajectory">原始轨迹 (Base)</div>
         <div id="viewport-label-right" style="position: absolute; top: 10px; right: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: var(--warning-color); pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px); display: none;" data-i18n="editedTrajectory">编辑后 (Modified)</div>
         <div id="viewport-split-divider" style="position: absolute; top: 50%; left: 50%; width: 2px; height: 100%; background: var(--border-primary); transform: translateX(-50%); pointer-events: none; z-index: 99; transition: background-color 0.3s ease; display: none;"></div>
-        <div id="viewport-overlay-controls" style="position: absolute; top: 10px; left: 10px; right: 10px; z-index: 101; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 10px; background: var(--overlay-bg); border-radius: 4px; backdrop-filter: blur(5px); font-size: 11px; color: var(--text-primary);">
-          <span data-i18n="viewportMode">视口</span>
-          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
-            <input type="radio" name="viewport-mode" id="viewport-mode-overlay" value="overlay" checked />
-            <span data-i18n="viewportOverlay">同屏叠显</span>
-          </label>
-          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
-            <input type="radio" name="viewport-mode" id="viewport-mode-split" value="split" />
-            <span data-i18n="viewportSplit">左右分屏</span>
-          </label>
-          <span style="width: 1px; height: 16px; background: var(--border-primary);"></span>
-          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
-            <input type="checkbox" id="show-ghost-model" checked />
-            <span style="width: 12px; height: 12px; border-radius: 2px; background: #6a9955; border: 1px solid var(--border-primary);"></span>
-            <span data-i18n="showGhost">参考 (Ghost)</span>
-          </label>
-          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
-            <input type="checkbox" id="show-edited-model" checked />
-            <span data-i18n="showEdited">编辑</span>
-          </label>
-        </div>
-        
-        <!-- 相机控制按钮 -->
-        <div class="viewport-bottom-controls">
-          <button id="toggle-camera-mode" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="rotate">
-            🔄 旋转
-          </button>
-          <button id="reset-camera" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="resetCamera">
-            🔄 重置视角
-          </button>
-          <button id="follow-robot" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="followOff">
-            🤖 跟随: 关
-          </button>
-          <button id="toggle-com" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="comOn">
-            🎯 重心: 开
-          </button>
-          <button id="refresh-footprint" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);">
-            <span data-i18n="refreshFootprint">👣 刷新包络线</span>
-            <input id="footprint-height-threshold" type="number" min="0" step="0.1" value="10" style="width: 48px; padding: 2px 4px; font-size: 11px; border: 1px solid var(--border-primary); border-radius: 3px; background: var(--bg-secondary); color: var(--text-primary);" />
-            <span>cm</span>
-          </button>
-          <button id="toggle-auto-refresh" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="autoRefreshOff">
-            ⏱️ 自动刷新: 关
-          </button>
-          <div style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--overlay-bg); border: 1px solid var(--border-primary); border-radius: 4px; backdrop-filter: blur(5px);">
-            <button id="auto-rotate-major" style="padding: 4px 8px; font-size: 11px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 3px; cursor: pointer;" data-i18n="autoRotateMajor">🔄 主轴</button>
-            <input id="rotation-clamp-major" type="number" min="0" step="0.01" value="0.02" style="width: 50px; padding: 2px 4px; font-size: 11px; border: 1px solid var(--border-primary); border-radius: 3px; background: var(--bg-secondary); color: var(--text-primary);" title="主轴旋转角度上限 (弧度)" />
-            <span style="font-size: 11px; color: var(--text-secondary);">rad</span>
+        <div id="viewport-toolbar" class="viewport-toolbar">
+          <div class="viewport-toolbar-row">
+            <div id="viewport-toolbar-pin" class="viewport-toolbar-pin" aria-label="Pinned viewport tools"></div>
+            <button type="button" id="viewport-toolbar-toggle" class="viewport-toolbar-toggle" aria-expanded="false" data-i18n="viewportToolbarToggle">⚙ 配置</button>
           </div>
-          <div style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--overlay-bg); border: 1px solid var(--border-primary); border-radius: 4px; backdrop-filter: blur(5px);">
-            <button id="auto-rotate-minor" style="padding: 4px 8px; font-size: 11px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 3px; cursor: pointer;" data-i18n="autoRotateMinor">🔄 次轴</button>
-            <input id="rotation-clamp-minor" type="number" min="0" step="0.01" value="0.02" style="width: 50px; padding: 2px 4px; font-size: 11px; border: 1px solid var(--border-primary); border-radius: 3px; background: var(--bg-secondary); color: var(--text-primary);" title="次轴旋转角度上限 (弧度)" />
-            <span style="font-size: 11px; color: var(--text-secondary);">rad</span>
+          <div id="viewport-toolbar-panel" class="viewport-toolbar-panel">
+            <div class="viewport-toolbar-panel-header" id="viewport-toolbar-panel-header">
+              <span data-i18n="viewportToolbarTitle">配置</span>
+              <button type="button" id="viewport-toolbar-close" class="viewport-toolbar-panel-close" title="Close">×</button>
+            </div>
+            <div class="viewport-toolbar-section" data-section="viewport">
+              <span class="viewport-toolbar-section-title" data-i18n="viewportDisplayMode">显示模式</span>
+              <div id="viewport-tool-block" class="viewport-pin-block">
+                <label class="viewport-pin-block-item">
+                  <input type="radio" name="viewport-mode" id="viewport-mode-overlay" value="overlay" checked />
+                  <span data-i18n="viewportOverlay">同屏叠显</span>
+                </label>
+                <label class="viewport-pin-block-item">
+                  <input type="radio" name="viewport-mode" id="viewport-mode-split" value="split" />
+                  <span data-i18n="viewportSplit">左右分屏</span>
+                </label>
+                <label class="viewport-pin-block-item">
+                  <input type="checkbox" id="show-ghost-model" checked />
+                  <span class="viewport-ghost-swatch" aria-hidden="true"></span>
+                  <span data-i18n="showGhost">参考 (Ghost)</span>
+                </label>
+                <label class="viewport-pin-block-item">
+                  <input type="checkbox" id="show-edited-model" checked />
+                  <span data-i18n="showEdited">编辑</span>
+                </label>
+              </div>
+            </div>
+            <div class="viewport-toolbar-section" data-section="camera">
+              <span class="viewport-toolbar-section-title" data-i18n="viewportSectionCamera">相机与显示</span>
+              <div id="viewport-tool-camera-block" class="viewport-pin-block">
+                <button id="toggle-camera-mode" type="button" style="padding: 5px 10px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="rotate">🔄 旋转</button>
+                <button id="reset-camera" type="button" style="padding: 5px 10px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="resetCamera">🔄 重置视角</button>
+                <button id="follow-robot" type="button" style="padding: 5px 10px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="followOff">🤖 跟随: 关</button>
+                <button id="toggle-com" type="button" style="padding: 5px 10px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="comOn">🎯 重心: 开</button>
+              </div>
+            </div>
+            <div class="viewport-pin-settings" id="viewport-pin-settings">
+              <span class="viewport-pin-settings-label">
+                <span class="viewport-pin-icon" aria-hidden="true">📌</span>
+                <span data-i18n="viewportPinBar">固定</span>
+              </span>
+              <div class="viewport-pin-options" id="viewport-pin-options"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -1035,7 +1323,7 @@
     </div>
 
     <div id="timeline">
-      <div id="keyframe-controls" style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
+      <div id="keyframe-controls">
         <button id="add-keyframe" style="padding: 4px 12px; font-size: 12px;" data-i18n="addKeyframe">添加关键帧</button>
         <button id="delete-keyframe" style="padding: 4px 12px; font-size: 12px; display: none;" data-i18n="deleteKeyframe">删除关键帧</button>
         <button id="smooth-keyframes" style="padding: 4px 12px; font-size: 12px; display: none; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer;" data-i18n="smoothKeyframes">✨ 平滑</button>
@@ -1044,9 +1332,20 @@
         <button id="timeline-zoom-reset" style="padding: 4px 12px; font-size: 12px;" data-i18n-title="zoomResetTitle" data-i18n="zoomReset">1:1</button>
         <button id="timeline-zoom-in" style="padding: 4px 12px; font-size: 12px;" data-i18n-title="zoomInTitle" data-i18n="zoomIn">🔍+</button>
         <button id="play-pause" style="padding: 4px 16px; font-size: 12px;" data-i18n="play">▶ 播放</button>
-        <span id="fps-display" style="font-size: 12px; color: #858585;"><span data-i18n="fps">FPS</span>: 50</span>
+        <label class="playback-rate-wrap" for="playback-rate">
+          <span data-i18n="playbackRate">倍率</span>
+          <select id="playback-rate" aria-label="Playback speed">
+            <option value="0.25">0.25×</option>
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="1.5">1.5×</option>
+            <option value="2">2×</option>
+            <option value="3">3×</option>
+          </select>
+        </label>
+        <span id="fps-display"><span data-i18n="fps">FPS</span>: 50</span>
       </div>
-      <div id="timeline-viewport" style="position: relative; overflow-x: hidden; overflow-y: hidden; width: 100%; margin-bottom: 5px;">
+      <div id="timeline-viewport" style="position: relative; overflow-x: hidden; overflow-y: hidden; width: 100%;">
         <div id="timeline-content" style="position: relative; width: 100%; min-width: 100%;">
           <div id="keyframe-markers" style="position: relative; height: 20px; margin-bottom: 5px;"></div>
           <input type="range" id="timeline-slider" min="0" max="100" value="0" style="width: 100%; margin: 0;">

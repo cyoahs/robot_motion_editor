@@ -7,6 +7,7 @@ export class TimelineController {
     this.duration = 0;
     this.currentFrame = 0;
     this.fps = 50;
+    this.playbackRate = 1;
     this.keyframeMarkers = [];
     this.isPlaying = false;
     this.playInterval = null;
@@ -60,6 +61,13 @@ export class TimelineController {
     
     // 自定义滚动条
     this.setupCustomScrollbar();
+
+    const rateSelect = document.getElementById('playback-rate');
+    if (rateSelect) {
+      rateSelect.addEventListener('change', () => {
+        this.setPlaybackRate(parseFloat(rateSelect.value) || 1);
+      });
+    }
   }
   
   setupCustomScrollbar() {
@@ -442,7 +450,7 @@ export class TimelineController {
     const playBtn = document.getElementById('play-pause');
     if (playBtn) playBtn.textContent = i18n.t('pause');
     
-    const frameTime = 1000 / this.fps;
+    const frameTime = this._getFrameIntervalMs();
     this.playInterval = setInterval(() => {
       let nextFrame = this.currentFrame + 1;
       if (nextFrame >= this.frameCount) {
@@ -484,5 +492,24 @@ export class TimelineController {
     document.getElementById('fps-display').textContent = `FPS: ${fps}`;
     
     if (wasPlaying) this.play();
+  }
+
+  setPlaybackRate(rate) {
+    const r = Number.isFinite(rate) && rate > 0 ? rate : 1;
+    this.playbackRate = r;
+    const sel = document.getElementById('playback-rate');
+    if (sel && sel.value !== String(r)) {
+      const opt = Array.from(sel.options).find((o) => parseFloat(o.value) === r);
+      if (opt) sel.value = opt.value;
+    }
+    if (this.isPlaying) {
+      this.pause();
+      this.play();
+    }
+  }
+
+  _getFrameIntervalMs() {
+    const rate = this.playbackRate > 0 ? this.playbackRate : 1;
+    return 1000 / (this.fps * rate);
   }
 }

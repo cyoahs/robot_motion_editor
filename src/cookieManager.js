@@ -141,9 +141,6 @@ export class CookieManager {
         cameraMode: editor.cameraMode,
         followRobot: editor.followRobot,
         showCOM: editor.showCOM,
-        autoRefreshFootprint: editor.autoRefreshFootprint,
-        footprintHeightThresholdCm: editor.footprintHeightThresholdCm,
-        
         // 曲线编辑器状态
         curveEditorExpanded: editor.curveEditor ? editor.curveEditor.isExpanded : false,
         visibleCurves: editor.curveEditor ? Array.from(editor.curveEditor.curves.entries())
@@ -570,18 +567,6 @@ console.log('  🔧 开始加载 URDF...');
         editor.toggleCOM();
       }
       
-      if (typeof state.autoRefreshFootprint === 'boolean' && state.autoRefreshFootprint !== editor.autoRefreshFootprint) {
-        editor.toggleAutoRefreshFootprint();
-      }
-      
-      if (typeof state.footprintHeightThresholdCm === 'number') {
-        editor.footprintHeightThresholdCm = state.footprintHeightThresholdCm;
-        const input = document.getElementById('footprint-height-threshold');
-        if (input) {
-          input.value = state.footprintHeightThresholdCm;
-        }
-      }
-
       // 恢复曲线编辑器状态
       if (editor.curveEditor) {
         if (typeof state.curveEditorExpanded === 'boolean' && state.curveEditorExpanded !== editor.curveEditor.isExpanded) {

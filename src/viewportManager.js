@@ -276,6 +276,8 @@ export class ViewportManager {
     if (e.endEffectorControls) {
       e.endEffectorControls.onViewportModeChanged();
     }
+    this.syncUiFromState();
+    e.viewportToolbar?.syncAllMirrors();
   }
 
   updateDomVisibility() {
@@ -283,13 +285,12 @@ export class ViewportManager {
     const splitDivider = document.getElementById('viewport-split-divider');
     const labelLeft = document.getElementById('viewport-label-left');
     const labelRight = document.getElementById('viewport-label-right');
-    const overlayBar = document.getElementById('viewport-overlay-controls');
+    const viewportToolbar = document.getElementById('viewport-toolbar');
 
     if (splitDivider) splitDivider.style.display = overlay ? 'none' : 'block';
     if (labelLeft) labelLeft.style.display = overlay ? 'none' : 'block';
     if (labelRight) labelRight.style.display = overlay ? 'none' : 'block';
-    // 视口模式 / Ghost 控制在两种模式下均需可见，否则分屏后无法切回 overlay
-    if (overlayBar) overlayBar.style.display = 'flex';
+    if (viewportToolbar) viewportToolbar.style.display = 'flex';
   }
 
   syncUiFromState() {

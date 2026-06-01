@@ -618,19 +618,24 @@ export class EndEffectorControls {
     const isPositionEnd = endMode === 'position';
     const isOrientationEnd = endMode === 'orientation';
 
+    let showIkError = false;
+
     if (isPositionEnd && robot) {
-      // 松手时做更高精度求解（更多迭代）
       this._buildPositionTarget();
-      const finalR = this.ikService.solveHoldPositionSoftOrientation(
+      const targetPos = _pos.clone();
+      this.ikService.solveHoldPositionSoftOrientation(
         robot,
         _pos,
         this._refQuaternion,
         { maxIterations: 24, rotationFactor: POSITION_SOFT_ROT_FACTOR }
       );
-      this._lastSolveSuccess = finalR.success;
       robot.updateMatrixWorld(true);
-      // 更新参考为实际 FK 位置（供后续姿态锁定使用）
       this._commitActualPositionAsRef(robot);
+      const link = getUrdfLinkObject(robot, this.endEffectorLinkName);
+      if (link) {
+        link.getWorldPosition(_pos);
+        showIkError = _pos.distanceTo(targetPos) > 0.05;
+      }
       this._syncJointUi();
     } else if (isOrientationEnd && robot) {
       // 做最终高精度姿态求解
@@ -648,8 +653,10 @@ export class EndEffectorControls {
       this._syncJointUi();
     }
 
-    if (!this._lastSolveSuccess) {
-      this.editor.updateStatus(i18n.t('ikSolveFailed'), 'error');
+    this._lastSolveSuccess = !showIkError;
+
+    if (showIkError) {
+      this.editor.updateStatus(i18n.t('ikPositionReachFailed'), 'error');
     } else if (this._chainAnglesChanged()) {
       this._commitKeyframe();
     }
