@@ -87,6 +87,31 @@ export class EndEffectorControls {
     });
   }
 
+  /** 隐藏 TransformControls 绕相机视线旋转的黄色外圈（handle.name === 'E'） */
+  _hideViewAxisRotationRing(control) {
+    const gizmoRoot = control?._gizmo;
+    if (!gizmoRoot) return;
+
+    for (const part of ['gizmo', 'picker']) {
+      const rotateRoot = gizmoRoot[part]?.rotate;
+      if (!rotateRoot) continue;
+      rotateRoot.traverse((child) => {
+        if (child.name === 'E') child.visible = false;
+      });
+    }
+  }
+
+  _patchRotateControlNoViewRing(control) {
+    if (!control || control._ikNoViewRingPatched) return;
+    control._ikNoViewRingPatched = true;
+    const origUpdate = control.updateMatrixWorld.bind(control);
+    control.updateMatrixWorld = () => {
+      origUpdate();
+      this._hideViewAxisRotationRing(control);
+    };
+    this._hideViewAxisRotationRing(control);
+  }
+
   _updateControlsAttachment() {
     const tc = this.controlsTranslate;
     const rc = this.controlsRotate;
@@ -425,6 +450,7 @@ export class EndEffectorControls {
     this.controlsRotate.setSpace('world');
     this.controlsRotate.setMode('rotate');
     this.controlsRotate.size = 0.82;
+    this._patchRotateControlNoViewRing(this.controlsRotate);
 
     this._bindTransformControl(this.controlsTranslate, 'position');
     this._bindTransformControl(this.controlsRotate, 'orientation');
