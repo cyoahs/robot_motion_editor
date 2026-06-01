@@ -162,8 +162,6 @@ export class JointController {
   }
 
   updateKeyframeIndicators() {
-    const t0 = performance.now();
-    
     if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
       // 没有轨迹时隐藏所有圈圈
       this.joints.forEach((joint, index) => {
@@ -231,8 +229,6 @@ export class JointController {
       }
     });
     
-    const t1 = performance.now();
-    console.log(`⏱️ updateKeyframeIndicators 耗时: ${(t1-t0).toFixed(2)}ms`);
   }
   
   updateCurveBackgrounds() {
@@ -254,7 +250,7 @@ export class JointController {
     });
   }
 
-  applyJointValue(index, value) {
+  applyJointValue(index, value, { skipAutoKeyframe = false } = {}) {
     if (this.joints[index] && this.joints[index].joint) {
       this.joints[index].joint.setJointValue(value);
     }
@@ -266,8 +262,9 @@ export class JointController {
       }
     }
     
-    // 如果当前帧是关键帧，自动更新残差
-    this.autoUpdateKeyframe();
+    if (!skipAutoKeyframe) {
+      this.autoUpdateKeyframe();
+    }
   }
 
   autoUpdateKeyframe() {
@@ -321,11 +318,12 @@ export class JointController {
     }
   }
 
-  updateJoints(jointValues) {
+  updateJoints(jointValues, { silent = false } = {}) {
     this.jointValues = [...jointValues];
     
     const container = document.getElementById('joint-controls');
     const controls = container.querySelectorAll('.joint-control');
+    const skipAutoKeyframe = silent;
     
     controls.forEach((control, index) => {
       if (index >= jointValues.length) return;
@@ -337,11 +335,12 @@ export class JointController {
       if (slider) slider.value = value;
       if (numberInput) numberInput.value = value.toFixed(3);
       
-      this.applyJointValue(index, value);
+      this.applyJointValue(index, value, { skipAutoKeyframe });
     });
     
-    // 更新关键帧指示器
-    this.updateKeyframeIndicators();
+    if (!silent) {
+      this.updateKeyframeIndicators();
+    }
   }
 
   getCurrentJointValues() {

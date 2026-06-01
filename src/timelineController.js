@@ -11,9 +11,9 @@ export class TimelineController {
     this.keyframeMarkers = [];
     this.isPlaying = false;
     this.playInterval = null;
-    this.zoomLevel = 1.0; // 缩放级别
+    this.zoomLevel = 1.0; // 1× = 视口内显示整段轨迹
     this.minZoom = 1.0;
-    this.maxZoom = 10.0;
+    this.maxZoom = 50.0;
     this.selectedKeyframes = new Set(); // 选中的关键帧
     
     this.setupUI();
@@ -27,37 +27,38 @@ export class TimelineController {
       this.setCurrentFrame(value);
     });
     
-    // 缩放按钮
-    document.getElementById('timeline-zoom-in').addEventListener('click', () => {
-      this.setZoom(this.zoomLevel * 1.5);
+    // 缩放按钮（以视口中心为锚点）
+    document.getElementById('timeline-zoom-in')?.addEventListener('click', () => {
+      this.setZoom(this.zoomLevel * 1.5, this._getViewportZoomAnchorX());
     });
-    
-    document.getElementById('timeline-zoom-out').addEventListener('click', () => {
-      this.setZoom(this.zoomLevel / 1.5);
+
+    document.getElementById('timeline-zoom-out')?.addEventListener('click', () => {
+      this.setZoom(this.zoomLevel / 1.5, this._getViewportZoomAnchorX());
     });
-    
-    document.getElementById('timeline-zoom-reset').addEventListener('click', () => {
+
+    document.getElementById('timeline-zoom-reset')?.addEventListener('click', () => {
       this.setZoom(1.0);
     });
-    
-    // 鼠标滚轮缩放（在时间轴区域）
+
     const viewport = document.getElementById('timeline-viewport');
-    viewport.addEventListener('wheel', (e) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        const delta = e.deltaY > 0 ? 0.9 : 1.1;
-        this.setZoom(this.zoomLevel * delta);
-      }
+
+    // 滚轮缩放 / Shift+滚轮平移（时间轴轨道区域，不含顶部控制按钮行）
+    const timelineRoot = document.getElementById('timeline');
+    timelineRoot?.addEventListener('wheel', (e) => {
+      if (e.target.closest('#keyframe-controls')) return;
+      this._onTimelineWheel(e);
     }, { passive: false });
-    
+
     // 禁用所有触摸手势
-    viewport.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-    }, { passive: false });
-    
-    viewport.addEventListener('touchmove', (e) => {
-      e.preventDefault();
-    }, { passive: false });
+    if (viewport) {
+      viewport.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+      }, { passive: false });
+
+      viewport.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+      }, { passive: false });
+    }
     
     // 自定义滚动条
     this.setupCustomScrollbar();
@@ -66,6 +67,22 @@ export class TimelineController {
     if (rateSelect) {
       rateSelect.addEventListener('change', () => {
         this.setPlaybackRate(parseFloat(rateSelect.value) || 1);
+      });
+    }
+
+    const fpsInput = document.getElementById('project-fps');
+    if (fpsInput) {
+      const commitFps = () => {
+        if (fpsInput.disabled || !this.editor?.applyProjectFPS) return;
+        this.editor.applyProjectFPS(fpsInput.value);
+      };
+      fpsInput.addEventListener('change', commitFps);
+      fpsInput.addEventListener('blur', commitFps);
+      fpsInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          fpsInput.blur();
+        }
       });
     }
   }
@@ -164,13 +181,31 @@ export class TimelineController {
     this.duration = duration;
     
     const slider = document.getElementById('timeline-slider');
-    slider.max = frameCount - 1;
+    slider.max = Math.max(0, frameCount - 1);
     slider.value = 0;
     
     this.setCurrentFrame(0);
     this.setZoom(1.0); // 重置缩放
     
     document.getElementById('total-time').textContent = `总时长: ${duration.toFixed(2)}s`;
+    this.setTrajectoryFpsControlEnabled(frameCount > 0);
+  }
+
+  setTrajectoryFpsControlEnabled(enabled) {
+    const fpsInput = document.getElementById('project-fps');
+    if (fpsInput) fpsInput.disabled = !enabled;
+  }
+
+  syncFpsInputFromState() {
+    const fps = this.editor?.trajectoryManager?.fps ?? this.fps ?? 50;
+    this._syncFpsInput(fps);
+  }
+
+  _syncFpsInput(fps) {
+    const fpsInput = document.getElementById('project-fps');
+    if (fpsInput && document.activeElement !== fpsInput) {
+      fpsInput.value = String(Math.round(fps));
+    }
   }
 
   updateContentPosition() {
@@ -178,36 +213,107 @@ export class TimelineController {
     content.style.transform = `translateX(${-this.scrollLeft}px)`;
   }
 
-  setZoom(zoom) {
-    this.zoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
-    
+  _getViewportZoomAnchorX() {
+    const viewport = document.getElementById('timeline-viewport');
+    if (!viewport) return null;
+    const rect = viewport.getBoundingClientRect();
+    return rect.left + rect.width / 2;
+  }
+
+  _normalizeWheelDelta(e) {
+    let dy = e.deltaY;
+    if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+      dy *= 16;
+    } else if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+      const viewport = document.getElementById('timeline-viewport');
+      dy *= viewport?.clientHeight || 400;
+    }
+    return dy;
+  }
+
+  _onTimelineWheel(e) {
+    if (!this.frameCount || this.frameCount <= 1) return;
+
+    const viewport = document.getElementById('timeline-viewport');
+    const content = document.getElementById('timeline-content');
+    if (!viewport || !content) return;
+
+    const deltaY = this._normalizeWheelDelta(e);
+    const useHorizontalPan =
+      this.zoomLevel > this.minZoom &&
+      (e.shiftKey || (Math.abs(e.deltaX) > Math.abs(deltaY) && Math.abs(e.deltaX) > 0));
+
+    if (useHorizontalPan) {
+      e.preventDefault();
+      const panDelta = e.shiftKey ? deltaY : e.deltaX;
+      const maxScroll = Math.max(0, content.offsetWidth - viewport.offsetWidth);
+      this.scrollLeft = Math.max(0, Math.min(maxScroll, this.scrollLeft + panDelta));
+      this.updateContentPosition();
+      if (this.updateScrollbar) this.updateScrollbar();
+      return;
+    }
+
+    if (Math.abs(deltaY) < 0.5) return;
+    e.preventDefault();
+
+    const factor = deltaY > 0 ? 0.92 : 1.08;
+    this.setZoom(this.zoomLevel * factor, e.clientX);
+  }
+
+  /**
+   * @param {number} zoom 目标缩放倍数（最小 1× 为整段轨迹适配视口宽度）
+   * @param {number|null} anchorClientX 缩放锚点屏幕 X；null 则按滚动比例保持视口
+   */
+  setZoom(zoom, anchorClientX = null) {
+    const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
+    if (Math.abs(newZoom - this.zoomLevel) < 1e-6 && anchorClientX == null) {
+      return;
+    }
+
     const content = document.getElementById('timeline-content');
     const viewport = document.getElementById('timeline-viewport');
-    
-    // 保存当前滚动位置比例
     const oldContentWidth = content.offsetWidth;
-    const scrollRatio = oldContentWidth > viewport.offsetWidth ? 
-      this.scrollLeft / (oldContentWidth - viewport.offsetWidth) : 0;
-    
-    // 设置内容宽度
+    const viewportWidth = viewport.offsetWidth;
+    const oldMaxScroll = Math.max(0, oldContentWidth - viewportWidth);
+    const scrollRatio = oldMaxScroll > 0 ? this.scrollLeft / oldMaxScroll : 0;
+
+    let anchorContentX = null;
+    let pointerX = 0;
+    if (anchorClientX != null) {
+      const rect = viewport.getBoundingClientRect();
+      pointerX = anchorClientX - rect.left;
+      anchorContentX = this.scrollLeft + pointerX;
+    }
+
+    this.zoomLevel = newZoom;
     content.style.width = `${this.zoomLevel * 100}%`;
     content.style.minWidth = `${this.zoomLevel * 100}%`;
-    
-    // 更新缩放显示
-    document.getElementById('zoom-level').textContent = `缩放: ${this.zoomLevel.toFixed(1)}x`;
-    
-    // 恢复滚动位置
-    setTimeout(() => {
+
+    const zoomEl = document.getElementById('zoom-level');
+    if (zoomEl) {
+      zoomEl.textContent = `缩放: ${this.zoomLevel.toFixed(1)}x`;
+    }
+
+    requestAnimationFrame(() => {
       const newContentWidth = content.offsetWidth;
-      if (newContentWidth > viewport.offsetWidth) {
-        this.scrollLeft = scrollRatio * (newContentWidth - viewport.offsetWidth);
+      const newMaxScroll = Math.max(0, newContentWidth - viewportWidth);
+
+      if (anchorContentX != null && oldContentWidth > 0) {
+        this.scrollLeft = (anchorContentX / oldContentWidth) * newContentWidth - pointerX;
+      } else if (newMaxScroll > 0) {
+        this.scrollLeft = scrollRatio * newMaxScroll;
       } else {
         this.scrollLeft = 0;
       }
+
+      this.scrollLeft = Math.max(0, Math.min(newMaxScroll, this.scrollLeft));
       this.updateContentPosition();
       if (this.updateScrollbar) this.updateScrollbar();
-      this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
-    }, 0);
+      const keyframes = this.editor.trajectoryManager?.keyframes;
+      if (keyframes) {
+        this.updateKeyframeMarkers(Array.from(keyframes.keys()));
+      }
+    });
   }
 
   setCurrentFrame(frame) {
@@ -231,17 +337,20 @@ export class TimelineController {
     // 更新机器人状态
     this.editor.updateRobotState(this.currentFrame);
     
-    // 更新关键帧指示器
-    if (this.editor.jointController && this.editor.jointController.updateKeyframeIndicators) {
-      this.editor.jointController.updateKeyframeIndicators();
-    }
-    if (this.editor.baseController && this.editor.baseController.updateKeyframeIndicators) {
-      this.editor.baseController.updateKeyframeIndicators();
+    // 播放中跳过关键帧指示器刷新，减轻卡顿
+    if (!this.isPlaying) {
+      if (this.editor.jointController?.updateKeyframeIndicators) {
+        this.editor.jointController.updateKeyframeIndicators();
+      }
+      if (this.editor.baseController?.updateKeyframeIndicators) {
+        this.editor.baseController.updateKeyframeIndicators();
+      }
     }
     
-    // 更新曲线编辑器
-    if (this.editor.curveEditor) {
-      this.editor.curveEditor.draw();
+    // 更新曲线编辑器：仅移动当前帧竖线（不重绘整条曲线）
+    const curveEditor = this.editor.curveEditor;
+    if (curveEditor?.isExpanded) {
+      curveEditor.drawPlayheadOnly();
     }
 
     if (this.editor.endEffectorControls) {
@@ -449,6 +558,8 @@ export class TimelineController {
     }
     const playBtn = document.getElementById('play-pause');
     if (playBtn) playBtn.textContent = i18n.t('pause');
+
+    this.editor.curveEditor?.prepareForPlayback();
     
     const frameTime = this._getFrameIntervalMs();
     this.playInterval = setInterval(() => {
@@ -474,6 +585,10 @@ export class TimelineController {
       clearInterval(this.playInterval);
       this.playInterval = null;
     }
+
+    if (this.editor.curveEditor?.isExpanded) {
+      this.editor.curveEditor.invalidateAndDraw();
+    }
   }
 
   togglePlayPause() {
@@ -485,12 +600,24 @@ export class TimelineController {
   }
 
   setFPS(fps) {
+    const n = Math.round(Number(fps));
+    if (!Number.isFinite(n) || n < 1) return;
+
     const wasPlaying = this.isPlaying;
     if (wasPlaying) this.pause();
-    
-    this.fps = fps;
-    document.getElementById('fps-display').textContent = `FPS: ${fps}`;
-    
+
+    this.fps = n;
+    this._syncFpsInput(n);
+
+    if (this.frameCount > 0) {
+      this.duration = this.frameCount / n;
+      const totalEl = document.getElementById('total-time');
+      if (totalEl) {
+        totalEl.textContent = `总时长: ${this.duration.toFixed(2)}s`;
+      }
+      this.setCurrentFrame(this.currentFrame);
+    }
+
     if (wasPlaying) this.play();
   }
 

@@ -346,13 +346,21 @@
       color: var(--overlay-text);
     }
 
-    .viewport-ghost-swatch {
+    .viewport-ghost-swatch,
+    .viewport-edited-swatch {
       width: 12px;
       height: 12px;
       border-radius: 2px;
-      background: #6a9955;
       border: 1px solid var(--border-primary);
       flex-shrink: 0;
+    }
+
+    .viewport-ghost-swatch {
+      background: #6a9955;
+    }
+
+    .viewport-edited-swatch {
+      background: #ffffff;
     }
 
     .viewport-toolbar-toggle {
@@ -532,12 +540,30 @@
       box-sizing: border-box;
     }
 
-    #fps-display {
+    .fps-wrap {
       display: inline-flex;
       align-items: center;
+      gap: 6px;
       min-height: 28px;
       font-size: 12px;
       color: var(--text-secondary);
+    }
+
+    .fps-wrap input[type="number"] {
+      width: 52px;
+      min-height: 28px;
+      padding: 4px 6px;
+      font-size: 12px;
+      border: 1px solid var(--border-primary);
+      border-radius: 3px;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      box-sizing: border-box;
+    }
+
+    .fps-wrap input[type="number"]:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
 
     #sidebar {
@@ -1181,11 +1207,11 @@
         <div id="viewport-toolbar" class="viewport-toolbar">
           <div class="viewport-toolbar-row">
             <div id="viewport-toolbar-pin" class="viewport-toolbar-pin" aria-label="Pinned viewport tools"></div>
-            <button type="button" id="viewport-toolbar-toggle" class="viewport-toolbar-toggle" aria-expanded="false" data-i18n="viewportToolbarToggle">⚙ 配置</button>
+            <button type="button" id="viewport-toolbar-toggle" class="viewport-toolbar-toggle" aria-expanded="false" data-i18n="viewportToolbarToggle">⚙ 可视化配置</button>
           </div>
           <div id="viewport-toolbar-panel" class="viewport-toolbar-panel">
             <div class="viewport-toolbar-panel-header" id="viewport-toolbar-panel-header">
-              <span data-i18n="viewportToolbarTitle">配置</span>
+              <span data-i18n="viewportToolbarTitle">可视化配置</span>
               <button type="button" id="viewport-toolbar-close" class="viewport-toolbar-panel-close" title="Close">×</button>
             </div>
             <div class="viewport-toolbar-section" data-section="viewport">
@@ -1202,11 +1228,12 @@
                 <label class="viewport-pin-block-item">
                   <input type="checkbox" id="show-ghost-model" checked />
                   <span class="viewport-ghost-swatch" aria-hidden="true"></span>
-                  <span data-i18n="showGhost">参考 (Ghost)</span>
+                  <span data-i18n="showGhost">参考模型(原始)</span>
                 </label>
                 <label class="viewport-pin-block-item">
                   <input type="checkbox" id="show-edited-model" checked />
-                  <span data-i18n="showEdited">编辑</span>
+                  <span class="viewport-edited-swatch" aria-hidden="true"></span>
+                  <span data-i18n="showEdited">编辑后模型</span>
                 </label>
               </div>
             </div>
@@ -1343,9 +1370,14 @@
             <option value="3">3×</option>
           </select>
         </label>
-        <span id="fps-display"><span data-i18n="fps">FPS</span>: 50</span>
+        <label class="fps-wrap" for="project-fps">
+          <span data-i18n="fps">FPS</span>
+          <input type="number" id="project-fps" min="1" max="240" step="1" value="50" disabled
+            data-i18n-title="fpsInputTitle" title="轨迹帧率（导入后可在时间轴修改）">
+        </label>
       </div>
-      <div id="timeline-viewport" style="position: relative; overflow-x: hidden; overflow-y: hidden; width: 100%;">
+      <div id="timeline-viewport" style="position: relative; overflow-x: hidden; overflow-y: hidden; width: 100%;"
+        data-i18n-title="timelineWheelZoom" title="滚轮缩放时间轴（最小 1× 显示整段轨迹），Shift+滚轮或横向滚轮平移">
         <div id="timeline-content" style="position: relative; width: 100%; min-width: 100%;">
           <div id="keyframe-markers" style="position: relative; height: 20px; margin-bottom: 5px;"></div>
           <input type="range" id="timeline-slider" min="0" max="100" value="0" style="width: 100%; margin: 0;">
@@ -1523,10 +1555,15 @@
           </div>
         </div>
         
-        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-primary); transition: border-color 0.3s ease;">
-          <a id="github-link" href="https://github.com/cyoahs/robot_motion_editor" target="_blank" style="color: var(--success-color); text-decoration: none; display: flex; align-items: center; gap: 5px; font-size: 14px; transition: color 0.3s ease;">
+        <div class="app-info-github-links" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-primary); display: flex; flex-direction: column; gap: 10px; transition: border-color 0.3s ease;">
+          <a id="github-fork-link" href="https://github.com/fandesfyf/robot_motion_editor" target="_blank" rel="noopener noreferrer" style="color: var(--success-color); text-decoration: none; display: flex; align-items: center; gap: 5px; font-size: 14px; transition: color 0.3s ease;">
             <span>📦</span>
-            <span data-i18n="viewOnGitHub">在 GitHub 上查看源代码</span>
+            <span data-i18n="viewForkOnGitHub">在 GitHub 上查看改进之后的源代码</span>
+            <span style="font-size: 11px;">↗</span>
+          </a>
+          <a id="github-original-link" href="https://github.com/cyoahs/robot_motion_editor" target="_blank" rel="noopener noreferrer" style="color: var(--text-secondary); text-decoration: none; display: flex; align-items: center; gap: 5px; font-size: 13px; transition: color 0.3s ease;">
+            <span>🔗</span>
+            <span data-i18n="viewOriginalRepo">原仓库链接</span>
             <span style="font-size: 11px;">↗</span>
           </a>
         </div>

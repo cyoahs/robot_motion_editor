@@ -793,20 +793,15 @@ class RobotKeyframeEditor {
         this.timelineController.pause();
       }
       
-      // 解析CSV
+      // 解析CSV（默认 FPS 50，或由 CSV 格式解析得出）
       this.trajectoryManager.parseCSV(text, file.name);
-      
-      // 设置 FPS
-      const defaultFPS = this.trajectoryManager.fps || 50;
-      const fpsInput = prompt('请设置轨迹 FPS（帧率）:', String(defaultFPS));
-      const fps = parseInt(fpsInput) || defaultFPS;
-      this.trajectoryManager.setFPS(fps);
-      this.timelineController.setFPS(fps);
-      
+      const fps = this.trajectoryManager.fps || 50;
+
       // 更新时间轴
+      this.timelineController.setFPS(fps);
       this.timelineController.updateTimeline(
         this.trajectoryManager.getFrameCount(),
-        this.trajectoryManager.getFrameCount() / fps
+        this.trajectoryManager.getDuration()
       );
       
       // 清空关键帧标记
@@ -900,12 +895,16 @@ class RobotKeyframeEditor {
       
       // 更新UI和右侧关节
       if (this.jointController) {
-        this.jointController.updateJoints(combinedState.joints);
+        this.jointController.updateJoints(combinedState.joints, { silent: true });
       }
       
       // 更新基体控制器显示
       if (this.baseController) {
-        this.baseController.updateBase(combinedState.base.position, combinedState.base.quaternion);
+        this.baseController.updateBase(
+          combinedState.base.position,
+          combinedState.base.quaternion,
+          { silent: true }
+        );
       }
     }
         // 更新COM可视化
@@ -959,7 +958,7 @@ class RobotKeyframeEditor {
     // 通知曲线编辑器更新
     if (this.curveEditor) {
       this.curveEditor.updateCurves();
-      this.curveEditor.draw();
+      this.curveEditor.invalidateAndDraw();
     }
     
     // 触发自动保存
@@ -995,7 +994,7 @@ class RobotKeyframeEditor {
       // 通知曲线编辑器更新
       if (this.curveEditor) {
         this.curveEditor.updateCurves();
-        this.curveEditor.draw();
+        this.curveEditor.invalidateAndDraw();
       }
       
       // 触发自动保存
@@ -1842,6 +1841,7 @@ class RobotKeyframeEditor {
     if (this.timelineController) {
       this.timelineController.pause();
       this.timelineController.updateTimeline(0, 0);
+      this.timelineController.setFPS(50);
       this.timelineController.updateKeyframeMarkers([]);
       this.timelineController.setCurrentFrame(0);
     }
@@ -1849,7 +1849,7 @@ class RobotKeyframeEditor {
     // 重置曲线编辑器
     if (this.curveEditor) {
       this.curveEditor.curves.clear();
-      this.curveEditor.draw();
+      this.curveEditor.invalidateAndDraw();
     }
     
     // 重置相机
@@ -1916,6 +1916,24 @@ class RobotKeyframeEditor {
     console.log('🗑️ 已清除 Cookies');
   }
   
+  /**
+   * 设置工程轨迹 FPS（1–240），同步时间轴时长与播放间隔
+   */
+  applyProjectFPS(rawFps) {
+    const fps = Math.round(Number(rawFps));
+    if (!Number.isFinite(fps) || fps < 1 || fps > 240) {
+      this.timelineController?.syncFpsInputFromState();
+      return false;
+    }
+    if (!this.trajectoryManager?.hasTrajectory()) {
+      return false;
+    }
+    this.trajectoryManager.setFPS(fps);
+    this.timelineController.setFPS(fps);
+    this.triggerAutoSave();
+    return true;
+  }
+
   /**
    * 触发自动保存（防抖）
    * @param {boolean} fullSave - 是否完整保存（包括 URDF）

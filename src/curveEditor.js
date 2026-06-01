@@ -49,6 +49,13 @@ export class CurveEditor {
     // 防抖定时器，用于优化绘制性能
     this.drawDebounceTimer = null;
     this.drawDebounceDelay = 16; // ~60fps
+
+    // 静态层离屏缓存（网格/曲线/关键帧线），播放时仅重绘当前帧竖线
+    this._staticCanvas = null;
+    this._staticCtx = null;
+    this._staticDirty = true;
+    this._viewRedrawRaf = null;
+    this._dataRedrawRaf = null;
     
     // CSS 变量缓存 (Safari 性能优化)
     this.cachedStyles = {};
@@ -126,7 +133,7 @@ export class CurveEditor {
         if (curve) {
           curve.visible = !curve.visible;
           this.updateRPYButtonStyle(btn, curve.visible);
-          this.draw();
+          this.invalidateAndDraw();
         }
       });
       
@@ -245,36 +252,54 @@ export class CurveEditor {
     // 监听时间轴滚动事件
     const timelineViewport = document.getElementById('timeline-viewport');
     if (timelineViewport) {
-      timelineViewport.addEventListener('scroll', () => this.draw());
+      timelineViewport.addEventListener('scroll', () => {
+        if (this.isExpanded) {
+          this.drawPlayheadOnly();
+        }
+      });
     }
+  }
+
+  _measureCanvasLogicalSize() {
+    const content = document.getElementById('curve-editor-content');
+    if (!content) return { width: 1, height: this.height };
+
+    const rect = content.getBoundingClientRect();
+    const container = document.getElementById('curve-editor-container');
+    const fallbackW = container?.clientWidth || content.clientWidth || 320;
+    const width = Math.max(1, rect.width || fallbackW);
+    return { width, height: this.height };
   }
 
   resizeCanvas() {
     if (!this.canvas) return;
-    
-    // 获取父容器的宽度
+
     const content = document.getElementById('curve-editor-content');
-    if (!content) return;
-    
-    const rect = content.getBoundingClientRect();
-    
-    // 设置画布实际像素大小（考虑设备像素比）
+    if (!content || content.style.display === 'none') return;
+
+    const { width: logicalW, height: logicalH } = this._measureCanvasLogicalSize();
     const dpr = window.devicePixelRatio || 1;
-    this.canvas.width = rect.width * dpr;
-    this.canvas.height = this.height * dpr;
-    
-    // 设置画布显示大小
-    this.canvas.style.width = rect.width + 'px';
-    this.canvas.style.height = this.height + 'px';
-    
-    // 重置和缩放上下文以匹配设备像素比
+
+    this.canvas.width = Math.max(1, Math.floor(logicalW * dpr));
+    this.canvas.height = Math.max(1, Math.floor(logicalH * dpr));
+    this.canvas.style.width = `${logicalW}px`;
+    this.canvas.style.height = `${logicalH}px`;
+
     this.ctx = this.canvas.getContext('2d');
-    this.ctx.scale(dpr, dpr);
-    
-    // 重新缓存样式 (主题可能变化)
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    this._staticCanvas = null;
+    this._staticCtx = null;
     this.cacheStyles();
-    
-    this.draw();
+    this.invalidateAndDraw();
+  }
+
+  _scheduleResizeAndDraw() {
+    requestAnimationFrame(() => {
+      this.resizeCanvas();
+      this.updateCurves();
+      this.invalidateAndDraw();
+    });
   }
 
   toggleExpand() {
@@ -286,9 +311,7 @@ export class CurveEditor {
     if (this.isExpanded) {
       content.style.display = 'block';
       toggleIcon.textContent = '▼';
-      this.resizeCanvas();
-      this.updateCurves();
-      this.draw();
+      this._scheduleResizeAndDraw();
     } else {
       content.style.display = 'none';
       toggleIcon.textContent = '▶';
@@ -312,7 +335,7 @@ export class CurveEditor {
     this.updateInterpolationButton();
     
     // 重新绘制曲线和更新机器人状态
-    this.draw();
+    this.invalidateAndDraw();
     if (this.editor.timelineController) {
       const currentFrame = this.editor.timelineController.getCurrentFrame();
       this.editor.updateRobotState(currentFrame);
@@ -396,7 +419,7 @@ export class CurveEditor {
         }
       });
       
-      this.draw();
+      this.invalidateAndDraw();
       return;
     }
     
@@ -577,7 +600,7 @@ export class CurveEditor {
       this.editor.baseController.updateCurveBackgrounds();
     }
     
-    this.draw();
+    this.invalidateAndDraw();
     return curve.visible;
   }
   
@@ -624,7 +647,7 @@ export class CurveEditor {
     // 更新RPY按钮
     this.updateRPYButtons();
     
-    this.draw();
+    this.invalidateAndDraw();
     return eulerX.visible;
   }
   
@@ -713,7 +736,7 @@ export class CurveEditor {
       this.editor.baseController.updateCurveBackgrounds();
     }
     
-    this.draw();
+    this.invalidateAndDraw();
   }
 
   /**
@@ -732,87 +755,197 @@ export class CurveEditor {
     return curve ? curve.visible : false;
   }
 
-  /**
-   * 绘制曲线
-   */
-  draw() {
-    const drawStart = performance.now();
-    
-    if (!this.isExpanded || !this.ctx) return;
-    
-    const width = this.canvas.width / (window.devicePixelRatio || 1);
-    const height = this.canvas.height / (window.devicePixelRatio || 1);
-    
-    // 清空画布
-    this.ctx.clearRect(0, 0, width, height);
-    
-    // 绘制背景
-    this.ctx.fillStyle = this.cachedStyles.bgPrimary;
-    this.ctx.fillRect(0, 0, width, height);
-    
-    if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
-      this.drawNoData();
-      return;
+  _markStaticDirty() {
+    this._staticDirty = true;
+  }
+
+  _scheduleViewRedraw() {
+    if (this._viewRedrawRaf) return;
+    this._viewRedrawRaf = requestAnimationFrame(() => {
+      this._viewRedrawRaf = null;
+      this.invalidateAndDraw();
+    });
+  }
+
+  _scheduleDataRedraw() {
+    if (this._dataRedrawRaf) return;
+    this._dataRedrawRaf = requestAnimationFrame(() => {
+      this._dataRedrawRaf = null;
+      this.invalidateAndDraw();
+    });
+  }
+
+  _getPlotMetrics() {
+    if (!this.isExpanded || !this.ctx) return null;
+
+    const { width, height } = this._measureCanvasLogicalSize();
+    if (this.canvas.width > 0 && this.canvas.height > 0) {
+      const dpr = window.devicePixelRatio || 1;
+      const fromCanvas = {
+        width: this.canvas.width / dpr,
+        height: this.canvas.height / dpr
+      };
+      if (fromCanvas.width >= 1 && fromCanvas.height >= 1) {
+        return this._buildPlotMetrics(fromCanvas.width, fromCanvas.height);
+      }
     }
-    
+    return this._buildPlotMetrics(width, height);
+  }
+
+  _buildPlotMetrics(width, height) {
+
+    if (!this.editor.trajectoryManager?.hasTrajectory()) {
+      return { width, height, hasData: false };
+    }
+
     const frameCount = this.editor.trajectoryManager.getFrameCount();
     const keyframes = this.editor.trajectoryManager.getKeyframes();
-    
-    if (keyframes.length === 0) {
-      this.drawNoData();
-      return;
-    }
-    
-    const currentFrame = this.editor.timelineController ? 
-      this.editor.timelineController.getCurrentFrame() : 0;
-    
-    // 获取时间轴的缩放和滚动状态
-    const timelineController = this.editor.timelineController;
-    const zoomLevel = timelineController ? timelineController.zoomLevel : 1;
-    const scrollLeft = document.getElementById('timeline-viewport')?.scrollLeft || 0;
-    
-    // 计算绘图区域
     const plotLeft = this.padding.left;
     const plotRight = width - this.padding.right;
     const plotTop = this.padding.top;
     const plotBottom = height - this.padding.bottom;
-    const plotWidth = plotRight - plotLeft;
-    const plotHeight = plotBottom - plotTop;
-    
-    // 绘制网格
-    this.drawGrid(plotLeft, plotTop, plotWidth, plotHeight, frameCount);
-    
-    // 绘制关键帧竖线
-    this.drawKeyframeLines(keyframes, plotLeft, plotTop, plotWidth, plotHeight, frameCount);
-    
-    // 绘制当前帧竖线
-    this.drawCurrentFrameLine(currentFrame, plotLeft, plotTop, plotWidth, plotHeight, frameCount);
-    
-    // 绘制曲线
-    this.drawCurves(plotLeft, plotTop, plotWidth, plotHeight, frameCount, keyframes);
-    
-    // 绘制坐标轴
-    this.drawAxes(plotLeft, plotTop, plotWidth, plotHeight);
-    
-    // 绘制框选框
+    const plotWidth = Math.max(1, plotRight - plotLeft);
+    const plotHeight = Math.max(1, plotBottom - plotTop);
+
+    return {
+      width,
+      height,
+      hasData: true,
+      frameCount,
+      keyframes,
+      plotLeft,
+      plotTop,
+      plotWidth,
+      plotHeight
+    };
+  }
+
+  _ensureOffscreen(logicalW, logicalH) {
+    const dpr = window.devicePixelRatio || 1;
+    const pw = Math.max(1, Math.floor(logicalW * dpr));
+    const ph = Math.max(1, Math.floor(logicalH * dpr));
+    if (!this._staticCanvas || this._staticCanvas.width !== pw || this._staticCanvas.height !== ph) {
+      this._staticCanvas = document.createElement('canvas');
+      this._staticCanvas.width = pw;
+      this._staticCanvas.height = ph;
+      this._staticCtx = this._staticCanvas.getContext('2d');
+      this._staticDirty = true;
+    }
+    this._staticCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  _renderStaticLayer(metrics) {
+    this._ensureOffscreen(metrics.width, metrics.height);
+    const ctx = this._staticCtx;
+    const { width, height, frameCount, keyframes, plotLeft, plotTop, plotWidth, plotHeight } = metrics;
+
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = this.cachedStyles.bgPrimary;
+    ctx.fillRect(0, 0, width, height);
+
+    if (!metrics.hasData || keyframes.length === 0) {
+      this._staticDirty = false;
+      return;
+    }
+
+    this.drawGrid(plotLeft, plotTop, plotWidth, plotHeight, frameCount, ctx);
+    this.drawKeyframeLines(keyframes, plotLeft, plotTop, plotWidth, plotHeight, frameCount, ctx);
+    this.drawCurves(plotLeft, plotTop, plotWidth, plotHeight, frameCount, keyframes, ctx);
+    this.drawAxes(plotLeft, plotTop, plotWidth, plotHeight, ctx);
+    this._staticDirty = false;
+  }
+
+  _blitStaticAndOverlays(metrics) {
+    const { width, height, frameCount, keyframes, plotLeft, plotTop, plotWidth, plotHeight } = metrics;
+    this.ctx.clearRect(0, 0, width, height);
+
+    if (!metrics.hasData || keyframes.length === 0) {
+      this.drawNoData();
+      return;
+    }
+
+    if (this._staticCanvas && this._staticCanvas.width > 0 && this._staticCanvas.height > 0) {
+      this.ctx.drawImage(this._staticCanvas, 0, 0, width, height);
+    } else {
+      this._renderStaticLayer(metrics);
+      if (this._staticCanvas) {
+        this.ctx.drawImage(this._staticCanvas, 0, 0, width, height);
+      }
+    }
+
+    const currentFrame = this.editor.timelineController?.getCurrentFrame() ?? 0;
+    this.drawCurrentFrameLine(currentFrame, plotLeft, plotTop, plotWidth, plotHeight, frameCount, this.ctx);
+
     if (this.isBoxSelecting && this.boxSelectStart && this.boxSelectEnd) {
       const x1 = Math.min(this.boxSelectStart.x, this.boxSelectEnd.x);
       const y1 = Math.min(this.boxSelectStart.y, this.boxSelectEnd.y);
       const x2 = Math.max(this.boxSelectStart.x, this.boxSelectEnd.x);
       const y2 = Math.max(this.boxSelectStart.y, this.boxSelectEnd.y);
-      
-      // 半透明填充
       this.ctx.fillStyle = 'rgba(100, 150, 255, 0.2)';
       this.ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
-      
-      // 边框
       this.ctx.strokeStyle = '#6496ff';
       this.ctx.lineWidth = 1;
       this.ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
     }
-    
-    const drawEnd = performance.now();
-    console.log(`⏱️ curveEditor.draw() 耗时: ${(drawEnd - drawStart).toFixed(2)}ms`);
+  }
+
+  /** 播放前预渲染静态层，避免首帧卡顿 */
+  prepareForPlayback() {
+    if (!this.isExpanded || !this.ctx) return;
+    const metrics = this._getPlotMetrics();
+    if (!metrics?.hasData || metrics.keyframes.length === 0) return;
+    this._markStaticDirty();
+    this._renderStaticLayer(metrics);
+  }
+
+  /** 播放中仅更新当前帧竖线（不重绘全部曲线） */
+  drawPlayheadOnly() {
+    if (!this.isExpanded || !this.ctx) return;
+    const metrics = this._getPlotMetrics();
+    if (!metrics) return;
+    if (!metrics.hasData || metrics.keyframes.length === 0) {
+      this.draw();
+      return;
+    }
+    if (this._staticDirty) {
+      this._renderStaticLayer(metrics);
+    }
+    this._blitStaticAndOverlays(metrics);
+  }
+
+  /**
+   * 绘制曲线（默认复用静态离屏层，仅重绘播放头等叠加层）
+   */
+  draw() {
+    if (!this.isExpanded || !this.ctx) return;
+
+    const metrics = this._getPlotMetrics();
+    if (!metrics) return;
+
+    if (!metrics.hasData) {
+      this.ctx.clearRect(0, 0, metrics.width, metrics.height);
+      this.drawNoData();
+      this._markStaticDirty();
+      return;
+    }
+
+    if (metrics.keyframes.length === 0) {
+      this.ctx.clearRect(0, 0, metrics.width, metrics.height);
+      this.drawNoData();
+      this._markStaticDirty();
+      return;
+    }
+
+    if (this._staticDirty) {
+      this._renderStaticLayer(metrics);
+    }
+    this._blitStaticAndOverlays(metrics);
+  }
+
+  /** 曲线数据 / 视图变换变化后强制重绘静态层 */
+  invalidateAndDraw() {
+    this._markStaticDirty();
+    this.draw();
   }
   
   /**
@@ -824,7 +957,11 @@ export class CurveEditor {
       clearTimeout(this.drawDebounceTimer);
     }
     this.drawDebounceTimer = setTimeout(() => {
-      this.draw();
+      if (this.editor.timelineController?.isPlaying) {
+        this.drawPlayheadOnly();
+      } else {
+        this.invalidateAndDraw();
+      }
       this.drawDebounceTimer = null;
     }, this.drawDebounceDelay);
   }
@@ -840,19 +977,19 @@ export class CurveEditor {
     this.ctx.fillText('请加载轨迹数据', width / 2, height / 2);
   }
 
-  drawGrid(left, top, width, height, frameCount) {
-    this.ctx.strokeStyle = this.cachedStyles.borderPrimary;
-    this.ctx.lineWidth = 0.5;
-    this.ctx.setLineDash([2, 2]);
+  drawGrid(left, top, width, height, frameCount, targetCtx = this.ctx) {
+    targetCtx.strokeStyle = this.cachedStyles.borderPrimary;
+    targetCtx.lineWidth = 0.5;
+    targetCtx.setLineDash([2, 2]);
     
     // 横向网格线（值域）
     const gridLines = 5;
     for (let i = 0; i <= gridLines; i++) {
       const y = top + (height / gridLines) * i;
-      this.ctx.beginPath();
-      this.ctx.moveTo(left, y);
-      this.ctx.lineTo(left + width, y);
-      this.ctx.stroke();
+      targetCtx.beginPath();
+      targetCtx.moveTo(left, y);
+      targetCtx.lineTo(left + width, y);
+      targetCtx.stroke();
     }
     
     // 纵向网格线（时间）
@@ -860,50 +997,50 @@ export class CurveEditor {
     for (let frame = 0; frame < frameCount; frame += frameStep) {
       const x = this.frameToX(frame, left, width, frameCount);
       if (x >= left && x <= left + width) {
-        this.ctx.beginPath();
-        this.ctx.moveTo(x, top);
-        this.ctx.lineTo(x, top + height);
-        this.ctx.stroke();
+        targetCtx.beginPath();
+        targetCtx.moveTo(x, top);
+        targetCtx.lineTo(x, top + height);
+        targetCtx.stroke();
       }
     }
     
-    this.ctx.setLineDash([]);
+    targetCtx.setLineDash([]);
   }
 
-  drawKeyframeLines(keyframes, left, top, width, height, frameCount) {
-    this.ctx.strokeStyle = this.cachedStyles.warningColor;
-    this.ctx.globalAlpha = 0.3;
-    this.ctx.lineWidth = 1;
-    this.ctx.setLineDash([5, 5]);
+  drawKeyframeLines(keyframes, left, top, width, height, frameCount, targetCtx = this.ctx) {
+    targetCtx.strokeStyle = this.cachedStyles.warningColor;
+    targetCtx.globalAlpha = 0.3;
+    targetCtx.lineWidth = 1;
+    targetCtx.setLineDash([5, 5]);
     
     keyframes.forEach(kf => {
       const x = this.frameToX(kf.frame, left, width, frameCount);
       if (x >= left && x <= left + width) {
-        this.ctx.beginPath();
-        this.ctx.moveTo(x, top);
-        this.ctx.lineTo(x, top + height);
-        this.ctx.stroke();
+        targetCtx.beginPath();
+        targetCtx.moveTo(x, top);
+        targetCtx.lineTo(x, top + height);
+        targetCtx.stroke();
       }
     });
     
-    this.ctx.globalAlpha = 1;
-    this.ctx.setLineDash([]);
+    targetCtx.globalAlpha = 1;
+    targetCtx.setLineDash([]);
   }
 
-  drawCurrentFrameLine(currentFrame, left, top, width, height, frameCount) {
+  drawCurrentFrameLine(currentFrame, left, top, width, height, frameCount, targetCtx = this.ctx) {
     const x = this.frameToX(currentFrame, left, width, frameCount);
     
     if (x >= left && x <= left + width) {
-      this.ctx.strokeStyle = this.cachedStyles.accentInfo;
-      this.ctx.lineWidth = 2;
-      this.ctx.beginPath();
-      this.ctx.moveTo(x, top);
-      this.ctx.lineTo(x, top + height);
-      this.ctx.stroke();
+      targetCtx.strokeStyle = this.cachedStyles.accentInfo;
+      targetCtx.lineWidth = 2;
+      targetCtx.beginPath();
+      targetCtx.moveTo(x, top);
+      targetCtx.lineTo(x, top + height);
+      targetCtx.stroke();
     }
   }
 
-  drawCurves(left, top, width, height, frameCount, keyframes) {
+  drawCurves(left, top, width, height, frameCount, keyframes, targetCtx = this.ctx) {
     const hasEeCurves = [...this.curves.values()].some((c) => c.visible && c.type === 'ee_pose');
     const robotSnap = hasEeCurves ? this.editor.captureRobotRightState?.() : null;
 
@@ -929,10 +1066,10 @@ export class CurveEditor {
       const step = Math.max(1, Math.floor(visibleFrameCount / 500)); // 最多500个采样点
       
       // 绘制原始轨迹（绿色，较细）
-      this.ctx.strokeStyle = '#4ec9b0';
-      this.ctx.lineWidth = 1;
-      this.ctx.globalAlpha = 0.5;
-      this.ctx.beginPath();
+      targetCtx.strokeStyle = '#4ec9b0';
+      targetCtx.lineWidth = 1;
+      targetCtx.globalAlpha = 0.5;
+      targetCtx.beginPath();
       
       let firstPoint = true;
       for (let frame = visibleFrameStart; frame <= visibleFrameEnd; frame += step) {
@@ -942,21 +1079,21 @@ export class CurveEditor {
           const y = this.valueToY(value, top, height, minValue, maxValue);
           
           if (firstPoint) {
-            this.ctx.moveTo(x, y);
+            targetCtx.moveTo(x, y);
             firstPoint = false;
           } else {
-            this.ctx.lineTo(x, y);
+            targetCtx.lineTo(x, y);
           }
         }
       }
       
-      this.ctx.stroke();
-      this.ctx.globalAlpha = 1;
+      targetCtx.stroke();
+      targetCtx.globalAlpha = 1;
       
       // 绘制编辑后的轨迹（曲线颜色，较粗）
-      this.ctx.strokeStyle = curve.color;
-      this.ctx.lineWidth = 2;
-      this.ctx.beginPath();
+      targetCtx.strokeStyle = curve.color;
+      targetCtx.lineWidth = 2;
+      targetCtx.beginPath();
       
       firstPoint = true;
       for (let frame = visibleFrameStart; frame <= visibleFrameEnd; frame += step) {
@@ -966,15 +1103,15 @@ export class CurveEditor {
           const y = this.valueToY(value, top, height, minValue, maxValue);
           
           if (firstPoint) {
-            this.ctx.moveTo(x, y);
+            targetCtx.moveTo(x, y);
             firstPoint = false;
           } else {
-            this.ctx.lineTo(x, y);
+            targetCtx.lineTo(x, y);
           }
         }
       }
       
-      this.ctx.stroke();
+      targetCtx.stroke();
       
       // 绘制关键帧标记（欧拉角曲线不显示关键帧标记，因为它们只是可视化）
       if (curve.type !== 'base_euler') {
@@ -986,25 +1123,27 @@ export class CurveEditor {
             
             if (x >= left && x <= left + width) {
               // 绘制关键帧点
-              this.ctx.fillStyle = curve.color;
-              this.ctx.beginPath();
-              this.ctx.arc(x, y, 4, 0, Math.PI * 2);
-              this.ctx.fill();
+              targetCtx.fillStyle = curve.color;
+              targetCtx.beginPath();
+              targetCtx.arc(x, y, 4, 0, Math.PI * 2);
+              targetCtx.fill();
               
               // 白色边框
-              this.ctx.strokeStyle = this.cachedStyles.bgSecondary;
-              this.ctx.lineWidth = 2;
-              this.ctx.stroke();
+              targetCtx.strokeStyle = this.cachedStyles.bgSecondary;
+              targetCtx.lineWidth = 2;
+              targetCtx.stroke();
             }
           }
         });
       }
     });
 
-    if (robotSnap) {
+    if (robotSnap && targetCtx === this.ctx) {
       this.editor.restoreRobotRightState(robotSnap);
       const frame = this.editor.timelineController?.getCurrentFrame() ?? 0;
       this.editor.updateRobotState(frame);
+    } else if (robotSnap) {
+      this.editor.restoreRobotRightState(robotSnap);
     }
   }
 
@@ -1022,14 +1161,14 @@ export class CurveEditor {
     }
   }
 
-  drawAxes(left, top, width, height) {
-    this.ctx.strokeStyle = this.cachedStyles.borderPrimary;
-    this.ctx.lineWidth = 1;
+  drawAxes(left, top, width, height, targetCtx = this.ctx) {
+    targetCtx.strokeStyle = this.cachedStyles.borderPrimary;
+    targetCtx.lineWidth = 1;
     
     // 绘制四边框
-    this.ctx.beginPath();
-    this.ctx.rect(left, top, width, height);
-    this.ctx.stroke();
+    targetCtx.beginPath();
+    targetCtx.rect(left, top, width, height);
+    targetCtx.stroke();
   }
 
   getKeyframeValue(keyframe, curve) {
@@ -1328,7 +1467,7 @@ export class CurveEditor {
       const offsetDeltaX = deltaX / plotWidth / this.viewTransform.scaleX;
       
       this.viewTransform.offsetX = this.panStartOffsetX + offsetDeltaX;
-      this.draw();
+      this._scheduleViewRedraw();
       return;
     }
     
@@ -1342,7 +1481,7 @@ export class CurveEditor {
     if (this.draggingPoint) {
       // 拖动关键帧点
       this.updatePointValue(this.draggingPoint, y);
-      this.draw();
+      this._scheduleDataRedraw();
     } else {
       // 检查悬停
       const point = this.findPointAt(x, y);
@@ -1392,7 +1531,7 @@ export class CurveEditor {
       this.boxSelectStart = null;
       this.boxSelectEnd = null;
       this.canvas.style.cursor = 'default';
-      this.draw();
+      this._scheduleViewRedraw();
       return;
     }
     
@@ -1569,7 +1708,7 @@ export class CurveEditor {
         this.viewTransform.scaleX = clampedScale;
       }
       
-      this.draw();
+      this._scheduleViewRedraw();
     }
   }
 
@@ -1603,6 +1742,6 @@ export class CurveEditor {
   resetView() {
     this.viewTransform.offsetX = 0;
     this.viewTransform.scaleX = 1;
-    this.draw();
+    this.invalidateAndDraw();
   }
 }

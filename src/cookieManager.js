@@ -595,7 +595,7 @@ console.log('  🔧 开始加载 URDF...');
             editor.baseController.updateCurveBackgrounds();
           }
           
-          editor.curveEditor.draw();
+          editor.curveEditor.invalidateAndDraw();
         }
       }
 
