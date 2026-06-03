@@ -5,6 +5,7 @@ import { TrajectoryManager } from './trajectoryManager.js';
 import { JointController } from './jointController.js';
 import { BaseController } from './baseController.js';
 import { TimelineController } from './timelineController.js';
+import { TimelineCurveViewSync } from './timelineCurveViewSync.js';
 import { COMVisualizer } from './comVisualizer.js';
 import { i18n } from './i18n.js';
 import { ThemeManager } from './themeManager.js';
@@ -281,6 +282,8 @@ class RobotKeyframeEditor {
 
     // 初始化曲线编辑器
     this.curveEditor = new CurveEditor(this);
+
+    this.timelineCurveViewSync = new TimelineCurveViewSync(this);
     
     // 初始化坐标轴指示器（右侧视口）
     this.axisGizmo = new AxisGizmo(this, this.cameraRight, this.controls, 'right');

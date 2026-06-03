@@ -41,7 +41,7 @@ export class TimelineController {
     });
 
     document.getElementById('timeline-zoom-reset')?.addEventListener('click', () => {
-      this.setZoom(1.0);
+      this.editor.timelineCurveViewSync?.resetBoth();
     });
 
     const viewport = document.getElementById('timeline-viewport');
@@ -154,9 +154,13 @@ export class TimelineController {
       
       this.updateContentPosition();
       updateThumb();
+      this._syncCurveViewFromTimeline();
     });
     
     document.addEventListener('mouseup', () => {
+      if (isDragging) {
+        this._syncCurveViewFromTimeline();
+      }
       isDragging = false;
     });
     
@@ -181,6 +185,7 @@ export class TimelineController {
       
       this.updateContentPosition();
       updateThumb();
+      this._syncCurveViewFromTimeline();
     });
     
     this.scrollLeft = 0;
@@ -261,6 +266,7 @@ export class TimelineController {
       this.scrollLeft = Math.max(0, Math.min(maxScroll, this.scrollLeft + panDelta));
       this.updateContentPosition();
       if (this.updateScrollbar) this.updateScrollbar();
+      this._syncCurveViewFromTimeline();
       return;
     }
 
@@ -275,7 +281,8 @@ export class TimelineController {
    * @param {number} zoom 目标缩放倍数（最小 1× 为整段轨迹适配视口宽度）
    * @param {number|null} anchorClientX 缩放锚点屏幕 X；null 则按滚动比例保持视口
    */
-  setZoom(zoom, anchorClientX = null) {
+  setZoom(zoom, anchorClientX = null, options = {}) {
+    const { skipCurveSync = false } = options;
     const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
     if (Math.abs(newZoom - this.zoomLevel) < 1e-6 && anchorClientX == null) {
       return;
@@ -324,7 +331,14 @@ export class TimelineController {
       if (keyframes) {
         this.updateKeyframeMarkers(Array.from(keyframes.keys()));
       }
+      if (!skipCurveSync) {
+        this.editor.timelineCurveViewSync?.syncFromTimeline();
+      }
     });
+  }
+
+  _syncCurveViewFromTimeline() {
+    this.editor.timelineCurveViewSync?.syncFromTimeline();
   }
 
   setCurrentFrame(frame) {

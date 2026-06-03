@@ -25,7 +25,7 @@ export class CurveEditor {
       offsetY: 0,      // Y轴平移（值域）
       scaleY: 1,       // Y轴缩放
       minScaleX: 0.1,  // X轴最小缩放
-      maxScaleX: 10,   // X轴最大缩放
+      maxScaleX: 50,   // 与时间轴 maxZoom 对齐
       minScaleY: 0.1,  // Y轴最小缩放
       maxScaleY: 10    // Y轴最大缩放
     };
@@ -312,6 +312,7 @@ export class CurveEditor {
       content.style.display = 'block';
       toggleIcon.textContent = '▼';
       this._scheduleResizeAndDraw();
+      this.editor.timelineCurveViewSync?.syncFromTimeline();
     } else {
       content.style.display = 'none';
       toggleIcon.textContent = '▶';
@@ -1456,6 +1457,7 @@ export class CurveEditor {
       
       this.viewTransform.offsetX = this.panStartOffsetX + offsetDeltaX;
       this._scheduleViewRedraw();
+      this.editor.timelineCurveViewSync?.syncFromCurveDebounced();
       return;
     }
     
@@ -1520,6 +1522,7 @@ export class CurveEditor {
       this.boxSelectEnd = null;
       this.canvas.style.cursor = 'default';
       this._scheduleViewRedraw();
+      this.editor.timelineCurveViewSync?.syncFromCurve();
       return;
     }
     
@@ -1529,6 +1532,7 @@ export class CurveEditor {
       this.panStart = null;
       this.panStartOffsetX = 0;
       this.canvas.style.cursor = 'default';
+      this.editor.timelineCurveViewSync?.syncFromCurve();
       return;
     }
     
@@ -1697,6 +1701,7 @@ export class CurveEditor {
       }
       
       this._scheduleViewRedraw();
+      this.editor.timelineCurveViewSync?.syncFromCurve();
     }
   }
 
@@ -1728,8 +1733,6 @@ export class CurveEditor {
 
   // 重置视图变换
   resetView() {
-    this.viewTransform.offsetX = 0;
-    this.viewTransform.scaleX = 1;
-    this.invalidateAndDraw();
+    this.editor.timelineCurveViewSync?.resetBoth();
   }
 }
