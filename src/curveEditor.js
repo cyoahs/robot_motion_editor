@@ -356,21 +356,33 @@ export class CurveEditor {
     toggle.checked = isBezier;
   }
 
+  hasVisibleCurves() {
+    for (const curve of this.curves.values()) {
+      if (curve.visible) return true;
+    }
+    return false;
+  }
+
   /**
-   * 更新曲线数据
+   * 关键帧增删改后：同步曲线定义，不自动展开/显示全部曲线
    */
-  updateCurves() {
+  onKeyframesChanged() {
+    this.syncCurveDefinitions();
+    if (this.isExpanded) {
+      this.invalidateAndDraw();
+    }
+  }
+
+  /**
+   * 更新曲线定义（不改变 visible，不自动展开）
+   */
+  syncCurveDefinitions() {
     if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
       return;
     }
-    
+
     const keyframes = this.editor.trajectoryManager.getKeyframes();
-    
-    // 如果有关键帧且当前是折叠状态，则展开
-    if (keyframes.length > 0 && !this.isExpanded) {
-      this.toggleExpand();
-    }
-    
+
     // 如果没有关键帧，清空曲线但保留定义
     if (keyframes.length === 0) {
       // 仍然定义曲线，但标记为不可见
@@ -419,57 +431,40 @@ export class CurveEditor {
         }
       });
       
-      this.invalidateAndDraw();
+      if (this.isExpanded) {
+        this.invalidateAndDraw();
+      }
       return;
     }
-    
+
     // 更新关节曲线
     if (this.editor.jointController) {
       this.editor.jointController.joints.forEach((joint, index) => {
         const key = `joint_${index}`;
-        
-        // 检查是否有残差
-        let hasResidual = false;
-        for (const kf of keyframes) {
-          if (kf.residual && Math.abs(kf.residual[index] || 0) > 0.001) {
-            hasResidual = true;
-            break;
-          }
-        }
-        
+
         if (!this.curves.has(key)) {
           this.curves.set(key, {
             name: joint.name || `Joint ${index + 1}`,
             type: 'joint',
             index: index,
-            visible: false, // 默认不显示
+            visible: false,
             color: this.getNextColor(),
             data: []
           });
         }
       });
     }
-    
+
     // 更新基体位置曲线
-    ['x', 'y', 'z'].forEach((axis, index) => {
+    ['x', 'y', 'z'].forEach((axis) => {
       const key = `base_pos_${axis}`;
-      
-      // 检查是否有残差
-      let hasResidual = false;
-      for (const kf of keyframes) {
-        if (kf.baseResidual && kf.baseResidual.position &&
-            Math.abs(kf.baseResidual.position[axis] || 0) > 0.001) {
-          hasResidual = true;
-          break;
-        }
-      }
-      
+
       if (!this.curves.has(key)) {
         this.curves.set(key, {
           name: `Base Position ${axis.toUpperCase()}`,
           type: 'base_position',
           axis: axis,
-          visible: false, // 默认不显示
+          visible: false,
           color: this.getNextColor(),
           data: []
         });
@@ -495,8 +490,21 @@ export class CurveEditor {
     if (eeLink) {
       const prefix = eeCurveKeyPrefix(eeLink);
       if (!this.curves.has(`${prefix}_px`)) {
-        this.setActiveEndEffector(eeLink);
+        this.setActiveEndEffector(eeLink, { redraw: false });
       }
+    }
+  }
+
+  /** @param {{ autoExpand?: boolean }} [options] */
+  updateCurves(options = {}) {
+    this.syncCurveDefinitions();
+    if (options.autoExpand) {
+      const keyframes = this.editor.trajectoryManager?.getKeyframes() ?? [];
+      if (keyframes.length > 0 && !this.isExpanded) {
+        this.toggleExpand();
+      }
+    } else if (this.isExpanded && this.hasVisibleCurves()) {
+      this.invalidateAndDraw();
     }
   }
 
@@ -518,10 +526,10 @@ export class CurveEditor {
   /**
    * 为当前 IK 末端 Link 注册 6 条曲线（位置 XYZ + 姿态 RPY，世界系，rad/m）
    */
-  setActiveEndEffector(linkName) {
+  setActiveEndEffector(linkName, { redraw = true } = {}) {
     this.removeEndEffectorCurves();
     if (!linkName) {
-      this.drawDebounced();
+      if (redraw) this.drawDebounced();
       return;
     }
 
@@ -539,13 +547,55 @@ export class CurveEditor {
         type: 'ee_pose',
         linkName,
         component: comp.key,
-        visible: true,
+        visible: false,
         color: palette[i % palette.length],
         data: []
       });
     });
 
-    this.drawDebounced();
+    if (redraw && this.hasVisibleCurves()) {
+      this.drawDebounced();
+    }
+  }
+
+  _afterCurveVisibilityChange() {
+    this.updateRPYButtons();
+    if (this.editor.jointController?.updateCurveBackgrounds) {
+      this.editor.jointController.updateCurveBackgrounds();
+    }
+    if (this.editor.baseController?.updateCurveBackgrounds) {
+      this.editor.baseController.updateCurveBackgrounds();
+    }
+    if (this.isExpanded) {
+      this.invalidateAndDraw();
+    }
+  }
+
+  /**
+   * 选中单条曲线（用于关节/基座标签点击）：仅显示该曲线，再次点击同一项则隐藏
+   */
+  selectSingleCurve(curveKey) {
+    const curve = this.curves.get(curveKey);
+    if (!curve) return false;
+
+    const visibleCount = [...this.curves.values()].filter((c) => c.visible).length;
+    const onlyThis = curve.visible && visibleCount === 1;
+
+    this.curves.forEach((c) => {
+      c.visible = false;
+    });
+    curve.visible = !onlyThis;
+
+    if (curve.visible && !this.isExpanded) {
+      this.toggleExpand();
+    }
+
+    this._afterCurveVisibilityChange();
+    return curve.visible;
+  }
+
+  selectJointCurve(jointIndex) {
+    return this.selectSingleCurve(`joint_${jointIndex}`);
   }
 
   /**
@@ -556,51 +606,33 @@ export class CurveEditor {
   toggleCurveVisibility(curveKey, shiftKey = false) {
     const curve = this.curves.get(curveKey);
     if (!curve) return false;
-    
+
+    if (!shiftKey) {
+      return this.selectSingleCurve(curveKey);
+    }
+
     const isEulerCurve = curve.type === 'base_euler';
-    
-    if (shiftKey) {
-      // Shift+点击：切换当前曲线，但要确保欧拉角和其他曲线不混合
-      if (isEulerCurve) {
-        // 如果是欧拉角曲线，先隐藏所有非欧拉角曲线
-        this.curves.forEach((c) => {
-          if (c.type !== 'base_euler') {
-            c.visible = false;
-          }
-        });
-      } else {
-        // 如果是其他曲线，先隐藏所有欧拉角曲线
-        this.curves.forEach((c) => {
-          if (c.type === 'base_euler') {
-            c.visible = false;
-          }
-        });
-      }
-      curve.visible = !curve.visible;
-    } else {
-      // 普通点击：只显示当前曲线，隐藏其他所有曲线
-      const wasVisible = curve.visible;
+
+    if (isEulerCurve) {
       this.curves.forEach((c) => {
-        c.visible = false;
+        if (c.type !== 'base_euler') {
+          c.visible = false;
+        }
       });
-      // 切换当前曲线状态
-      curve.visible = !wasVisible;
+    } else {
+      this.curves.forEach((c) => {
+        if (c.type === 'base_euler') {
+          c.visible = false;
+        }
+      });
     }
-    
-    // 更新RPY按钮
-    this.updateRPYButtons();
-    
-    // 更新关节控制面板的背景色
-    if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
-      this.editor.jointController.updateCurveBackgrounds();
+    curve.visible = !curve.visible;
+
+    if (curve.visible && !this.isExpanded) {
+      this.toggleExpand();
     }
-    
-    // 更新基体控制面板的背景色
-    if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
-      this.editor.baseController.updateCurveBackgrounds();
-    }
-    
-    this.invalidateAndDraw();
+
+    this._afterCurveVisibilityChange();
     return curve.visible;
   }
   
@@ -633,21 +665,14 @@ export class CurveEditor {
       eulerY.visible = newVisible; // Pitch
       eulerZ.visible = false; // Yaw默认不显示
       
-      // 更新关节控制面板
-      if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
-        this.editor.jointController.updateCurveBackgrounds();
-      }
     }
-    
-    // 更新基体控制面板的背景色
-    if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
-      this.editor.baseController.updateCurveBackgrounds();
+
+    const newVisible = eulerX.visible || eulerY.visible;
+    if (newVisible && !this.isExpanded) {
+      this.toggleExpand();
     }
-    
-    // 更新RPY按钮
-    this.updateRPYButtons();
-    
-    this.invalidateAndDraw();
+
+    this._afterCurveVisibilityChange();
     return eulerX.visible;
   }
   
@@ -693,50 +718,12 @@ export class CurveEditor {
     return curve ? curve.visible : false;
   }
 
-  /**
-   * 重置为默认显示（只显示有残差的曲线）
-   */
+  /** 隐藏全部曲线（默认不自动展示） */
   resetToDefault() {
-    if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
-      return;
-    }
-    
-    const keyframes = this.editor.trajectoryManager.getKeyframes();
-    
-    this.curves.forEach((curve, key) => {
-      let hasResidual = false;
-      
-      if (curve.type === 'joint') {
-        for (const kf of keyframes) {
-          if (kf.residual && Math.abs(kf.residual[curve.index] || 0) > 0.001) {
-            hasResidual = true;
-            break;
-          }
-        }
-      } else if (curve.type === 'base_position') {
-        for (const kf of keyframes) {
-          if (kf.baseResidual && kf.baseResidual.position &&
-              Math.abs(kf.baseResidual.position[curve.axis] || 0) > 0.001) {
-            hasResidual = true;
-            break;
-          }
-        }
-      }
-      
-      curve.visible = hasResidual;
+    this.curves.forEach((curve) => {
+      curve.visible = false;
     });
-    
-    // 更新关节控制面板的背景颜色
-    if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
-      this.editor.jointController.updateCurveBackgrounds();
-    }
-    
-    // 更新基体控制面板的背景颜色
-    if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
-      this.editor.baseController.updateCurveBackgrounds();
-    }
-    
-    this.invalidateAndDraw();
+    this._afterCurveVisibilityChange();
   }
 
   /**
@@ -953,13 +940,14 @@ export class CurveEditor {
    * 在短时间内多次调用只会执行最后一次
    */
   drawDebounced() {
+    if (!this.isExpanded) return;
     if (this.drawDebounceTimer) {
       clearTimeout(this.drawDebounceTimer);
     }
     this.drawDebounceTimer = setTimeout(() => {
       if (this.editor.timelineController?.isPlaying) {
         this.drawPlayheadOnly();
-      } else {
+      } else if (this.hasVisibleCurves()) {
         this.invalidateAndDraw();
       }
       this.drawDebounceTimer = null;

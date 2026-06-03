@@ -37,7 +37,7 @@ export class JointController {
 
       const label = document.createElement('label');
       label.style.cssText = 'cursor: pointer; display: flex; align-items: center; user-select: none;';
-      label.title = '点击切换曲线显示';
+      label.title = '点击显示此关节曲线';
       
       const labelText = document.createElement('span');
       labelText.textContent = joint.name || `Joint ${index + 1}`;
@@ -62,18 +62,14 @@ export class JointController {
       
       // 点击label切换曲线可见性
       label.addEventListener('click', (e) => {
-        if (this.editor.curveEditor) {
-          const curveKey = `joint_${index}`;
-          const visible = this.editor.curveEditor.toggleCurveVisibility(curveKey, e.shiftKey);
-          const color = this.editor.curveEditor.getCurveColor(curveKey);
-          if (color) {
-            // 更新背景色
-            if (visible) {
-              control.style.backgroundColor = color + '20'; // 20% 透明度
-            } else {
-              control.style.backgroundColor = '';
-            }
-          }
+        if (!this.editor.curveEditor) return;
+        const curveKey = `joint_${index}`;
+        const visible = e.shiftKey
+          ? this.editor.curveEditor.toggleCurveVisibility(curveKey, true)
+          : this.editor.curveEditor.selectJointCurve(index);
+        const color = this.editor.curveEditor.getCurveColor(curveKey);
+        if (color) {
+          control.style.backgroundColor = visible ? color + '20' : '';
         }
       });
       
