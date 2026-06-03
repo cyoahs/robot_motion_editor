@@ -468,6 +468,34 @@ export class TrajectoryManager {
     this.keyframes.delete(frameIndex);
   }
 
+  _cloneKeyframeData(data) {
+    return {
+      residual: [...data.residual],
+      baseResidual: data.baseResidual
+        ? {
+            position: { ...data.baseResidual.position },
+            quaternion: { ...data.baseResidual.quaternion }
+          }
+        : null
+    };
+  }
+
+  /** 将关键帧从 fromFrame 移动到 toFrame（帧号钳制到轨迹范围内） */
+  moveKeyframe(fromFrame, toFrame) {
+    const from = Math.round(fromFrame);
+    let to = Math.round(toFrame);
+    if (!this.keyframes.has(from) || !this.hasTrajectory()) return false;
+
+    const maxFrame = this.baseTrajectory.length - 1;
+    to = Math.max(0, Math.min(maxFrame, to));
+    if (from === to) return true;
+
+    const data = this._cloneKeyframeData(this.keyframes.get(from));
+    this.keyframes.delete(from);
+    this.keyframes.set(to, data);
+    return true;
+  }
+
   clearAllKeyframes() {
     this.keyframes.clear();
     console.log('🗑️ 已清除所有关键帧');

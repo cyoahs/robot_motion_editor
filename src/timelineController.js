@@ -383,6 +383,156 @@ export class TimelineController {
     return thumbCenter;
   }
 
+  /** 测量滑条上关键帧标记的可拖动轨道（与 updateKeyframeMarkers 一致） */
+  _measureMarkerTrack(slider) {
+    if (!slider || this.frameCount <= 0) {
+      return { offset: 0, effectiveWidth: 0 };
+    }
+    const oldValue = slider.value;
+    slider.value = 0;
+    const thumbPos0 = this.getThumbPosition(slider);
+    slider.value = slider.max;
+    const thumbPosMax = this.getThumbPosition(slider);
+    slider.value = oldValue;
+    return {
+      offset: thumbPos0,
+      effectiveWidth: Math.max(0, thumbPosMax - thumbPos0)
+    };
+  }
+
+  _frameToProgress(frameIndex) {
+    if (this.frameCount <= 1) return 0;
+    return frameIndex / (this.frameCount - 1);
+  }
+
+  _frameToLeftPx(frameIndex, track) {
+    const t = track || this._markerTrack;
+    if (!t || t.effectiveWidth <= 0) return t?.offset ?? 0;
+    return t.offset + this._frameToProgress(frameIndex) * t.effectiveWidth;
+  }
+
+  /** 将屏幕 X 坐标映射为帧号 */
+  clientXToFrame(clientX) {
+    const slider = document.getElementById('timeline-slider');
+    const track = this._markerTrack;
+    if (!slider || !track || track.effectiveWidth <= 0 || this.frameCount <= 0) {
+      return 0;
+    }
+    const rect = slider.getBoundingClientRect();
+    const x = clientX - rect.left - track.offset;
+    const ratio = Math.max(0, Math.min(1, x / track.effectiveWidth));
+    if (this.frameCount <= 1) return 0;
+    return Math.round(ratio * (this.frameCount - 1));
+  }
+
+  _handleKeyframeMarkerClick(e, frameIndex) {
+    if (e.ctrlKey || e.metaKey) {
+      if (this.selectedKeyframes.has(frameIndex)) {
+        this.selectedKeyframes.delete(frameIndex);
+      } else {
+        this.selectedKeyframes.add(frameIndex);
+      }
+      this.updateSmoothButtonVisibility();
+      this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
+    } else if (e.shiftKey) {
+      const allKeyframes = Array.from(this.editor.trajectoryManager.keyframes.keys()).sort((a, b) => a - b);
+
+      if (this.selectedKeyframes.size === 0) {
+        this.selectedKeyframes.add(frameIndex);
+      } else {
+        const selectedArray = Array.from(this.selectedKeyframes).sort((a, b) => a - b);
+        const firstSelected = selectedArray[0];
+        const lastSelected = selectedArray[selectedArray.length - 1];
+        const rangeStart = Math.min(firstSelected, frameIndex);
+        const rangeEnd = Math.max(lastSelected, frameIndex);
+
+        allKeyframes.forEach((kf) => {
+          if (kf >= rangeStart && kf <= rangeEnd) {
+            this.selectedKeyframes.add(kf);
+          }
+        });
+      }
+
+      this.updateSmoothButtonVisibility();
+      this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
+    } else {
+      this.selectedKeyframes.clear();
+      this.updateSmoothButtonVisibility();
+      this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
+      this.setCurrentFrame(frameIndex);
+    }
+  }
+
+  _bindKeyframeMarkerDrag(marker, frameIndex) {
+    const dragThreshold = 4;
+
+    marker.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const state = {
+        frameIndex,
+        startX: e.clientX,
+        startY: e.clientY,
+        dragging: false,
+        previewFrame: frameIndex
+      };
+
+      const onMove = (ev) => {
+        const dx = ev.clientX - state.startX;
+        const dy = ev.clientY - state.startY;
+        if (!state.dragging && Math.hypot(dx, dy) >= dragThreshold) {
+          state.dragging = true;
+          marker.classList.add('is-dragging');
+        }
+        if (!state.dragging) return;
+
+        state.previewFrame = this.clientXToFrame(ev.clientX);
+        marker.style.left = `${this._frameToLeftPx(state.previewFrame)}px`;
+      };
+
+      const onUp = (ev) => {
+        marker.removeEventListener('pointermove', onMove);
+        marker.removeEventListener('pointerup', onUp);
+        marker.removeEventListener('pointercancel', onUp);
+        marker.classList.remove('is-dragging');
+
+        if (state.dragging) {
+          const toFrame = this.clientXToFrame(ev.clientX);
+          const fromFrame = state.frameIndex;
+          if (toFrame !== fromFrame) {
+            const tm = this.editor.trajectoryManager;
+            if (tm.moveKeyframe(fromFrame, toFrame)) {
+              if (this.selectedKeyframes.has(fromFrame)) {
+                this.selectedKeyframes.delete(fromFrame);
+                this.selectedKeyframes.add(toFrame);
+              }
+              const keys = Array.from(tm.keyframes.keys());
+              this.updateKeyframeMarkers(keys);
+              this.editor.updateRobotState(this.currentFrame);
+              this.editor.jointController?.updateKeyframeIndicators?.();
+              this.editor.baseController?.updateKeyframeIndicators?.();
+              this.editor.curveEditor?.updateCurves?.();
+              this.editor.curveEditor?.invalidateAndDraw?.();
+              this.editor.triggerAutoSave?.();
+            } else {
+              this.updateKeyframeMarkers(Array.from(tm.keyframes.keys()));
+            }
+          } else {
+            this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
+          }
+        } else {
+          this._handleKeyframeMarkerClick(ev, frameIndex);
+        }
+      };
+
+      marker.addEventListener('pointermove', onMove);
+      marker.addEventListener('pointerup', onUp);
+      marker.addEventListener('pointercancel', onUp);
+    });
+  }
+
   updateKeyframeMarkers(keyframes) {
     const container = document.getElementById('keyframe-markers');
     if (!container) return;
@@ -399,122 +549,62 @@ export class TimelineController {
     
     // 等待DOM更新后获取宽度
     requestAnimationFrame(() => {
-      // 使用slider的getBoundingClientRect来获取精确的可用宽度
       const sliderRect = slider.getBoundingClientRect();
       const sliderWidth = sliderRect.width;
-      
-      // 动态测量thumb的实际宽度
-      // 通过计算slider在不同值时thumb中心的位置来反推
-      const oldValue = slider.value;
-      slider.value = 0;
-      const thumbPos0 = this.getThumbPosition(slider);
-      slider.value = slider.max;
-      const thumbPosMax = this.getThumbPosition(slider);
-      slider.value = oldValue;
-      
-      const effectiveWidth = thumbPosMax - thumbPos0;
-      const offset = thumbPos0;
-      
+
+      this._markerTrack = this._measureMarkerTrack(slider);
+      const { offset, effectiveWidth } = this._markerTrack;
+
       keyframes.forEach(frameIndex => {
         const marker = document.createElement('div');
         marker.className = 'keyframe-marker';
-        
-        // 检查是否被选中
+
         const isSelected = this.selectedKeyframes.has(frameIndex);
-        
-        // 计算位置：使用有效宽度
-        const progress = frameIndex / (this.frameCount - 1);
-        const leftPos = offset + progress * effectiveWidth;
-        
+        const leftPos = this._frameToLeftPx(frameIndex, this._markerTrack);
+
         marker.style.cssText = `
           position: absolute;
           width: 8px;
           height: 20px;
           background: ${isSelected ? '#ff6b6b' : '#4ec9b0'};
-          cursor: pointer;
           border-radius: 2px;
           left: ${leftPos}px;
           transform: translateX(-50%);
           transition: background 0.2s, transform 0.2s;
         `;
-        marker.title = `关键帧 ${frameIndex} - 右键删除`;
-        
-        // 鼠标悬停效果
+        marker.title = `Keyframe ${frameIndex} — drag to move, right-click to delete`;
+
         marker.addEventListener('mouseenter', () => {
+          if (marker.classList.contains('is-dragging')) return;
           marker.style.background = '#6fd4bd';
           marker.style.transform = 'translateX(-50%) scale(1.2)';
         });
-        
+
         marker.addEventListener('mouseleave', () => {
-          const isSelected = this.selectedKeyframes.has(frameIndex);
-          marker.style.background = isSelected ? '#ff6b6b' : '#4ec9b0';
+          if (marker.classList.contains('is-dragging')) return;
+          const selected = this.selectedKeyframes.has(frameIndex);
+          marker.style.background = selected ? '#ff6b6b' : '#4ec9b0';
           marker.style.transform = 'translateX(-50%)';
         });
-        
-        // 点击处理：普通点击取消所有选择，Ctrl/Cmd+点击单选，Shift+点击范围选择
-        marker.addEventListener('click', (e) => {
-          if (e.ctrlKey || e.metaKey) {
-            // Ctrl/Cmd+点击：切换单个关键帧的选中状态
-            if (this.selectedKeyframes.has(frameIndex)) {
-              this.selectedKeyframes.delete(frameIndex);
-              marker.style.background = '#4ec9b0';
-            } else {
-              this.selectedKeyframes.add(frameIndex);
-              marker.style.background = '#ff6b6b';
-            }
-            
-            // 更新平滑按钮显示状态
-            this.updateSmoothButtonVisibility();
-          } else if (e.shiftKey) {
-            // Shift+点击：范围选择（从第一个选中的到当前点击的）
-            const allKeyframes = Array.from(this.editor.trajectoryManager.keyframes.keys()).sort((a, b) => a - b);
-            
-            if (this.selectedKeyframes.size === 0) {
-              // 没有已选中的，直接选中当前的
-              this.selectedKeyframes.add(frameIndex);
-              marker.style.background = '#ff6b6b';
-            } else {
-              // 找到第一个和最后一个已选中的关键帧
-              const selectedArray = Array.from(this.selectedKeyframes).sort((a, b) => a - b);
-              const firstSelected = selectedArray[0];
-              const lastSelected = selectedArray[selectedArray.length - 1];
-              
-              // 确定范围的起点和终点
-              const rangeStart = Math.min(firstSelected, frameIndex);
-              const rangeEnd = Math.max(lastSelected, frameIndex);
-              
-              // 选中范围内的所有关键帧
-              allKeyframes.forEach(kf => {
-                if (kf >= rangeStart && kf <= rangeEnd) {
-                  this.selectedKeyframes.add(kf);
-                }
-              });
-              
-              // 更新所有标记的显示
-              this.updateKeyframeMarkers(allKeyframes);
-            }
-            
-            // 更新平滑按钮显示状态
-            this.updateSmoothButtonVisibility();
-          } else {
-            // 普通点击：取消所有选择并跳转到关键帧
-            this.selectedKeyframes.clear();
-            this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
-            this.updateSmoothButtonVisibility();
-            this.setCurrentFrame(frameIndex);
-          }
-        });
-        
-        // 右键删除关键帧
+
+        this._bindKeyframeMarkerDrag(marker, frameIndex);
+
         marker.addEventListener('contextmenu', (e) => {
           e.preventDefault();
           if (confirm(`确定删除关键帧 ${frameIndex}？`)) {
             this.editor.trajectoryManager.removeKeyframe(frameIndex);
+            this.selectedKeyframes.delete(frameIndex);
             this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
+            this.updateSmoothButtonVisibility();
             this.editor.updateRobotState(this.currentFrame);
+            this.editor.jointController?.updateKeyframeIndicators?.();
+            this.editor.baseController?.updateKeyframeIndicators?.();
+            this.editor.curveEditor?.updateCurves?.();
+            this.editor.curveEditor?.invalidateAndDraw?.();
+            this.editor.triggerAutoSave?.();
           }
         });
-        
+
         container.appendChild(marker);
         this.keyframeMarkers.push(marker);
       });

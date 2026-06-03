@@ -231,6 +231,7 @@
     .main-content {
       display: flex;
       flex: 1;
+      min-height: 0;
       overflow: hidden;
     }
 
@@ -568,12 +569,44 @@
 
     #sidebar {
       width: 300px;
+      min-width: 300px;
+      flex-shrink: 0;
+      min-height: 0;
       background: var(--bg-secondary);
       border-left: 1px solid var(--border-primary);
-      padding: 10px;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
       transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+
+    #sidebar-scroll {
+      flex: 1;
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+      padding: 10px;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    #sidebar-scroll::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    #sidebar-scroll::-webkit-scrollbar-thumb {
+      background: var(--border-secondary);
+      border-radius: 4px;
+    }
+
+    #sidebar-scroll::-webkit-scrollbar-thumb:hover {
+      background: var(--text-tertiary);
+    }
+
+    /* 脚部控制（侧栏 + 弹窗）默认隐藏 */
+    #foot-panel-section,
+    #foot-identification-modal,
+    #foot-edit-modal {
+      display: none !important;
     }
 
     #ik-controls select,
@@ -586,6 +619,116 @@
 
     #ik-controls button.ik-preset-btn:hover {
       background: var(--bg-tertiary);
+    }
+
+    .ik-tuning-details {
+      margin-bottom: 8px;
+      font-size: 11px;
+    }
+
+    .ik-tuning-details > summary {
+      cursor: pointer;
+      padding: 4px 0;
+      color: var(--text-secondary);
+      font-weight: 600;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .ik-tuning-details > summary::before {
+      content: '▶';
+      display: inline-block;
+      font-size: 10px;
+      line-height: 1;
+      color: var(--text-tertiary);
+      transition: transform 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .ik-tuning-details[open] > summary::before {
+      transform: rotate(90deg);
+    }
+
+    .ik-tuning-details > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .ik-tuning-details > summary::marker {
+      content: '';
+    }
+
+    .ik-tuning-body {
+      margin-top: 8px;
+      padding: 10px;
+      background: var(--bg-tertiary);
+      border-radius: 6px;
+      border: 1px solid var(--border-primary);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .ik-tuning-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .ik-tuning-field-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      color: var(--text-secondary);
+      font-size: 10px;
+      line-height: 1.3;
+    }
+
+    .ik-tuning-field-head strong {
+      color: var(--text-primary);
+      font-weight: 600;
+      font-size: 11px;
+    }
+
+    .ik-tuning-val {
+      font-variant-numeric: tabular-nums;
+      color: var(--accent-info);
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+
+    .ik-tuning-field input[type="range"] {
+      width: 100%;
+      height: 4px;
+      margin: 2px 0;
+      accent-color: var(--accent-primary);
+      cursor: pointer;
+    }
+
+    .ik-tuning-field input[type="number"] {
+      width: 100%;
+      padding: 4px 6px;
+      font-size: 11px;
+      border: 1px solid var(--border-primary);
+      border-radius: 3px;
+      background: var(--bg-input);
+      color: var(--text-primary);
+      box-sizing: border-box;
+    }
+
+    .ik-tuning-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 10px;
+    }
+
+    .ik-tuning-hint {
+      margin: 0;
+      color: var(--text-tertiary);
+      font-size: 10px;
+      line-height: 1.4;
     }
 
     .joint-control {
@@ -650,6 +793,23 @@
       background: var(--accent-hover);
     }
 
+    #ik-reset-reference {
+      width: 100%;
+      margin-bottom: 8px;
+      padding: 6px 8px;
+      font-size: 11px;
+      cursor: pointer;
+      background: var(--accent-primary);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      transition: background-color 0.2s ease;
+    }
+
+    #ik-reset-reference:hover {
+      background: var(--accent-hover);
+    }
+
     .joint-control input[type="number"] {
       width: 70px;
       padding: 2px 4px;
@@ -695,6 +855,18 @@
       position: relative;
       height: 20px;
       margin-bottom: 5px;
+    }
+
+    #keyframe-markers .keyframe-marker {
+      cursor: grab;
+      user-select: none;
+      touch-action: none;
+    }
+
+    #keyframe-markers .keyframe-marker.is-dragging {
+      cursor: grabbing;
+      z-index: 5;
+      transition: none;
     }
 
     #timeline-slider {
@@ -1257,6 +1429,7 @@
         </div>
       </div>
       <div id="sidebar">
+        <div id="sidebar-scroll">
         <!-- 基体控制 -->
         <div style="border-bottom: 1px solid var(--border-primary); margin-bottom: 10px; padding-bottom: 10px; transition: border-color 0.3s ease;">
           <div id="base-control-header" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px; background: var(--bg-tertiary); border-radius: 4px; transition: background-color 0.3s ease;">
@@ -1265,8 +1438,8 @@
           <div id="base-controls" style="display: none; margin-top: 10px;"></div>
         </div>
         
-        <!-- 脚部控制 -->
-        <div style="border-bottom: 1px solid var(--border-primary); margin-bottom: 10px; padding-bottom: 10px; transition: border-color 0.3s ease;">
+        <!-- 脚部控制（已隐藏，见 #foot-panel-section） -->
+        <div id="foot-panel-section" style="border-bottom: 1px solid var(--border-primary); margin-bottom: 10px; padding-bottom: 10px; transition: border-color 0.3s ease;">
           <div id="foot-control-header" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px; background: var(--bg-tertiary); border-radius: 4px; transition: background-color 0.3s ease;">
             <h3 style="margin: 0; font-size: 13px;" data-i18n="footControl">▶ 脚部控制 (Feet)</h3>
           </div>
@@ -1277,10 +1450,10 @@
           </div>
         </div>
 
-        <!-- IK 编辑 -->
+        <!-- IK 末端编辑 -->
         <div id="ik-panel-section" style="border-bottom: 1px solid var(--border-primary); margin-bottom: 10px; padding-bottom: 10px; transition: border-color 0.3s ease;">
           <div id="ik-control-header" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px; background: var(--bg-tertiary); border-radius: 4px;">
-            <h3 style="margin: 0; font-size: 13px;" data-i18n="ikControl">▶ IK 编辑</h3>
+            <h3 style="margin: 0; font-size: 13px;" data-i18n="ikControl">▶ IK末端编辑</h3>
           </div>
           <div id="ik-controls" style="display: none; margin-top: 10px; font-size: 12px; color: var(--text-primary);">
             <p id="ik-load-hint" style="margin: 0 0 8px; color: var(--text-tertiary); font-size: 11px;">请先加载 URDF</p>
@@ -1311,7 +1484,7 @@
                   </label>
                 </div>
               </div>
-              <button type="button" id="ik-reset-reference" style="width: 100%; margin-bottom: 8px; padding: 6px 8px; font-size: 11px; cursor: pointer; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px;" data-i18n="ikResetReference">重置到参考位姿</button>
+              <button type="button" id="ik-reset-reference" data-i18n="ikResetReference">重置到参考位姿</button>
               <div style="margin-bottom: 8px; font-size: 11px;">
                 <div style="margin-bottom: 4px;">
                   <span data-i18n="ikNudgePosition">位置增量</span>
@@ -1337,29 +1510,61 @@
                 </div>
               </div>
               <label style="display: flex; align-items: center; gap: 6px; margin: 8px 0; cursor: pointer; font-size: 11px;">
-                <input type="checkbox" id="ik-show-debug" checked />
+                <input type="checkbox" id="ik-show-debug" />
                 <span data-i18n="ikShowDebug">显示 IK 调试日志（控制台）</span>
               </label>
-              <details id="ik-tuning-details" style="margin-bottom: 8px; font-size: 11px;">
-                <summary style="cursor: pointer; padding: 4px 0; color: var(--text-secondary);" data-i18n="ikTuning">求解参数（权重 0~1）</summary>
-                <div style="margin-top: 6px; padding: 6px; background: var(--bg-tertiary); border-radius: 4px;">
-                  <div style="font-weight: 600; margin-bottom: 4px;" data-i18n="ikTuningPosition">位置拖拽</div>
-                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; margin-bottom: 8px;">
-                    <label>T <input type="number" id="ik-w-pos-trans" value="1" min="0" max="1" step="0.001" style="width:100%;" title="translationFactor 0~1" /></label>
-                    <label>R <input type="number" id="ik-w-pos-rot" value="0.012" min="0" max="1" step="0.001" style="width:100%;" title="rotationFactor 0~1" /></label>
-                    <label data-i18n="ikMaxIter">迭代 <input type="number" id="ik-w-pos-iter" value="32" min="1" step="1" style="width:100%;" /></label>
-                    <label data-i18n="ikDamping">阻尼 <input type="number" id="ik-w-pos-damp" value="0.012" min="0.0001" max="0.2" step="0.001" style="width:100%;" /></label>
-                    <label data-i18n="ikClamp">步长上限 <input type="number" id="ik-w-pos-clamp" value="0.02" min="0.001" max="0.2" step="0.001" style="width:100%;" /></label>
-                    <label data-i18n="ikDiverge">发散阈值 <input type="number" id="ik-w-pos-diverge" value="0.02" min="0.001" max="0.5" step="0.001" style="width:100%;" /></label>
-                    <label data-i18n="ikPosTol">位置容差(m) <input type="number" id="ik-w-pos-tol" value="0.004" min="0.0005" max="0.05" step="0.0005" style="width:100%;" /></label>
+              <details id="ik-tuning-details" class="ik-tuning-details">
+                <summary data-i18n="ikTuning">Solver Parameters</summary>
+                <div class="ik-tuning-body">
+                  <div class="ik-tuning-field">
+                    <div class="ik-tuning-field-head">
+                      <strong data-i18n="ikWeightTranslation">Translation weight</strong>
+                      <span class="ik-tuning-val" id="ik-w-pos-trans-val">1.000</span>
+                    </div>
+                    <input type="range" id="ik-w-pos-trans" min="0" max="1" step="0.001" value="1"
+                      aria-label="translationFactor" />
                   </div>
-                  <div style="font-weight: 600; margin-bottom: 4px;" data-i18n="ikTuningOrientation">姿态拖拽</div>
-                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px;">
-                    <label>R <input type="number" id="ik-w-ori-rot" value="1" min="0" max="1" step="0.001" style="width:100%;" title="rotationOnly 姿态拉力；阻尼沿用位置组" /></label>
-                    <label data-i18n="ikMaxIter">迭代 <input type="number" id="ik-w-ori-iter" value="32" min="1" step="1" style="width:100%;" /></label>
-                    <label data-i18n="ikEndPasses">松手加强迭代× <input type="number" id="ik-w-ori-passes" value="1" min="1" max="16" step="1" style="width:100%;" title="已弃用，保留兼容" /></label>
+                  <div class="ik-tuning-field">
+                    <div class="ik-tuning-field-head">
+                      <strong data-i18n="ikWeightRotation">Rotation weight</strong>
+                      <span class="ik-tuning-val" id="ik-w-pos-rot-val">0.012</span>
+                    </div>
+                    <input type="range" id="ik-w-pos-rot" min="0" max="1" step="0.001" value="0.012"
+                      aria-label="rotationFactor" />
                   </div>
-                  <p style="margin: 6px 0 0; color: var(--text-tertiary); font-size: 10px;" data-i18n="ikTuningHint">拖拽时每帧仅求解 1 次；T/R 权重范围 [0,1]。</p>
+                  <div class="ik-tuning-grid">
+                    <label class="ik-tuning-field">
+                      <div class="ik-tuning-field-head">
+                        <strong data-i18n="ikMaxIter">Max iterations</strong>
+                      </div>
+                      <input type="number" id="ik-w-pos-iter" value="32" min="1" step="1" />
+                    </label>
+                    <label class="ik-tuning-field">
+                      <div class="ik-tuning-field-head">
+                        <strong data-i18n="ikDamping">Damping</strong>
+                      </div>
+                      <input type="number" id="ik-w-pos-damp" value="0.012" min="0.0001" max="0.2" step="0.001" />
+                    </label>
+                    <label class="ik-tuning-field">
+                      <div class="ik-tuning-field-head">
+                        <strong data-i18n="ikClamp">Step clamp (m)</strong>
+                      </div>
+                      <input type="number" id="ik-w-pos-clamp" value="0.02" min="0.001" max="0.2" step="0.001" />
+                    </label>
+                    <label class="ik-tuning-field">
+                      <div class="ik-tuning-field-head">
+                        <strong data-i18n="ikDiverge">Diverge threshold</strong>
+                      </div>
+                      <input type="number" id="ik-w-pos-diverge" value="0.02" min="0.001" max="0.5" step="0.001" />
+                    </label>
+                    <label class="ik-tuning-field" style="grid-column: 1 / -1;">
+                      <div class="ik-tuning-field-head">
+                        <strong data-i18n="ikPosTol">Position tolerance (m)</strong>
+                      </div>
+                      <input type="number" id="ik-w-pos-tol" value="0.004" min="0.0005" max="0.05" step="0.0005" />
+                    </label>
+                  </div>
+                  <p class="ik-tuning-hint" data-i18n="ikTuningHint">One IK solve per drag frame; shared by position and orientation edits.</p>
                 </div>
               </details>
             </div>
@@ -1371,7 +1576,8 @@
           <h3 style="margin: 0; color: var(--text-primary); transition: color 0.3s ease;" data-i18n="jointControl">关节控制</h3>
           <button id="reset-joints" style="padding: 4px 12px; font-size: 12px; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer; transition: background-color 0.2s ease;" data-i18n="reset">重置</button>
         </div>
-        <div id="joint-controls" style="overflow-y: auto; flex: 1;"></div>
+        <div id="joint-controls"></div>
+        </div>
       </div>
     </div>
 
@@ -1388,6 +1594,7 @@
         <label class="playback-rate-wrap" for="playback-rate">
           <span data-i18n="playbackRate">倍率</span>
           <select id="playback-rate" aria-label="Playback speed">
+            <option value="0.1">0.1×</option>
             <option value="0.25">0.25×</option>
             <option value="0.5">0.5×</option>
             <option value="1" selected>1×</option>

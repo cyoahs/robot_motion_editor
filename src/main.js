@@ -439,6 +439,9 @@ class RobotKeyframeEditor {
       if (this.baseController) {
         this.baseController.resetToBase();
       }
+      if (this.trajectoryManager?.hasTrajectory()) {
+        this.addKeyframe();
+      }
     });
 
     // 播放/暂停

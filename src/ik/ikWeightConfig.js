@@ -33,7 +33,7 @@ export const IK_WEIGHT_DEFAULTS = Object.freeze({
     convergedPositionTolerance: 0.004
   }),
   orientation: Object.freeze({
-    /** rotationOnly 模式下生效 */
+    /** @deprecated 仅用于旧工程 JSON 兼容，求解不再读取 */
     rotationFactor: 1,
     maxIterations: 32,
     solvePasses: 1
@@ -197,7 +197,6 @@ function readNum(id, fallback) {
 export function readIkWeightsFromDom(stored = null) {
   const base = sanitizeIkWeights(stored || IK_WEIGHT_DEFAULTS);
   const p = base.position;
-  const o = base.orientation;
 
   return sanitizeIkWeights({
     position: {
@@ -208,13 +207,17 @@ export function readIkWeightsFromDom(stored = null) {
       translationErrorClamp: readNum('ik-w-pos-clamp', p.translationErrorClamp),
       divergeThreshold: readNum('ik-w-pos-diverge', p.divergeThreshold),
       convergedPositionTolerance: readNum('ik-w-pos-tol', p.convergedPositionTolerance)
-    },
-    orientation: {
-      rotationFactor: readNum('ik-w-ori-rot', o.rotationFactor),
-      maxIterations: readNum('ik-w-ori-iter', o.maxIterations),
-      solvePasses: readNum('ik-w-ori-passes', o.solvePasses)
     }
   });
+}
+
+/** 更新 T/R 滑条旁数值显示 */
+export function refreshIkWeightDisplays(weights) {
+  const w = sanitizeIkWeights(weights).position;
+  const transEl = document.getElementById('ik-w-pos-trans-val');
+  const rotEl = document.getElementById('ik-w-pos-rot-val');
+  if (transEl) transEl.textContent = w.translationFactor.toFixed(3);
+  if (rotEl) rotEl.textContent = w.rotationFactor.toFixed(3);
 }
 
 /** 将权重写入面板 DOM（用于工程恢复） */
@@ -227,13 +230,11 @@ export function writeIkWeightsToDom(weights) {
     'ik-w-pos-damp': w.position.dampingFactor,
     'ik-w-pos-clamp': w.position.translationErrorClamp,
     'ik-w-pos-diverge': w.position.divergeThreshold,
-    'ik-w-pos-tol': w.position.convergedPositionTolerance,
-    'ik-w-ori-rot': w.orientation.rotationFactor,
-    'ik-w-ori-iter': w.orientation.maxIterations,
-    'ik-w-ori-passes': w.orientation.solvePasses
+    'ik-w-pos-tol': w.position.convergedPositionTolerance
   };
   for (const [id, val] of Object.entries(map)) {
     const el = document.getElementById(id);
     if (el) el.value = String(val);
   }
+  refreshIkWeightDisplays(w);
 }

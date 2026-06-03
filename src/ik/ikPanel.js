@@ -8,7 +8,8 @@ import {
   IK_WEIGHT_DEFAULTS,
   readIkWeightsFromDom,
   writeIkWeightsToDom,
-  sanitizeIkWeights
+  sanitizeIkWeights,
+  refreshIkWeightDisplays
 } from './ikWeightConfig.js';
 
 export class IkPanel {
@@ -89,17 +90,18 @@ export class IkPanel {
   _bindTuningControls() {
     const ids = [
       'ik-w-pos-trans', 'ik-w-pos-rot', 'ik-w-pos-iter', 'ik-w-pos-damp',
-      'ik-w-pos-clamp', 'ik-w-pos-diverge', 'ik-w-pos-tol',
-      'ik-w-ori-rot', 'ik-w-ori-iter', 'ik-w-ori-passes'
+      'ik-w-pos-clamp', 'ik-w-pos-diverge', 'ik-w-pos-tol'
     ];
     const onChange = () => {
       this.ikWeights = readIkWeightsFromDom(this.ikWeights);
       writeIkWeightsToDom(this.ikWeights);
+      refreshIkWeightDisplays(this.ikWeights);
       this.editor.endEffectorControls?.setStoredIkWeights(this.ikWeights);
     };
     for (const id of ids) {
-      document.getElementById(id)?.addEventListener('change', onChange);
-      document.getElementById(id)?.addEventListener('input', onChange);
+      const el = document.getElementById(id);
+      el?.addEventListener('change', onChange);
+      el?.addEventListener('input', onChange);
     }
   }
 

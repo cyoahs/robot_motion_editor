@@ -9,7 +9,7 @@ export function isIkSolveLogVerbose() {
   return typeof window !== 'undefined' && window.__IK_LOG_SOLVE_VERBOSE__ === true;
 }
 
-/** 是否打印 IK 求解日志（默认开启） */
+/** 是否打印 IK 求解日志（默认关，由面板勾选开启） */
 export function isIkSolveLogEnabled() {
   if (typeof window !== 'undefined') {
     if (window.__IK_LOG_SOLVE__ === true) return true;
@@ -17,7 +17,7 @@ export function isIkSolveLogEnabled() {
   }
   const el = document.getElementById('ik-show-debug');
   if (el) return el.checked;
-  return true;
+  return false;
 }
 
 function fmt3(v) {
