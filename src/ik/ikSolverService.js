@@ -4,24 +4,25 @@ import { Goal } from 'closed-chain-ik/src/core/Goal.js';
 import { DOF } from 'closed-chain-ik/src/core/Joint.js';
 import {
   setIKFromUrdf,
-  setUrdfFromIK,
   urdfRobotToIKRoot
 } from 'closed-chain-ik/src/three/urdfHelpers.js';
-import { findIKLinkByName } from './ikSolverUtils.js';
+import { findIKLinkByName, formatSolverStatus } from './ikSolverUtils.js';
+import {
+  inferChainJointNames,
+  inferChainJointNamesFromIkTree
+} from './ikChainRegistry.js';
+import { IK_WEIGHT_DEFAULTS } from './ikWeightConfig.js';
+import {
+  applyAllIkJointsToUrdf,
+  compareChainJointAngles,
+  measureUrdfIkFkDeltaMm,
+  syncIkFixedJointOriginsFromUrdf,
+  verifyIkKinematicsLoop
+} from './ikKinematicsVerify.js';
 
 const _pos = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
-
-const DEFAULT_TRANS_FACTOR = 1;
-const DEFAULT_ROT_FACTOR = 1;
-
-/** 调位置：软混合时位置仍占主导，姿态仅轻微趋近参考 */
-export const POSITION_HOLD_TRANS_FACTOR = 80;
-export const POSITION_SOFT_ROT_FACTOR = 0.012;
-
-/** 调姿态：位置尽量不变，姿态软趋近（允许较大姿态误差） */
-export const ORIENTATION_HOLD_TRANS_FACTOR = 280;
-export const ORIENTATION_HOLD_ROT_FACTOR = 0.01;
+const _euler = new THREE.Euler(0, 0, 0, 'ZYX');
 
 export class IkSolverService {
   constructor() {
@@ -31,6 +32,7 @@ export class IkSolverService {
     this.closureLink = null;
     this.chainJointNames = [];
     this.endEffectorLinkName = '';
+    this._worldJoint = null;
   }
 
   dispose() {
@@ -46,12 +48,12 @@ export class IkSolverService {
 
     try {
       this.endEffectorLinkName = endEffectorLinkName;
-      this.chainJointNames = chainJointNames || [];
+      this.chainJointNames = chainJointNames || inferChainJointNames(robot, endEffectorLinkName);
 
       this.ikRoot = urdfRobotToIKRoot(robot, false);
       if (!this.ikRoot) return false;
 
-      setIKFromUrdf(this.ikRoot, robot);
+      this._syncRobotToIk(robot);
 
       this.closureLink = findIKLinkByName(this.ikRoot, endEffectorLinkName);
       if (!this.closureLink) {
@@ -59,14 +61,21 @@ export class IkSolverService {
         return false;
       }
 
+      const ikChain = inferChainJointNamesFromIkTree(this.ikRoot, endEffectorLinkName);
+      if (ikChain.length && ikChain.join(',') !== this.chainJointNames.join(',')) {
+        console.warn('[IK] URDF 链与 IK 树链不一致', {
+          urdf: this.chainJointNames,
+          ikTree: ikChain,
+          endLink: endEffectorLinkName
+        });
+      }
+
       this.goal = new Goal();
       this.goal.makeClosure(this.closureLink);
 
       this.solver = new Solver(this.ikRoot);
-      this.solver.maxIterations = 8;
-      this.solver.dampingFactor = 0.01;
-      this.solver.translationFactor = DEFAULT_TRANS_FACTOR;
-      this.solver.rotationFactor = DEFAULT_ROT_FACTOR;
+      this._applyDefaultSolverSettings();
+      this._worldJoint = this._findWorldJoint();
 
       return true;
     } catch (err) {
@@ -76,22 +85,24 @@ export class IkSolverService {
     }
   }
 
-  solve(robot, position, quaternion, options = {}) {
-    if (!this.solver || !this.goal || !this.ikRoot) {
-      return { success: false, error: 'IK not initialized' };
-    }
+  _applyDefaultSolverSettings() {
+    const d = IK_WEIGHT_DEFAULTS.position;
+    this.solver.maxIterations = d.maxIterations;
+    this.solver.dampingFactor = d.dampingFactor;
+    this.solver.translationFactor = d.translationFactor;
+    this.solver.rotationFactor = d.rotationFactor;
+    this.solver.translationErrorClamp = d.translationErrorClamp;
+    this.solver.divergeThreshold = d.divergeThreshold;
+    this.solver.translationConvergeThreshold = d.convergedPositionTolerance;
+    this.solver.stallThreshold = 1e-4;
+  }
 
-    const lockedJoints = this.chainJointNames.length > 0
-      ? this._snapshotJointsOutsideChain(robot)
-      : new Map();
-    const lockedBase = this._snapshotBase(robot);
-
-    const savedIter = this.solver.maxIterations;
-    const savedTrans = this.solver.translationFactor;
-    const savedRot = this.solver.rotationFactor;
-
+  _applySolverOptions(options = {}) {
     if (options.maxIterations != null) {
       this.solver.maxIterations = options.maxIterations;
+    }
+    if (options.dampingFactor != null) {
+      this.solver.dampingFactor = options.dampingFactor;
     }
     if (options.translationFactor != null) {
       this.solver.translationFactor = options.translationFactor;
@@ -99,216 +110,270 @@ export class IkSolverService {
     if (options.rotationFactor != null) {
       this.solver.rotationFactor = options.rotationFactor;
     }
-
-    const passes = Math.max(1, options.solvePasses || 1);
-    let status = null;
-
-    for (let pass = 0; pass < passes; pass++) {
-      setIKFromUrdf(this.ikRoot, robot);
-
-      this.goal.setPosition(position.x, position.y, position.z);
-      if (options.positionOnly) {
-        this.goal.setGoalDoF(DOF.X, DOF.Y, DOF.Z);
-      } else if (options.rotationOnly) {
-        this.goal.setGoalDoF(DOF.EX, DOF.EY, DOF.EZ);
-        this.goal.setQuaternion(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
-      } else {
-        this.goal.setGoalDoF(DOF.X, DOF.Y, DOF.Z, DOF.EX, DOF.EY, DOF.EZ);
-        this.goal.setQuaternion(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
-      }
-
-      status = this.solver.solve();
-      setUrdfFromIK(robot, this.ikRoot);
+    if (options.translationErrorClamp != null) {
+      this.solver.translationErrorClamp = options.translationErrorClamp;
     }
+    if (options.rotationErrorClamp != null) {
+      this.solver.rotationErrorClamp = options.rotationErrorClamp;
+    }
+    if (options.divergeThreshold != null) {
+      this.solver.divergeThreshold = options.divergeThreshold;
+    }
+    if (options.convergedPositionTolerance != null) {
+      this.solver.translationConvergeThreshold = options.convergedPositionTolerance;
+    }
+    if (options.rotationConvergeThreshold != null) {
+      this.solver.rotationConvergeThreshold = options.rotationConvergeThreshold;
+    }
+    if (options.stallThreshold != null) {
+      this.solver.stallThreshold = options.stallThreshold;
+    }
+  }
 
-    this.solver.maxIterations = savedIter;
-    this.solver.translationFactor = savedTrans;
-    this.solver.rotationFactor = savedRot;
+  _snapshotSolverSettings() {
+    const s = this.solver;
+    return {
+      maxIterations: s.maxIterations,
+      dampingFactor: s.dampingFactor,
+      translationFactor: s.translationFactor,
+      rotationFactor: s.rotationFactor,
+      translationErrorClamp: s.translationErrorClamp,
+      divergeThreshold: s.divergeThreshold,
+      translationConvergeThreshold: s.translationConvergeThreshold,
+      rotationConvergeThreshold: s.rotationConvergeThreshold,
+      stallThreshold: s.stallThreshold
+    };
+  }
 
-    this._restoreJoints(robot, lockedJoints);
-    this._restoreBase(robot, lockedBase);
+  _restoreSolverSettings(saved) {
+    Object.assign(this.solver, saved);
+  }
 
-    robot.updateMatrixWorld(true);
-
-    const err = this._estimateError(robot, position, quaternion);
-    const success = this._checkSuccess(err, options);
-
-    return { success, status, error: err };
+  _findWorldJoint() {
+    let found = null;
+    this.ikRoot?.traverse((c) => {
+      if (c.isJoint && c.name === '__world_joint__') found = c;
+    });
+    return found;
   }
 
   /**
-   * 反复求解直至位姿误差低于阈值（用于重置等需一次到位的场景）
+   * URDF → IK 同步；用四元数写 world_joint 旋转，避免 rotation/euler 不一致
    */
+  _syncRobotToIk(robot) {
+    robot.updateMatrixWorld(true);
+    syncIkFixedJointOriginsFromUrdf(robot, this.ikRoot);
+    setIKFromUrdf(this.ikRoot, robot);
+
+    if (this._worldJoint) {
+      this._worldJoint.setDoFValue(DOF.X, robot.position.x);
+      this._worldJoint.setDoFValue(DOF.Y, robot.position.y);
+      this._worldJoint.setDoFValue(DOF.Z, robot.position.z);
+      _euler.setFromQuaternion(robot.quaternion, 'ZYX');
+      this._worldJoint.setDoFValue(DOF.EX, _euler.x);
+      this._worldJoint.setDoFValue(DOF.EY, _euler.y);
+      this._worldJoint.setDoFValue(DOF.EZ, _euler.z);
+      this._worldJoint.setMatrixDoFNeedsUpdate();
+    }
+
+    this.ikRoot.updateMatrixWorld(true);
+  }
+
+  _lockJointAtCurrent(joint) {
+    if (!joint?.dof?.length) return;
+    for (const dof of joint.dof) {
+      const v = joint.getDoFValue(dof);
+      joint.setMinLimit(dof, v);
+      joint.setMaxLimit(dof, v);
+    }
+  }
+
+  /**
+   * 锁定 __world_joint__ 与非本链关节。
+   * 人形全链共享 pelvis/world，不锁会导致解一条腿时带动全身。
+   */
+  _prepareIkTreeForSolve() {
+    const chainSet = new Set(this.chainJointNames);
+
+    if (this._worldJoint) {
+      this._lockJointAtCurrent(this._worldJoint);
+    }
+
+    this.ikRoot?.traverse((c) => {
+      if (!c.isJoint || c.name === '__world_joint__') return;
+      if (!chainSet.has(c.name)) {
+        this._lockJointAtCurrent(c);
+      }
+    });
+  }
+
+  verifyKinematicsLoop(robot) {
+    return verifyIkKinematicsLoop(robot, this);
+  }
+
+  /** Goal 目标必须用世界坐标 API（THREE 世界系 → Goal 世界系） */
+  _setGoalTarget(position, quaternion, options = {}) {
+    if (options.positionOnly) {
+      this.goal.setGoalDoF(DOF.X, DOF.Y, DOF.Z);
+      this.goal.setWorldPosition(position.x, position.y, position.z);
+    } else if (options.rotationOnly) {
+      this.goal.setGoalDoF(DOF.EX, DOF.EY, DOF.EZ);
+      this.goal.setWorldPosition(position.x, position.y, position.z);
+      this.goal.setWorldQuaternion(
+        quaternion.x, quaternion.y, quaternion.z, quaternion.w
+      );
+    } else {
+      this.goal.setGoalDoF(DOF.X, DOF.Y, DOF.Z, DOF.EX, DOF.EY, DOF.EZ);
+      this.goal.setWorldPosition(position.x, position.y, position.z);
+      this.goal.setWorldQuaternion(
+        quaternion.x, quaternion.y, quaternion.z, quaternion.w
+      );
+    }
+    this.goal.updateMatrixWorld(true);
+  }
+
+  /** IK closure link 世界坐标，用于诊断 URDF↔IK 同步 */
+  captureIkClosureWorldPose() {
+    if (!this.closureLink) return null;
+    this.closureLink.updateMatrixWorld(true);
+    this.closureLink.getWorldPosition(_pos);
+    this.closureLink.getWorldQuaternion(_quat);
+    return {
+      position: _pos.clone(),
+      quaternion: _quat.clone()
+    };
+  }
+
+  captureChainJointAngles(robot) {
+    const out = {};
+    for (const name of this.chainJointNames) {
+      out[name] = robot.joints[name]?.angle ?? 0;
+    }
+    return out;
+  }
+
+  captureEeFk(robot) {
+    const link = robot.links?.[this.endEffectorLinkName];
+    if (!link) return null;
+    link.getWorldPosition(_pos);
+    link.getWorldQuaternion(_quat);
+    return {
+      position: _pos.clone(),
+      quaternion: _quat.clone()
+    };
+  }
+
+  solve(robot, position, quaternion, options = {}) {
+    if (!this.solver || !this.goal || !this.ikRoot) {
+      return { success: false, error: 'IK not initialized' };
+    }
+
+    const errBeforeSolve = this._estimateError(robot, position, quaternion, options);
+
+    const saved = this._snapshotSolverSettings();
+    this._applySolverOptions(options);
+
+    this._syncRobotToIk(robot);
+    this._prepareIkTreeForSolve();
+    this._setGoalTarget(position, quaternion, options);
+
+    const ikFkBefore = this.captureIkClosureWorldPose();
+    const status = this.solver.solve();
+    this.ikRoot.updateMatrixWorld(true);
+    const ikFkAfter = this.captureIkClosureWorldPose();
+
+    applyAllIkJointsToUrdf(robot, this.ikRoot);
+    const loopAfterWriteback = measureUrdfIkFkDeltaMm(robot, this, this.endEffectorLinkName);
+    const jointLoop = compareChainJointAngles(robot, this.ikRoot, this.chainJointNames);
+
+    this._restoreSolverSettings(saved);
+
+    const err = this._estimateError(robot, position, quaternion, options);
+    const success = this._checkSuccess(err, options);
+
+    return {
+      success,
+      status,
+      statusLabel: formatSolverStatus(status),
+      error: err,
+      errorBefore: errBeforeSolve,
+      ikFkBefore,
+      ikFkAfter,
+      loopDeltaMm: loopAfterWriteback.deltaMm,
+      loopUrdfAfter: loopAfterWriteback.urdf,
+      loopIkAfter: loopAfterWriteback.ik,
+      loopMaxJointDeltaRad: jointLoop.maxDeltaRad
+    };
+  }
+
   solveToConvergence(robot, position, quaternion, options = {}) {
     if (!this.solver || !this.goal || !this.ikRoot) {
       return { success: false, error: 'IK not initialized', passes: 0 };
     }
 
-    const posTol = options.positionTolerance ?? 0.002;
-    const rotTol = options.rotationTolerance ?? 0.025;
+    const posTol = options.convergedPositionTolerance ?? options.positionTolerance ?? 0.002;
+    const rotTol = options.rotationConvergeThreshold ?? options.rotationTolerance ?? 0.025;
     const maxPasses = options.maxPasses ?? 48;
+    const positionOnly = !!options.positionOnly;
 
-    const lockedJoints = this.chainJointNames.length > 0
-      ? this._snapshotJointsOutsideChain(robot)
-      : new Map();
-    const lockedBase = this._snapshotBase(robot);
-
-    const saved = {
-      maxIterations: this.solver.maxIterations,
-      dampingFactor: this.solver.dampingFactor,
-      translationFactor: this.solver.translationFactor,
-      rotationFactor: this.solver.rotationFactor,
-      stallThreshold: this.solver.stallThreshold
-    };
-
-    this.solver.maxIterations = options.maxIterations ?? 32;
-    this.solver.dampingFactor = options.dampingFactor ?? 0.002;
-    this.solver.translationFactor = 1;
-    this.solver.rotationFactor = 1;
-    this.solver.stallThreshold = 0;
-
-    this.goal.setPosition(position.x, position.y, position.z);
-    this.goal.setGoalDoF(DOF.X, DOF.Y, DOF.Z, DOF.EX, DOF.EY, DOF.EZ);
-    this.goal.setQuaternion(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
+    const saved = this._snapshotSolverSettings();
+    this._applySolverOptions({
+      ...options,
+      maxIterations: options.maxIterations ?? 32,
+      dampingFactor: options.dampingFactor ?? 0.002,
+      translationFactor: options.translationFactor ?? 1,
+      rotationFactor: options.rotationFactor ?? 0.012,
+      convergedPositionTolerance: posTol
+    });
+    this.solver.stallThreshold = options.stallThreshold ?? 0;
 
     let status = null;
+    let statusLabel = '';
     let err = { position: Infinity, rotation: Infinity };
     let passesUsed = 0;
 
     for (let pass = 0; pass < maxPasses; pass++) {
       passesUsed = pass + 1;
-      setIKFromUrdf(this.ikRoot, robot);
-      status = this.solver.solve();
-      setUrdfFromIK(robot, this.ikRoot);
-      this._restoreJoints(robot, lockedJoints);
-      this._restoreBase(robot, lockedBase);
-      robot.updateMatrixWorld(true);
+      this._syncRobotToIk(robot);
+      this._prepareIkTreeForSolve();
+      this._setGoalTarget(position, quaternion, { ...options, positionOnly });
 
-      err = this._estimateError(robot, position, quaternion);
-      if (err.position < posTol && err.rotation < rotTol) {
+      status = this.solver.solve();
+      statusLabel = formatSolverStatus(status);
+
+      applyAllIkJointsToUrdf(robot, this.ikRoot);
+
+      err = this._estimateError(robot, position, quaternion, { positionOnly });
+      if (positionOnly) {
+        if (err.position < posTol) break;
+      } else if (err.position < posTol && err.rotation < rotTol) {
         break;
       }
     }
 
-    this.solver.maxIterations = saved.maxIterations;
-    this.solver.dampingFactor = saved.dampingFactor;
-    this.solver.translationFactor = saved.translationFactor;
-    this.solver.rotationFactor = saved.rotationFactor;
-    this.solver.stallThreshold = saved.stallThreshold;
+    this._restoreSolverSettings(saved);
 
-    const success = err.position < posTol && err.rotation < rotTol;
-    return { success, status, error: err, passes: passesUsed };
+    const success = positionOnly
+      ? err.position < posTol
+      : err.position < posTol && err.rotation < rotTol;
+    return { success, status, statusLabel, error: err, passes: passesUsed };
   }
 
-  /** 先解位置，再多次锁姿态（姿态参考固定为 holdQuat） */
-  solveHoldOrientation(robot, position, holdQuat, options = {}) {
-    const iter = options.maxIterations ?? 18;
-    const cycles = options.holdCycles ?? 3;
-    for (let c = 0; c < cycles; c++) {
-      this.solve(robot, position, holdQuat, { positionOnly: true, maxIterations: iter });
-      for (let i = 0; i < 3; i++) {
-        this.solve(robot, position, holdQuat, { rotationOnly: true, maxIterations: iter });
-      }
-    }
-    const err = this._estimateError(robot, position, holdQuat);
-    return {
-      success: err.position < 0.04 && err.rotation < 0.05,
-      error: err
-    };
-  }
+  _checkSuccess(err, options = {}) {
+    const posTol = options.convergedPositionTolerance ?? 0.004;
+    const rotTol = options.rotationConvergeThreshold ?? 0.05;
 
-  /**
-   * 调姿态：6DOF 联合求解，translationFactor >> rotationFactor，全程锁定 refPosition。
-   * 不用 rotationOnly（该模式会从误差向量中剔除位置，导致足端漂移）。
-   */
-  solveOrientationHoldPosition(robot, refPosition, targetQuat, options = {}) {
-    const iter = options.maxIterations ?? 20;
-    const passes = options.solvePasses ?? 4;
-    const transW = options.translationFactor ?? ORIENTATION_HOLD_TRANS_FACTOR;
-    const rotW = options.rotationFactor ?? ORIENTATION_HOLD_ROT_FACTOR;
-
-    const weighted = {
-      translationFactor: transW,
-      rotationFactor: rotW,
-      maxIterations: iter,
-      orientationHoldPosition: true,
-      solvePasses: 1
-    };
-
-    // 6DOF 软姿态趋近 + 强位置权重
-    for (let i = 0; i < passes; i++) {
-      this.solve(robot, refPosition, targetQuat, weighted);
-    }
-
-    // 末尾纯位置收紧，确保 XYZ 贴近锁点
-    for (let i = 0; i < 3; i++) {
-      this.solve(robot, refPosition, targetQuat, {
-        positionOnly: true,
-        maxIterations: iter
-      });
-    }
-
-    const err = this._estimateError(robot, refPosition, targetQuat);
-    return {
-      success: err.position < (options.positionTolerance ?? 0.006),
-      error: err
-    };
-  }
-
-  /**
-   * 调位置：强力跟随 gizmo 目标，姿态软约束（不修改姿态参考）。
-   * 策略：先纯位置收敛，再姿态软混合，最后两次纯位置补偿，确保位置尽量接近目标。
-   */
-  solveHoldPositionSoftOrientation(robot, targetPos, refQuat, options = {}) {
-    const iter = options.maxIterations ?? 16;
-    const transW = options.translationFactor ?? POSITION_HOLD_TRANS_FACTOR;
-    const rotW = options.rotationFactor ?? POSITION_SOFT_ROT_FACTOR;
-
-    // 纯位置：优先贴近 gizmo
-    for (let i = 0; i < 2; i++) {
-      this.solve(robot, targetPos, refQuat, { positionOnly: true, maxIterations: iter });
-    }
-    // 单次软姿态趋近（姿态权重极小，位置仍占主导）
-    this.solve(robot, targetPos, refQuat, {
-      translationFactor: transW,
-      rotationFactor: rotW,
-      maxIterations: iter,
-      positionSoftOrientation: true
-    });
-    // 纯位置补偿
-    for (let i = 0; i < 3; i++) {
-      this.solve(robot, targetPos, refQuat, { positionOnly: true, maxIterations: iter });
-    }
-
-    const err = this._estimateError(robot, targetPos, refQuat);
-    return {
-      success: err.position < 0.04,
-      error: err
-    };
-  }
-
-  _checkSuccess(err, options) {
-    if (options.orientationHoldPosition) {
-      return err.position < (options.positionTolerance ?? 0.006);
-    }
-    if (options.orientationSoft || options.positionSoftOrientation) {
-      return err.position < 0.04;
+    if (options.orientationSoft) {
+      // 软约束：不要求姿态到达，只要求位置未明显漂移
+      return err.position < Math.max(posTol, 0.03);
     }
     if (options.positionOnly) {
-      return err.position < 0.03;
+      return err.position < Math.max(posTol, 0.03);
     }
     if (options.rotationOnly) {
-      return err.rotation < 0.25;
+      return err.rotation < rotTol;
     }
-    const t = options.translationFactor ?? DEFAULT_TRANS_FACTOR;
-    const r = options.rotationFactor ?? DEFAULT_ROT_FACTOR;
-    if (t >= r * 3) {
-      return err.position < 0.03;
-    }
-    if (r >= t * 3) {
-      return err.rotation < 0.25;
-    }
-    return err.position < 0.03 && err.rotation < 0.3;
+    return err.position < posTol && err.rotation < rotTol;
   }
 
   _snapshotJointsOutsideChain(robot) {
@@ -342,15 +407,22 @@ export class IkSolverService {
     robot.quaternion.copy(base.quaternion);
   }
 
-  _estimateError(robot, targetPos, targetQuat) {
+  _estimateError(robot, targetPos, targetQuat, options = {}) {
     const link = robot.links?.[this.endEffectorLinkName];
     if (!link) return { position: Infinity, rotation: Infinity };
 
     link.getWorldPosition(_pos);
     link.getWorldQuaternion(_quat);
 
-    const position = _pos.distanceTo(targetPos);
-    const rotation = _quat.angleTo(targetQuat);
+    let position = _pos.distanceTo(targetPos);
+    let rotation = _quat.angleTo(targetQuat);
+
+    if (options.positionOnly) {
+      rotation = 0;
+    } else if (options.rotationOnly) {
+      position = 0;
+    }
+
     return { position, rotation };
   }
 }
