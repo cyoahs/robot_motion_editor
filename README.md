@@ -1,5 +1,7 @@
 # 机器人关键帧编辑器
 
+> 本项目在开源项目 **[cyoahs/robot_motion_editor](https://github.com/cyoahs/robot_motion_editor)**（浏览器端关键帧运动编辑）基础上改进扩展，增加了末端IK编辑、模型叠加显、关键帧细节处理、模型轨迹拖入加载等方便的功能。
+
 基于 Web 的机器人运动轨迹编辑工具，支持 URDF 模型加载、CSV 轨迹编辑、双视口对比、逆运动学（IK）末端编辑与工程状态管理。
 
 **English:** [README.en.md](README.en.md)

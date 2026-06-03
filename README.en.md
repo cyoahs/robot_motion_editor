@@ -1,5 +1,7 @@
 # Robot Keyframe Editor
 
+This project is an improved fork of **[cyoahs/robot_motion_editor](https://github.com/cyoahs/robot_motion_editor)** — a browser-based keyframe motion editor.
+
 A browser-based robot motion trajectory editor with URDF loading, CSV editing, dual-viewport comparison, inverse kinematics (IK) end-effector editing, and project persistence.
 
 **中文:** [README.md](README.md)
