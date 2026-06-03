@@ -4,6 +4,12 @@ import {
   guessDefaultEndLink,
   G1_END_EFFECTOR_PRESETS
 } from './ikChainRegistry.js';
+import {
+  IK_WEIGHT_DEFAULTS,
+  readIkWeightsFromDom,
+  writeIkWeightsToDom,
+  sanitizeIkWeights
+} from './ikWeightConfig.js';
 
 export class IkPanel {
   constructor(editor) {
@@ -11,6 +17,7 @@ export class IkPanel {
     this.enabled = false;
     this.endEffectorLink = '';
     this.goalMode = 'pose';
+    this.ikWeights = sanitizeIkWeights(IK_WEIGHT_DEFAULTS);
 
     this._container = document.getElementById('ik-controls');
     this._body = document.getElementById('ik-controls-body');
@@ -20,6 +27,8 @@ export class IkPanel {
     this._presets = document.getElementById('ik-preset-buttons');
 
     this._bindStaticControls();
+    this._bindTuningControls();
+    writeIkWeightsToDom(this.ikWeights);
     if (this.editor.robotRight) {
       this.onUrdfLoaded();
     } else {
@@ -75,6 +84,28 @@ export class IkPanel {
         }
       });
     });
+  }
+
+  _bindTuningControls() {
+    const ids = [
+      'ik-w-pos-trans', 'ik-w-pos-rot', 'ik-w-pos-iter', 'ik-w-pos-damp',
+      'ik-w-pos-clamp', 'ik-w-pos-diverge', 'ik-w-pos-tol',
+      'ik-w-ori-rot', 'ik-w-ori-iter', 'ik-w-ori-passes'
+    ];
+    const onChange = () => {
+      this.ikWeights = readIkWeightsFromDom(this.ikWeights);
+      writeIkWeightsToDom(this.ikWeights);
+      this.editor.endEffectorControls?.setStoredIkWeights(this.ikWeights);
+    };
+    for (const id of ids) {
+      document.getElementById(id)?.addEventListener('change', onChange);
+      document.getElementById(id)?.addEventListener('input', onChange);
+    }
+  }
+
+  getIkWeights() {
+    this.ikWeights = readIkWeightsFromDom(this.ikWeights);
+    return this.ikWeights;
   }
 
   _syncUrdfUi(hasUrdf) {
@@ -143,7 +174,8 @@ export class IkPanel {
       enabled: this.enabled,
       endEffectorLink: this.endEffectorLink,
       chainRootJoint: null,
-      goalMode: this.goalMode
+      goalMode: this.goalMode,
+      ikWeights: this.getIkWeights()
     };
   }
 
@@ -152,6 +184,10 @@ export class IkPanel {
     if (typeof ik.endEffectorLink === 'string') this.endEffectorLink = ik.endEffectorLink;
     if (ik.goalMode === 'pose' || ik.goalMode === 'position' || ik.goalMode === 'orientation') {
       this.goalMode = ik.goalMode;
+    }
+    if (ik.ikWeights) {
+      this.ikWeights = sanitizeIkWeights(ik.ikWeights);
+      writeIkWeightsToDom(this.ikWeights);
     }
     if (typeof ik.enabled === 'boolean') {
       this.enabled = ik.enabled && !!this.editor.robotRight;
@@ -179,6 +215,7 @@ export class IkPanel {
 
     ec.setGoalMode(this.goalMode);
     ec.setEndLink(this.endEffectorLink);
+    ec.setStoredIkWeights(this.getIkWeights());
 
     const ok = ec.setEnabled(this.enabled);
     if (this.enabled && !ok) {

@@ -328,10 +328,14 @@ class RobotKeyframeEditor {
 
   async _initIkModulesAsync() {
     try {
-      const [{ IkPanel }, { EndEffectorControls }] = await Promise.all([
+      const [{ IkPanel }, { EndEffectorControls }, { installIkSolveLogGlobals }, { installIkKinematicsVerifyGlobals }] = await Promise.all([
         import('./ik/ikPanel.js'),
-        import('./ik/endEffectorControls.js')
+        import('./ik/endEffectorControls.js'),
+        import('./ik/ikSolveLogger.js'),
+        import('./ik/ikKinematicsVerify.js')
       ]);
+      installIkSolveLogGlobals();
+      installIkKinematicsVerifyGlobals(() => this.endEffectorControls?.ikService);
       this.endEffectorControls = new EndEffectorControls(this);
       this.ikPanel = new IkPanel(this);
       if (this._pendingIkProjectSettings) {

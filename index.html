@@ -1336,6 +1336,32 @@
                   <div style="display: flex; gap: 2px;"><button type="button" class="ik-nudge-btn" data-kind="rot" data-axis="z" data-sign="-1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">RZ−</button><button type="button" class="ik-nudge-btn" data-kind="rot" data-axis="z" data-sign="1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">RZ+</button></div>
                 </div>
               </div>
+              <label style="display: flex; align-items: center; gap: 6px; margin: 8px 0; cursor: pointer; font-size: 11px;">
+                <input type="checkbox" id="ik-show-debug" checked />
+                <span data-i18n="ikShowDebug">显示 IK 调试日志（控制台）</span>
+              </label>
+              <details id="ik-tuning-details" style="margin-bottom: 8px; font-size: 11px;">
+                <summary style="cursor: pointer; padding: 4px 0; color: var(--text-secondary);" data-i18n="ikTuning">求解参数（权重 0~1）</summary>
+                <div style="margin-top: 6px; padding: 6px; background: var(--bg-tertiary); border-radius: 4px;">
+                  <div style="font-weight: 600; margin-bottom: 4px;" data-i18n="ikTuningPosition">位置拖拽</div>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; margin-bottom: 8px;">
+                    <label>T <input type="number" id="ik-w-pos-trans" value="1" min="0" max="1" step="0.001" style="width:100%;" title="translationFactor 0~1" /></label>
+                    <label>R <input type="number" id="ik-w-pos-rot" value="0.012" min="0" max="1" step="0.001" style="width:100%;" title="rotationFactor 0~1" /></label>
+                    <label data-i18n="ikMaxIter">迭代 <input type="number" id="ik-w-pos-iter" value="32" min="1" step="1" style="width:100%;" /></label>
+                    <label data-i18n="ikDamping">阻尼 <input type="number" id="ik-w-pos-damp" value="0.012" min="0.0001" max="0.2" step="0.001" style="width:100%;" /></label>
+                    <label data-i18n="ikClamp">步长上限 <input type="number" id="ik-w-pos-clamp" value="0.02" min="0.001" max="0.2" step="0.001" style="width:100%;" /></label>
+                    <label data-i18n="ikDiverge">发散阈值 <input type="number" id="ik-w-pos-diverge" value="0.02" min="0.001" max="0.5" step="0.001" style="width:100%;" /></label>
+                    <label data-i18n="ikPosTol">位置容差(m) <input type="number" id="ik-w-pos-tol" value="0.004" min="0.0005" max="0.05" step="0.0005" style="width:100%;" /></label>
+                  </div>
+                  <div style="font-weight: 600; margin-bottom: 4px;" data-i18n="ikTuningOrientation">姿态拖拽</div>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px;">
+                    <label>R <input type="number" id="ik-w-ori-rot" value="1" min="0" max="1" step="0.001" style="width:100%;" title="rotationOnly 姿态拉力；阻尼沿用位置组" /></label>
+                    <label data-i18n="ikMaxIter">迭代 <input type="number" id="ik-w-ori-iter" value="32" min="1" step="1" style="width:100%;" /></label>
+                    <label data-i18n="ikEndPasses">松手加强迭代× <input type="number" id="ik-w-ori-passes" value="1" min="1" max="16" step="1" style="width:100%;" title="已弃用，保留兼容" /></label>
+                  </div>
+                  <p style="margin: 6px 0 0; color: var(--text-tertiary); font-size: 10px;" data-i18n="ikTuningHint">拖拽时每帧仅求解 1 次；T/R 权重范围 [0,1]。</p>
+                </div>
+              </details>
             </div>
           </div>
         </div>
