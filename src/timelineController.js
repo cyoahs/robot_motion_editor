@@ -15,6 +15,10 @@ export class TimelineController {
     this.minZoom = 1.0;
     this.maxZoom = 50.0;
     this.selectedKeyframes = new Set(); // 选中的关键帧
+    this._keyframeDragSession = null;
+    this._keyframeContextMenu = null;
+    /** @type {{ absolute: object, sourceFrame: number } | null} */
+    this._keyframeClipboard = null;
     
     this.setupUI();
   }
@@ -69,6 +73,13 @@ export class TimelineController {
         this.setPlaybackRate(parseFloat(rateSelect.value) || 1);
       });
     }
+
+    const markersBar = document.getElementById('keyframe-markers');
+    markersBar?.addEventListener('contextmenu', (e) => {
+      if (e.target.closest('.keyframe-marker')) return;
+      e.preventDefault();
+      this._showKeyframeContextMenu(e, this.currentFrame);
+    });
 
     const fpsInput = document.getElementById('project-fps');
     if (fpsInput) {
@@ -463,6 +474,296 @@ export class TimelineController {
     }
   }
 
+  _refreshAfterKeyframeChange() {
+    const keys = Array.from(this.editor.trajectoryManager.keyframes.keys());
+    this.updateKeyframeMarkers(keys);
+    this.editor.updateRobotState(this.currentFrame);
+    this.editor.jointController?.updateKeyframeIndicators?.();
+    this.editor.baseController?.updateKeyframeIndicators?.();
+    this.editor.curveEditor?.onKeyframesChanged?.();
+    this.editor.triggerAutoSave?.();
+  }
+
+  _finishKeyframeDrag(fromFrame, toFrame) {
+    const from = Math.round(fromFrame);
+    const to = Math.round(toFrame);
+    if (to === from) {
+      this._refreshAfterKeyframeChange();
+      return;
+    }
+    const tm = this.editor.trajectoryManager;
+    if (tm.moveKeyframe(from, to)) {
+      if (this.selectedKeyframes.has(from)) {
+        this.selectedKeyframes.delete(from);
+        this.selectedKeyframes.add(to);
+      }
+      this.setCurrentFrame(to);
+    }
+    this._refreshAfterKeyframeChange();
+  }
+
+  _getKeyframeCopySourceFrame() {
+    const tm = this.editor?.trajectoryManager;
+    if (!tm?.hasTrajectory()) return null;
+
+    const current = this.currentFrame;
+    if (tm.keyframes.has(current)) return current;
+
+    if (this.selectedKeyframes.size > 0) {
+      const sorted = Array.from(this.selectedKeyframes).sort((a, b) => a - b);
+      for (const frame of sorted) {
+        if (tm.keyframes.has(frame)) return frame;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 处理关键帧复制/粘贴/删除快捷键（由 main.js 在 capture 阶段调用）
+   * @returns {boolean} 是否已处理该按键
+   */
+  handleKeyframeShortcut(e) {
+    const tm = this.editor?.trajectoryManager;
+    if (!tm?.hasTrajectory()) return false;
+
+    const mod = e.ctrlKey || e.metaKey;
+
+    if (mod && e.code === 'KeyC') {
+      const from = this._getKeyframeCopySourceFrame();
+      if (from == null) {
+        this.editor.updateStatus?.(i18n.t('keyframeCopyNone'), 'warning');
+        return true;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      if (this._copyKeyframeToClipboard(from)) {
+        this.editor.updateStatus?.(i18n.t('keyframeCopyDone', { from }), 'success');
+      }
+      return true;
+    }
+
+    if (mod && e.code === 'KeyV') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!this._keyframeClipboard?.absolute) {
+        this.editor.updateStatus?.(i18n.t('keyframePasteEmpty'), 'warning');
+        return true;
+      }
+      const to = this.currentFrame;
+      const source = this._keyframeClipboard.sourceFrame;
+      if (this._pasteKeyframeFromClipboard(to)) {
+        this._refreshAfterKeyframeChange();
+        this.editor.updateStatus?.(i18n.t('keyframePasted', { from: source, to }), 'success');
+      }
+      return true;
+    }
+
+    if (!mod && !e.altKey && (e.code === 'Delete' || e.code === 'Backspace')) {
+      if (!this._deleteKeyframesByShortcut()) return false;
+      e.preventDefault();
+      e.stopPropagation();
+      return true;
+    }
+
+    return false;
+  }
+
+  /** @returns {boolean} 是否删除了至少一个关键帧 */
+  _deleteKeyframesByShortcut() {
+    const tm = this.editor.trajectoryManager;
+    if (!tm.hasTrajectory()) return false;
+
+    let framesToDelete;
+    if (this.selectedKeyframes.size > 0) {
+      framesToDelete = Array.from(this.selectedKeyframes)
+        .filter((f) => tm.keyframes.has(f))
+        .sort((a, b) => a - b);
+    } else if (tm.keyframes.has(this.currentFrame)) {
+      framesToDelete = [this.currentFrame];
+    } else {
+      return false;
+    }
+
+    if (framesToDelete.length === 0) return false;
+
+    framesToDelete.forEach((frame) => {
+      tm.removeKeyframe(frame);
+      this.selectedKeyframes.delete(frame);
+    });
+    this.updateSmoothButtonVisibility();
+    this._refreshAfterKeyframeChange();
+    return true;
+  }
+
+  _copyKeyframeToClipboard(fromFrame) {
+    const tm = this.editor.trajectoryManager;
+    const absolute = tm.getKeyframeAbsolute(fromFrame);
+    if (!absolute) return false;
+    this._keyframeClipboard = {
+      absolute,
+      sourceFrame: Math.round(fromFrame)
+    };
+    return true;
+  }
+
+  _pasteKeyframeFromClipboard(toFrame) {
+    if (!this._keyframeClipboard?.absolute) return false;
+    const tm = this.editor.trajectoryManager;
+    const to = Math.round(toFrame);
+    if (!tm.setKeyframeFromAbsolute(to, this._keyframeClipboard.absolute)) {
+      return false;
+    }
+    this.setCurrentFrame(to);
+    return true;
+  }
+
+  _isMacPlatform() {
+    return /Mac|iPhone|iPad/i.test(navigator.userAgent || navigator.platform || '');
+  }
+
+  _keyframeMenuShortcut(action) {
+    const mac = this._isMacPlatform();
+    switch (action) {
+      case 'copy':
+        return mac ? '⌘C' : 'Ctrl+C';
+      case 'paste':
+        return mac ? '⌘V' : 'Ctrl+V';
+      case 'delete':
+        return mac ? '⌫' : 'Del';
+      default:
+        return '';
+    }
+  }
+
+  _createKeyframeMenuButton(label, shortcut, { disabled = false, className = '', onClick }) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    if (className) btn.className = className;
+    btn.disabled = disabled;
+
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'keyframe-menu-label';
+    labelSpan.textContent = label;
+
+    const shortcutSpan = document.createElement('span');
+    shortcutSpan.className = 'keyframe-menu-shortcut';
+    shortcutSpan.textContent = shortcut;
+
+    btn.append(labelSpan, shortcutSpan);
+    btn.addEventListener('click', onClick);
+    return btn;
+  }
+
+  _hideKeyframeContextMenu() {
+    if (this._keyframeContextMenu) {
+      this._keyframeContextMenu.remove();
+      this._keyframeContextMenu = null;
+    }
+    if (this._keyframeContextMenuDismiss) {
+      document.removeEventListener('pointerdown', this._keyframeContextMenuDismiss, true);
+      this._keyframeContextMenuDismiss = null;
+    }
+  }
+
+  _showKeyframeContextMenu(e, frameIndex) {
+    e.preventDefault();
+    e.stopPropagation();
+    this._hideKeyframeContextMenu();
+
+    const targetFrame = Math.round(frameIndex);
+    const tm = this.editor.trajectoryManager;
+    const hasKeyframeAtTarget = tm.keyframes?.has(targetFrame);
+    const hasClipboard = !!this._keyframeClipboard?.absolute;
+
+    const menu = document.createElement('div');
+    menu.className = 'keyframe-context-menu';
+    menu.setAttribute('role', 'menu');
+
+    const copyBtn = this._createKeyframeMenuButton(
+      i18n.t('keyframeCopy'),
+      this._keyframeMenuShortcut('copy'),
+      {
+        disabled: !hasKeyframeAtTarget,
+        onClick: (ev) => {
+          ev.stopPropagation();
+          this._hideKeyframeContextMenu();
+          if (this._copyKeyframeToClipboard(targetFrame) && this.editor.updateStatus) {
+            this.editor.updateStatus(
+              i18n.t('keyframeCopyDone', { from: targetFrame }),
+              'success'
+            );
+          }
+        }
+      }
+    );
+
+    const pasteBtn = this._createKeyframeMenuButton(
+      i18n.t('keyframePaste', { frame: targetFrame }),
+      this._keyframeMenuShortcut('paste'),
+      {
+        disabled: !hasClipboard,
+        onClick: (ev) => {
+          ev.stopPropagation();
+          this._hideKeyframeContextMenu();
+          const source = this._keyframeClipboard?.sourceFrame;
+          if (this._pasteKeyframeFromClipboard(targetFrame)) {
+            this._refreshAfterKeyframeChange();
+            if (this.editor.updateStatus) {
+              this.editor.updateStatus(
+                i18n.t('keyframePasted', { from: source, to: targetFrame }),
+                'success'
+              );
+            }
+          }
+        }
+      }
+    );
+
+    const deleteBtn = this._createKeyframeMenuButton(
+      i18n.t('keyframeDelete'),
+      this._keyframeMenuShortcut('delete'),
+      {
+        disabled: !hasKeyframeAtTarget,
+        className: 'danger',
+        onClick: (ev) => {
+          ev.stopPropagation();
+          this._hideKeyframeContextMenu();
+          if (confirm(i18n.t('keyframeDeleteConfirm', { frame: targetFrame }))) {
+            this.editor.trajectoryManager.removeKeyframe(targetFrame);
+            this.selectedKeyframes.delete(targetFrame);
+            this.updateSmoothButtonVisibility();
+            this._refreshAfterKeyframeChange();
+          }
+        }
+      }
+    );
+
+    menu.append(copyBtn, pasteBtn, deleteBtn);
+    document.body.appendChild(menu);
+
+    const pad = 4;
+    let left = e.clientX;
+    let top = e.clientY;
+    const rect = menu.getBoundingClientRect();
+    if (left + rect.width > window.innerWidth - pad) {
+      left = window.innerWidth - rect.width - pad;
+    }
+    if (top + rect.height > window.innerHeight - pad) {
+      top = window.innerHeight - rect.height - pad;
+    }
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+
+    this._keyframeContextMenu = menu;
+    this._keyframeContextMenuDismiss = (ev) => {
+      if (menu.contains(ev.target)) return;
+      this._hideKeyframeContextMenu();
+    };
+    requestAnimationFrame(() => {
+      document.addEventListener('pointerdown', this._keyframeContextMenuDismiss, true);
+    });
+  }
+
   _bindKeyframeMarkerDrag(marker, frameIndex) {
     const dragThreshold = 4;
 
@@ -470,66 +771,80 @@ export class TimelineController {
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
+      this._hideKeyframeContextMenu();
 
-      const state = {
+      const slider = document.getElementById('timeline-slider');
+      this._markerTrack = this._measureMarkerTrack(slider);
+
+      const session = {
+        marker,
         frameIndex,
+        pointerId: e.pointerId,
         startX: e.clientX,
         startY: e.clientY,
         dragging: false,
-        previewFrame: frameIndex
+        previewFrame: frameIndex,
+        finished: false
       };
+      this._keyframeDragSession = session;
 
       const onMove = (ev) => {
-        const dx = ev.clientX - state.startX;
-        const dy = ev.clientY - state.startY;
-        if (!state.dragging && Math.hypot(dx, dy) >= dragThreshold) {
-          state.dragging = true;
+        if (session.finished || ev.pointerId !== session.pointerId) return;
+
+        const dx = ev.clientX - session.startX;
+        const dy = ev.clientY - session.startY;
+        if (!session.dragging && Math.hypot(dx, dy) >= dragThreshold) {
+          session.dragging = true;
           marker.classList.add('is-dragging');
         }
-        if (!state.dragging) return;
+        if (!session.dragging) return;
 
-        state.previewFrame = this.clientXToFrame(ev.clientX);
-        marker.style.left = `${this._frameToLeftPx(state.previewFrame)}px`;
+        this._markerTrack = this._measureMarkerTrack(slider);
+        session.previewFrame = this.clientXToFrame(ev.clientX);
+        marker.style.left = `${this._frameToLeftPx(session.previewFrame)}px`;
       };
 
-      const onUp = (ev) => {
-        marker.removeEventListener('pointermove', onMove);
-        marker.removeEventListener('pointerup', onUp);
-        marker.removeEventListener('pointercancel', onUp);
-        marker.classList.remove('is-dragging');
+      const finish = (ev) => {
+        if (session.finished) return;
+        if (ev && ev.pointerId !== session.pointerId) return;
+        session.finished = true;
+        this._keyframeDragSession = null;
 
-        if (state.dragging) {
-          const toFrame = this.clientXToFrame(ev.clientX);
-          const fromFrame = state.frameIndex;
-          if (toFrame !== fromFrame) {
-            const tm = this.editor.trajectoryManager;
-            if (tm.moveKeyframe(fromFrame, toFrame)) {
-              if (this.selectedKeyframes.has(fromFrame)) {
-                this.selectedKeyframes.delete(fromFrame);
-                this.selectedKeyframes.add(toFrame);
-              }
-              const keys = Array.from(tm.keyframes.keys());
-              this.updateKeyframeMarkers(keys);
-              this.editor.updateRobotState(this.currentFrame);
-              this.editor.jointController?.updateKeyframeIndicators?.();
-              this.editor.baseController?.updateKeyframeIndicators?.();
-              this.editor.curveEditor?.updateCurves?.();
-              this.editor.curveEditor?.invalidateAndDraw?.();
-              this.editor.triggerAutoSave?.();
-            } else {
-              this.updateKeyframeMarkers(Array.from(tm.keyframes.keys()));
-            }
-          } else {
-            this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', finish);
+        document.removeEventListener('pointercancel', finish);
+        window.removeEventListener('blur', onBlur);
+
+        marker.classList.remove('is-dragging');
+        try {
+          if (marker.hasPointerCapture(session.pointerId)) {
+            marker.releasePointerCapture(session.pointerId);
           }
-        } else {
+        } catch (_) { /* ignore */ }
+
+        if (session.dragging) {
+          if (ev) {
+            this._markerTrack = this._measureMarkerTrack(slider);
+            session.previewFrame = this.clientXToFrame(ev.clientX);
+          }
+          this._finishKeyframeDrag(session.frameIndex, session.previewFrame);
+        } else if (ev) {
           this._handleKeyframeMarkerClick(ev, frameIndex);
+        } else {
+          this._refreshAfterKeyframeChange();
         }
       };
 
-      marker.addEventListener('pointermove', onMove);
-      marker.addEventListener('pointerup', onUp);
-      marker.addEventListener('pointercancel', onUp);
+      const onBlur = () => finish(null);
+
+      try {
+        marker.setPointerCapture(e.pointerId);
+      } catch (_) { /* ignore */ }
+
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', finish);
+      document.addEventListener('pointercancel', finish);
+      window.addEventListener('blur', onBlur);
     });
   }
 
@@ -572,7 +887,7 @@ export class TimelineController {
           transform: translateX(-50%);
           transition: background 0.2s, transform 0.2s;
         `;
-        marker.title = `Keyframe ${frameIndex} — drag to move, right-click to delete`;
+        marker.title = `Keyframe ${frameIndex} — drag to move, right-click for menu`;
 
         marker.addEventListener('mouseenter', () => {
           if (marker.classList.contains('is-dragging')) return;
@@ -590,19 +905,7 @@ export class TimelineController {
         this._bindKeyframeMarkerDrag(marker, frameIndex);
 
         marker.addEventListener('contextmenu', (e) => {
-          e.preventDefault();
-          if (confirm(`确定删除关键帧 ${frameIndex}？`)) {
-            this.editor.trajectoryManager.removeKeyframe(frameIndex);
-            this.selectedKeyframes.delete(frameIndex);
-            this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
-            this.updateSmoothButtonVisibility();
-            this.editor.updateRobotState(this.currentFrame);
-            this.editor.jointController?.updateKeyframeIndicators?.();
-            this.editor.baseController?.updateKeyframeIndicators?.();
-            this.editor.curveEditor?.updateCurves?.();
-            this.editor.curveEditor?.invalidateAndDraw?.();
-            this.editor.triggerAutoSave?.();
-          }
+          this._showKeyframeContextMenu(e, frameIndex);
         });
 
         container.appendChild(marker);

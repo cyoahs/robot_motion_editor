@@ -565,10 +565,13 @@ class RobotKeyframeEditor {
     // 初始化主题图标
     this.updateThemeIcon(this.themeManager.getCurrentTheme());
 
-    // 键盘快捷键
+    // 键盘快捷键（capture：优先于浏览器默认 Ctrl+C/V 等）
     document.addEventListener('keydown', (e) => {
-      // 如果焦点在输入框内，不触发快捷键
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+      if (this._isAppShortcutBlockedByFocus()) {
+        return;
+      }
+
+      if (this.timelineController?.handleKeyframeShortcut(e)) {
         return;
       }
 
@@ -601,7 +604,22 @@ class RobotKeyframeEditor {
           }
           break;
       }
-    });
+    }, true);
+  }
+
+  /** 焦点在可编辑文本控件上时不触发应用级快捷键 */
+  _isAppShortcutBlockedByFocus() {
+    const el = document.activeElement;
+    if (!el || !(el instanceof HTMLElement)) return false;
+    if (el.isContentEditable) return true;
+    const tag = el.tagName;
+    if (tag === 'TEXTAREA') return true;
+    if (tag === 'SELECT') return true;
+    if (tag === 'INPUT') {
+      const type = (el.getAttribute('type') || 'text').toLowerCase();
+      return ['text', 'search', 'password', 'email', 'url', 'tel'].includes(type);
+    }
+    return false;
   }
 
   setupFileDrop() {
@@ -962,10 +980,9 @@ class RobotKeyframeEditor {
       this.baseController.updateKeyframeIndicators();
     }
     
-    // 通知曲线编辑器更新
+    // 同步曲线定义，不自动展开/绘制全部曲线
     if (this.curveEditor) {
-      this.curveEditor.updateCurves();
-      this.curveEditor.invalidateAndDraw();
+      this.curveEditor.onKeyframesChanged();
     }
     
     // 触发自动保存
@@ -998,10 +1015,8 @@ class RobotKeyframeEditor {
         this.baseController.updateKeyframeIndicators();
       }
       
-      // 通知曲线编辑器更新
       if (this.curveEditor) {
-        this.curveEditor.updateCurves();
-        this.curveEditor.invalidateAndDraw();
+        this.curveEditor.onKeyframesChanged();
       }
       
       // 触发自动保存
@@ -1156,9 +1171,8 @@ class RobotKeyframeEditor {
     const currentFrame = this.timelineController.getCurrentFrame();
     this.updateRobotState(currentFrame);
     
-    // 更新曲线编辑器
     if (this.curveEditor) {
-      this.curveEditor.updateCurves();
+      this.curveEditor.onKeyframesChanged();
     }
     
     // 清除选择状态
