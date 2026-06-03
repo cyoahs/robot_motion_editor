@@ -84,6 +84,35 @@ export function guessDefaultEndLink(robot) {
   return links[0] || '';
 }
 
+/**
+ * 从 IK 树 closure link 向上收集具名、有 DoF 的关节（用于校验 URDF 链推断）
+ */
+export function inferChainJointNamesFromIkTree(ikRoot, endEffectorLinkName) {
+  if (!ikRoot || !endEffectorLinkName) return [];
+
+  let endLink = null;
+  ikRoot.traverse((c) => {
+    if (c.isLink && (c.name === endEffectorLinkName || c.urdfName === endEffectorLinkName)) {
+      endLink = c;
+    }
+  });
+  if (!endLink) return [];
+
+  const names = [];
+  const seen = new Set();
+  let current = endLink.parent;
+  while (current) {
+    if (current.isJoint && current.name && current.name !== '__world_joint__') {
+      if (current.dof?.length > 0 && !seen.has(current.name)) {
+        names.unshift(current.name);
+        seen.add(current.name);
+      }
+    }
+    current = current.parent;
+  }
+  return names;
+}
+
 export function getUrdfLinkObject(robot, linkName) {
   if (robot?.links?.[linkName]) return robot.links[linkName];
   let found = null;
