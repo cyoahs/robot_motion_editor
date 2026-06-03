@@ -10,25 +10,34 @@
 
 ## 功能演示
 
-以下演示基于典型编辑流程录制。点击缩略图可在浏览器中播放完整视频（仓库路径：`docs/assets/demo/`）。
+以下演示基于典型编辑流程录制。在 **GitHub 仓库页面**可直接在下方播放器中观看（`controls` + 封面 `poster`）；本地 IDE 的 Markdown 预览若无法播放，请 [在 GitHub 上查看 README](https://github.com/fandesfyf/robot_motion_editor#功能演示) 或点击播放器内的 fallback 链接。
 
 ### IK 末端编辑
 
 在三维视口中拖拽末端执行器，调整位姿并将编辑结果写入当前帧关键帧；支持求解参数在线配置。
 
-[![IK 末端编辑演示](docs/assets/demo/end-effector-ik-edit-poster.png)](docs/assets/demo/end-effector-ik-edit.mp4)
+<video controls width="720" style="max-width:100%;" poster="docs/assets/demo/end-effector-ik-edit-poster.png">
+  <source src="docs/assets/demo/end-effector-ik-edit.mp4" type="video/mp4">
+  <a href="docs/assets/demo/end-effector-ik-edit.mp4">IK 末端编辑演示（MP4）</a>
+</video>
 
 ### 关节编辑
 
 通过侧栏关节控制与曲线面板，对轨迹进行关节空间编辑与关键帧管理。
 
-[![关节编辑演示](docs/assets/demo/joint-edit-poster.png)](docs/assets/demo/joint-edit.mp4)
+<video controls width="720" style="max-width:100%;" poster="docs/assets/demo/joint-edit-poster.png">
+  <source src="docs/assets/demo/joint-edit.mp4" type="video/mp4">
+  <a href="docs/assets/demo/joint-edit.mp4">关节编辑演示（MP4）</a>
+</video>
 
 ### 视口与可视化设置
 
 配置 Ghost 参考模型、同屏叠显/左右分屏、播放倍率等可视化选项。
 
-[![视口设置演示](docs/assets/demo/viewport-settings-poster.png)](docs/assets/demo/viewport-settings.mp4)
+<video controls width="720" style="max-width:100%;" poster="docs/assets/demo/viewport-settings-poster.png">
+  <source src="docs/assets/demo/viewport-settings.mp4" type="video/mp4">
+  <a href="docs/assets/demo/viewport-settings.mp4">视口设置演示（MP4）</a>
+</video>
 
 ## 隐私与安全
 
