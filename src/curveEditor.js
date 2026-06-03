@@ -88,6 +88,7 @@ export class CurveEditor {
       return;
     }
     this.ctx = this.canvas.getContext('2d');
+    this.legendEl = document.getElementById('curve-legend');
     
     // 创建RPY按钮
     this.createRPYButtons();
@@ -313,6 +314,7 @@ export class CurveEditor {
       toggleIcon.textContent = '▼';
       this._scheduleResizeAndDraw();
       this.editor.timelineCurveViewSync?.syncFromTimeline();
+      this.updateCurveLegend();
     } else {
       content.style.display = 'none';
       toggleIcon.textContent = '▶';
@@ -362,6 +364,12 @@ export class CurveEditor {
       if (curve.visible) return true;
     }
     return false;
+  }
+
+  /** 已加载轨迹且（有关节曲线选中 或 有关键帧）时可绘制 */
+  _shouldRenderCurvePlot(metrics) {
+    if (!metrics?.hasData) return false;
+    return this.hasVisibleCurves() || metrics.keyframes.length > 0;
   }
 
   /**
@@ -561,6 +569,7 @@ export class CurveEditor {
 
   _afterCurveVisibilityChange() {
     this.updateRPYButtons();
+    this.updateCurveLegend();
     if (this.editor.jointController?.updateCurveBackgrounds) {
       this.editor.jointController.updateCurveBackgrounds();
     }
@@ -572,10 +581,74 @@ export class CurveEditor {
     }
   }
 
+  /** 右上角图例：当前显示的曲线（关节名 + 颜色） */
+  updateCurveLegend() {
+    const legend = this.legendEl || document.getElementById('curve-legend');
+    if (!legend) return;
+
+    const visible = [];
+    this.curves.forEach((curve, key) => {
+      if (curve.visible) {
+        visible.push({ key, curve });
+      }
+    });
+
+    if (visible.length === 0) {
+      legend.hidden = true;
+      legend.replaceChildren();
+      return;
+    }
+
+    legend.hidden = false;
+    legend.replaceChildren();
+
+    const hasJoint = visible.some((v) => v.curve.type === 'joint');
+    const showBaseHint = hasJoint || visible.some((v) =>
+      v.curve.type === 'base_position' || v.curve.type === 'base_euler' || v.curve.type === 'ee_pose'
+    );
+
+    visible.forEach(({ curve }) => {
+      const row = document.createElement('div');
+      row.className = 'curve-legend-item';
+
+      const swatch = document.createElement('span');
+      swatch.className = 'curve-legend-swatch';
+      swatch.style.backgroundColor = curve.color;
+
+      const label = document.createElement('span');
+      label.className = 'curve-legend-label';
+      label.textContent = curve.name;
+      label.title = curve.name;
+
+      row.append(swatch, label);
+      legend.appendChild(row);
+    });
+
+    if (showBaseHint) {
+      const hint = document.createElement('div');
+      hint.className = 'curve-legend-hint';
+
+      const baseRow = document.createElement('div');
+      baseRow.className = 'curve-legend-item';
+      const baseSwatch = document.createElement('span');
+      baseSwatch.className = 'curve-legend-swatch is-base';
+      const baseLabel = document.createElement('span');
+      baseLabel.className = 'curve-legend-label';
+      baseLabel.textContent = i18n.t('curveLegendBase');
+      baseRow.append(baseSwatch, baseLabel);
+
+      hint.appendChild(baseRow);
+      legend.appendChild(hint);
+    }
+  }
+
   /**
    * 选中单条曲线（用于关节/基座标签点击）：仅显示该曲线，再次点击同一项则隐藏
    */
   selectSingleCurve(curveKey) {
+    if (!this.curves.has(curveKey) && this.editor.trajectoryManager?.hasTrajectory()) {
+      this.syncCurveDefinitions();
+    }
     const curve = this.curves.get(curveKey);
     if (!curve) return false;
 
@@ -831,7 +904,7 @@ export class CurveEditor {
     ctx.fillStyle = this.cachedStyles.bgPrimary;
     ctx.fillRect(0, 0, width, height);
 
-    if (!metrics.hasData || keyframes.length === 0) {
+    if (!this._shouldRenderCurvePlot(metrics)) {
       this._staticDirty = false;
       return;
     }
@@ -847,8 +920,12 @@ export class CurveEditor {
     const { width, height, frameCount, keyframes, plotLeft, plotTop, plotWidth, plotHeight } = metrics;
     this.ctx.clearRect(0, 0, width, height);
 
-    if (!metrics.hasData || keyframes.length === 0) {
+    if (!metrics.hasData) {
       this.drawNoData();
+      return;
+    }
+    if (!this._shouldRenderCurvePlot(metrics)) {
+      this.drawSelectJointHint();
       return;
     }
 
@@ -881,7 +958,7 @@ export class CurveEditor {
   prepareForPlayback() {
     if (!this.isExpanded || !this.ctx) return;
     const metrics = this._getPlotMetrics();
-    if (!metrics?.hasData || metrics.keyframes.length === 0) return;
+    if (!this._shouldRenderCurvePlot(metrics)) return;
     this._markStaticDirty();
     this._renderStaticLayer(metrics);
   }
@@ -891,7 +968,7 @@ export class CurveEditor {
     if (!this.isExpanded || !this.ctx) return;
     const metrics = this._getPlotMetrics();
     if (!metrics) return;
-    if (!metrics.hasData || metrics.keyframes.length === 0) {
+    if (!this._shouldRenderCurvePlot(metrics)) {
       this.draw();
       return;
     }
@@ -917,9 +994,9 @@ export class CurveEditor {
       return;
     }
 
-    if (metrics.keyframes.length === 0) {
+    if (!this._shouldRenderCurvePlot(metrics)) {
       this.ctx.clearRect(0, 0, metrics.width, metrics.height);
-      this.drawNoData();
+      this.drawSelectJointHint();
       this._markStaticDirty();
       return;
     }
@@ -955,15 +1032,25 @@ export class CurveEditor {
     }, this.drawDebounceDelay);
   }
 
-  drawNoData() {
+  _drawCenterHint(text) {
     const width = this.canvas.width / (window.devicePixelRatio || 1);
     const height = this.canvas.height / (window.devicePixelRatio || 1);
-    
+
+    this.ctx.fillStyle = this.cachedStyles.bgPrimary;
+    this.ctx.fillRect(0, 0, width, height);
     this.ctx.fillStyle = this.cachedStyles.textTertiary;
     this.ctx.font = '14px sans-serif';
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
-    this.ctx.fillText('请加载轨迹数据', width / 2, height / 2);
+    this.ctx.fillText(text, width / 2, height / 2);
+  }
+
+  drawNoData() {
+    this._drawCenterHint(i18n.t('curveNoTrajectory'));
+  }
+
+  drawSelectJointHint() {
+    this._drawCenterHint(i18n.t('curveSelectJointHint'));
   }
 
   drawGrid(left, top, width, height, frameCount, targetCtx = this.ctx) {

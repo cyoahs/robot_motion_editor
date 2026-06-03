@@ -287,6 +287,9 @@ const translations = {
     // 曲线编辑器
     curves: '📈 曲线',
     curveEditor: '📈 曲线编辑器',
+    curveNoTrajectory: '请加载轨迹数据',
+    curveSelectJointHint: '点击关节名称显示曲线',
+    curveLegendBase: '原始轨迹（CSV）',
     resetDefault: '恢复默认',
     resetView: '重置缩放',
     
@@ -593,6 +596,9 @@ const translations = {
     // Curve Editor
     curves: '📈 Curves',
     curveEditor: '📈 Curve Editor',
+    curveNoTrajectory: 'Load trajectory data first',
+    curveSelectJointHint: 'Click a joint name to show its curve',
+    curveLegendBase: 'Base trajectory (CSV)',
     resetDefault: 'Reset Default',
     resetView: 'Reset Zoom',
     
