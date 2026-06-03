@@ -6,9 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:ik-fk": "node tests/ik-fk-loop-biped-s70-test.js"
   },
   "devDependencies": {
+    "@xmldom/xmldom": "^0.9.10",
+    "linkedom": "^0.18.12",
     "vite": "^5.0.0"
   },
   "dependencies": {
