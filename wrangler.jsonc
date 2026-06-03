@@ -1,5 +1,5 @@
 {
-  "name": "robot-motion-editor",
+  "name": "robot-motion-ik-editor",
   "compatibility_date": "2026-01-10",
   "assets": {
     "directory": "./dist"
