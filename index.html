@@ -1779,7 +1779,7 @@
 
   <!-- 使用说明弹窗 -->
   <div id="help-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center;">
-    <div style="background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 8px; padding: 20px; max-width: 700px; max-height: 80vh; width: 90%; overflow-y: auto; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); transition: background-color 0.3s ease, border-color 0.3s ease;">
+    <div style="background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 8px; padding: 20px; max-width: 760px; max-height: 80vh; width: 90%; overflow-y: auto; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); transition: background-color 0.3s ease, border-color 0.3s ease;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
         <h3 style="margin: 0; color: var(--text-secondary); font-size: 17px; transition: color 0.3s ease;" data-i18n="userGuide">📖 使用说明</h3>
         <button id="close-help-modal" style="background: none; border: none; color: var(--text-tertiary); font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; transition: color 0.3s ease;">×</button>
@@ -1790,33 +1790,76 @@
         <div style="margin-bottom: 20px;">
           <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="basicWorkflow">基本流程</h4>
           <ol style="margin: 0; padding-left: 20px; color: var(--text-primary);">
-            <li style="margin-bottom: 8px;" data-i18n="helpStep1">加载 URDF：选择包含 URDF 和 mesh 文件的文件夹</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpStep2">加载轨迹：加载 CSV 文件（前 7 列为 base xyz + 四元数 xyzw，后续为关节角度）</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpStep3">编辑关键帧：点击自由度名称显示曲线，调整参数后添加关键帧（Shift+点击多选曲线）</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpStep4">保存工程：保存完整的编辑状态（支持加载恢复）</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpStep5">导出轨迹：导出融合后的 CSV 轨迹</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpStep1">加载 URDF：将机器人文件夹拖到页面，或点击「加载 URDF 文件夹」</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpStep2">加载轨迹：拖入 .csv 或点击加载；支持 unitree / seed 格式</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpStep3">编辑：侧栏调整关节/基座，或启用 IK末端编辑 拖拽末端；点击关节名可预览曲线</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpStep4">关键帧：工具栏添加；当前帧已有关键帧时，修改会自动写入该帧</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpStep5">保存工程 / 导出融合后的 CSV 轨迹</li>
           </ol>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="helpImportTitle">拖入导入</h4>
+          <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
+            <li style="margin-bottom: 8px;" data-i18n="helpImport1">URDF：整包文件夹（含 .urdf 与 meshes）拖入浏览器即可</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpImport2">CSV：可单独拖入；同一文件夹内 URDF 与 CSV 会分别识别</li>
+          </ul>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="helpIkTitle">IK 末端编辑</h4>
+          <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
+            <li style="margin-bottom: 8px;" data-i18n="helpIk1">展开侧栏「IK末端编辑」，选择末端 Link 并启用拖拽 IK</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpIk2">在 3D 视口拖动手柄调整位置/姿态，松手后写入当前帧关键帧</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpIk3">面板内可调位置/姿态权重与求解参数；播放时手柄自动隐藏</li>
+          </ul>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="helpKeyframeTitle">关键帧</h4>
+          <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
+            <li style="margin-bottom: 8px;" data-i18n="helpKeyframe1">拖动时间轴上的关键帧竖条可改帧号（保留编辑内容）</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpKeyframe2">右键菜单：复制 / 粘贴到帧 / 删除（菜单内显示快捷键）</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpKeyframe3">Ctrl+C 复制，Ctrl+V 粘贴到播放头，Delete 或 Backspace 删除</li>
+          </ul>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="helpCurveTitle">曲线面板</h4>
+          <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
+            <li style="margin-bottom: 8px;" data-i18n="helpCurve1">点击关节名称显示该关节曲线（无需先有关键帧）</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpCurve2">右上角图例显示当前关节；Shift+点击可多选曲线</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpCurve3">滚轮缩放、Shift+拖拽平移；与时间轴 X 轴视图双向同步</li>
+          </ul>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="helpViewportTitle">视口与可视化</h4>
+          <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
+            <li style="margin-bottom: 8px;" data-i18n="helpViewport1">视口右上角 ⚙：Ghost 参考模型、同屏叠显/左右分屏、播放倍率等</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpViewport2">叠显模式下原始轨迹以半透明 Ghost 与编辑模型同屏显示</li>
+          </ul>
         </div>
 
         <!-- 核心功能 -->
         <div style="margin-bottom: 20px;">
           <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="coreFeatures">核心功能</h4>
           <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
-            <li style="margin-bottom: 8px;" data-i18n="helpFeature1">双视口对比：左侧显示原始轨迹，右侧显示编辑结果，相机同步</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpFeature2">曲线编辑器：可视化关节和基体随时间的变化曲线，支持贝塞尔插值</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpFeature3">动力学可视化：实时显示重心位置和支撑多边形投影</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpFeature4">工程保存/加载：保存完整工程状态（URDF、轨迹、关键帧、编辑历史）</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature1">残差关键帧：在 CSV 基线上叠加编辑，支持线性 / 贝塞尔插值</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature2">双视口 / 叠显：参考轨迹与编辑结果对比，相机可同步</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature3">曲线按需绘制，避免一次显示全部关节造成卡顿</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature4">工程保存/加载、自动保存；重心与支撑多边形可视化</li>
           </ul>
         </div>
 
         <!-- 快捷功能 -->
         <div style="margin-bottom: 20px;">
-          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="quickFeatures">快捷功能</h4>
+          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="quickFeatures">快捷键与其它</h4>
           <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
-            <li style="margin-bottom: 8px;" data-i18n="helpQuick1">平移对齐：基座控制中的"平移对齐"按钮可自动调整XYZ，使编辑后机器人的最低点与原始轨迹对齐</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpQuick2">坐标轴指示器：右下角的3D轴指示器，点击X/Y/Z轴可快速切换到对应的正交视角</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpQuick3">相机跟随：开启跟随模式后，相机会自动跟随机器人移动</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpQuick4">重心显示：实时显示机器人重心位置和地面投影包络线</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick1">空格：播放/暂停；← / →：上一帧 / 下一帧</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick2">时间轴滚轮缩放；Shift+滚轮横向平移</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick3">坐标轴指示器：点击 X/Y/Z 切换正交视角</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick4">基座「平移对齐」：使编辑模型最低点与原始轨迹对齐</li>
           </ul>
         </div>
 
