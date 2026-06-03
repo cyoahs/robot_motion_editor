@@ -1,12 +1,18 @@
 import * as THREE from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import {
-  IkSolverService,
-  POSITION_SOFT_ROT_FACTOR,
-  ORIENTATION_HOLD_TRANS_FACTOR,
-  ORIENTATION_HOLD_ROT_FACTOR
-} from './ikSolverService.js';
+import { IkSolverService } from './ikSolverService.js';
 import { inferChainJointNames, getUrdfLinkObject } from './ikChainRegistry.js';
+import { isIkSolveLogEnabled } from './ikSolveLogger.js';
+import { verifyIkKinematicsLoop, logIkKinematicsVerify } from './ikKinematicsVerify.js';
+import {
+  readIkWeightsFromDom,
+  capIterationsForLiveDrag,
+  getDragEndSolveOptions
+} from './ikWeightConfig.js';
+import {
+  beginIkSolveSession,
+  endIkSolveSession
+} from './ikSolveLogger.js';
 import { i18n } from '../i18n.js';
 
 const _pos = new THREE.Vector3();
@@ -50,8 +56,33 @@ export class EndEffectorControls {
 
     this._dragRefPosition = new THREE.Vector3();
     this._dragProxyStart = new THREE.Vector3();
+    this._dragStartFk = null;
     this._lastSolveSuccess = true;
     this._jointSnapshotBeforeDrag = null;
+    this._storedIkWeights = null;
+  }
+
+  _getIkWeights() {
+    return readIkWeightsFromDom(this._storedIkWeights);
+  }
+
+  setStoredIkWeights(weights) {
+    this._storedIkWeights = weights;
+  }
+
+  _buildSolveOptions(mode, { dragging = false, dragEnd = false } = {}) {
+    const weights = this._getIkWeights();
+    const w = weights.position;
+    let opts = { ...w };
+    if (mode === 'orientation') {
+      opts.orientationSoft = true;
+    }
+    if (dragging) {
+      opts = capIterationsForLiveDrag(opts, true);
+    } else if (dragEnd) {
+      opts = getDragEndSolveOptions(mode, weights);
+    }
+    return { weights: w, opts };
   }
 
   onViewportModeChanged() {
@@ -171,12 +202,42 @@ export class EndEffectorControls {
 
   // ─── 参考值同步 ──────────────────────────────────────────────────────────
 
-  _syncEeReferencesFromFk() {
+  /**
+   * @param {{ syncOrientation?: boolean }} [options]
+   *   syncOrientation=false 时只更新位置（位置编辑模式下保持 _refQuaternion 冻结）
+   */
+  _syncEeReferencesFromFk(options = {}) {
+    const syncOrientation = options.syncOrientation ?? (this.goalMode !== 'position');
     const link = getUrdfLinkObject(this.editor.robotRight, this.endEffectorLinkName);
     if (!link) return;
     link.getWorldPosition(this._refPosition);
-    link.getWorldQuaternion(this._refQuaternion);
+    if (syncOrientation) {
+      link.getWorldQuaternion(this._refQuaternion);
+    }
     this._orientationLockPosition.copy(this._refPosition);
+  }
+
+  /** 进入位置编辑前快照姿态参考（之后位置 IK 期间不再从 FK 刷新） */
+  _snapshotRefQuaternionFromFk() {
+    const link = getUrdfLinkObject(this.editor.robotRight, this.endEffectorLinkName);
+    if (link) {
+      link.getWorldQuaternion(this._refQuaternion);
+    }
+  }
+
+  /**
+   * 位置 IK 后：用同一套权重把姿态拉回 _refQuaternion（6DOF，位置锁在实际 FK）。
+   */
+  _holdOrientationAtRef(robot, lockPosition) {
+    if (!robot || !lockPosition) return;
+    const fk = this.ikService.captureEeFk(robot);
+    if (fk && fk.quaternion.angleTo(this._refQuaternion) < 0.008) return;
+
+    const w = this._getIkWeights().position;
+    this.ikService.solve(robot, lockPosition, this._refQuaternion, {
+      ...w,
+      orientationSoft: true
+    });
   }
 
   /**
@@ -210,7 +271,7 @@ export class EndEffectorControls {
    * 将 proxy 位置/姿态对齐到参考。
    * mode:
    *   'position' → proxy.pos = _refPosition, proxy.quat = _refQuaternion
-   *   'orientation' → proxy.pos = _orientationLockPosition, proxy.quat = FK
+   *   'orientation' → proxy.pos = _orientationLockPosition, proxy.quat = _refQuaternion
    *   'pose' → proxy.pos = _refPosition, proxy.quat = FK (if syncQuatFromFk) else _refQuaternion
    */
   _applyProxyFromRefs(mode = this.goalMode, options = {}) {
@@ -221,13 +282,7 @@ export class EndEffectorControls {
       this._proxy.quaternion.copy(this._refQuaternion);
     } else if (mode === 'orientation') {
       this._proxy.position.copy(this._orientationLockPosition);
-      if (syncQuatFromFk) {
-        const link = getUrdfLinkObject(this.editor.robotRight, this.endEffectorLinkName);
-        if (link) {
-          link.getWorldQuaternion(_quat);
-          this._proxy.quaternion.copy(_quat);
-        }
-      }
+      this._proxy.quaternion.copy(this._refQuaternion);
     } else {
       // pose
       this._proxy.position.copy(this._refPosition);
@@ -268,8 +323,10 @@ export class EndEffectorControls {
           this.enabled = false;
           return false;
         }
-        this._syncEeReferencesFromFk();
-        this._applyProxyFromRefs(this.goalMode, { syncQuatFromFk: true });
+        this._syncEeReferencesFromFk({ syncOrientation: true });
+        this._applyProxyFromRefs(this.goalMode, {
+          syncQuatFromFk: this.goalMode !== 'position'
+        });
         this._reattachControls();
         return true;
       } catch (err) {
@@ -288,8 +345,10 @@ export class EndEffectorControls {
     this.endEffectorLinkName = linkName;
     if (this.enabled) {
       this.rebuildIk();
-      this._syncEeReferencesFromFk();
-      this._applyProxyFromRefs(this.goalMode, { syncQuatFromFk: true });
+      this._syncEeReferencesFromFk({ syncOrientation: true });
+      this._applyProxyFromRefs(this.goalMode, {
+        syncQuatFromFk: this.goalMode !== 'position'
+      });
     }
     if (linkName) {
       this.editor.curveEditor?.setActiveEndEffector(linkName);
@@ -308,15 +367,11 @@ export class EndEffectorControls {
     if (!this.enabled) return;
 
     if (this.goalMode === 'orientation') {
-      // 进入纯姿态模式：从实际 FK 锁定位置，不能用 _refPosition（可能是目标而非实际）
       this._lockOrientationPositionFromFk();
-      const link = getUrdfLinkObject(this.editor.robotRight, this.endEffectorLinkName);
-      if (link) {
-        link.getWorldQuaternion(_quat);
-        this._proxy.quaternion.copy(_quat);
-      }
       this._proxy.position.copy(this._orientationLockPosition);
+      this._proxy.quaternion.copy(this._refQuaternion);
     } else if (this.goalMode === 'position') {
+      this._snapshotRefQuaternionFromFk();
       this._applyProxyFromRefs('position');
     } else {
       // pose：从 FK 读取最新状态
@@ -330,21 +385,9 @@ export class EndEffectorControls {
 
   // ─── 位置目标构建 ─────────────────────────────────────────────────────────
 
-  _buildPositionTarget(lockAxis = null) {
-    if (lockAxis) {
-      _pos.copy(this._refPosition);
-      if (lockAxis === 'x') _pos.x = this._proxy.position.x;
-      else if (lockAxis === 'y') _pos.y = this._proxy.position.y;
-      else _pos.z = this._proxy.position.z;
-      return _pos;
-    }
-
-    const delta = new THREE.Vector3().subVectors(this._proxy.position, this._dragProxyStart);
-    _pos.copy(this._dragRefPosition);
-    const eps = 1e-5;
-    if (Math.abs(delta.x) >= eps) _pos.x += delta.x;
-    if (Math.abs(delta.y) >= eps) _pos.y += delta.y;
-    if (Math.abs(delta.z) >= eps) _pos.z += delta.z;
+  _buildPositionTarget() {
+    // 拖拽 / 面板增量：目标 = gizmo 世界坐标（与 TransformControls world 空间一致）
+    _pos.copy(this._proxy.position);
     return _pos;
   }
 
@@ -352,7 +395,18 @@ export class EndEffectorControls {
     const robot = this.editor.robotRight;
     if (!robot || !this.endEffectorLinkName) return false;
     const chain = inferChainJointNames(robot, this.endEffectorLinkName);
-    return this.ikService.rebuild(robot, this.endEffectorLinkName, chain);
+    const ok = this.ikService.rebuild(robot, this.endEffectorLinkName, chain);
+    if (ok && isIkSolveLogEnabled()) {
+      try {
+        logIkKinematicsVerify(
+          verifyIkKinematicsLoop(robot, this.ikService),
+          '[IK 闭环@rebuild]'
+        );
+      } catch (err) {
+        console.warn('[IK 闭环@rebuild] 验证失败:', err);
+      }
+    }
+    return ok;
   }
 
   _applyGhostChainJoints() {
@@ -405,15 +459,23 @@ export class EndEffectorControls {
           );
           this._dragRefPosition.copy(this._refPosition);
           this._dragProxyStart.copy(this._proxy.position);
-        } else {
-          // 姿态拖拽：从实际 FK 锁定位置参考
-          this._lockOrientationPositionFromFk();
-          this._proxy.position.copy(this._orientationLockPosition);
           const link = getUrdfLinkObject(this.editor.robotRight, this.endEffectorLinkName);
           if (link) {
+            link.getWorldPosition(_pos);
             link.getWorldQuaternion(_quat);
-            this._proxy.quaternion.copy(_quat);
+            this._dragStartFk = { position: _pos.clone(), quaternion: _quat.clone() };
+          } else {
+            this._dragStartFk = null;
           }
+        } else {
+          // 姿态拖拽：锁位置，从 _refQuaternion 起步（四元数增量，不用 FK/欧拉）
+          this._lockOrientationPositionFromFk();
+          this._proxy.position.copy(this._orientationLockPosition);
+          this._proxy.quaternion.copy(this._refQuaternion);
+          this._dragStartFk = {
+            position: this._orientationLockPosition.clone(),
+            quaternion: this._refQuaternion.clone()
+          };
         }
         this._proxy.updateMatrixWorld(true);
         this._updateGizmoMatrices();
@@ -465,65 +527,150 @@ export class EndEffectorControls {
   }
 
   syncGizmoToLink() {
-    this._applyProxyFromRefs(this.goalMode, { syncQuatFromFk: true });
+    if (this.goalMode === 'orientation') {
+      this._applyProxyFromRefs('orientation');
+    } else if (this.goalMode === 'position') {
+      this._applyProxyFromRefs('position');
+    } else {
+      this._applyProxyFromRefs('pose', { syncQuatFromFk: true });
+    }
     this._updateGizmoMatrices();
   }
 
-  // ─── IK 求解 ─────────────────────────────────────────────────────────────
+  // ─── IK 求解（每帧单次 solve）────────────────────────────────────────────
 
   _applyIkSolve(mode, extraOptions = {}) {
     const robot = this.editor.robotRight;
     if (!robot || !this.endEffectorLinkName) return { success: false };
 
-    let result;
+    const dragging = extraOptions.dragging ?? this._isDragging();
+    const dragEnd = extraOptions.dragEnd ?? false;
+    const { weights, opts: baseOpts } = this._buildSolveOptions(mode, { dragging, dragEnd });
+    const solveOpts = { ...baseOpts, ...extraOptions };
+    delete solveOpts.dragging;
+    delete solveOpts.dragEnd;
+    delete solveOpts.solvePasses;
+    delete solveOpts.skipOrientationHold;
+    delete solveOpts.keepProxyAtTarget;
+
+    const jointsBefore = this.ikService.captureChainJointAngles(robot);
+    const fkBefore = this.ikService.captureEeFk(robot);
+    const proxyInput = {
+      position: this._proxy.position.clone(),
+      quaternion: this._proxy.quaternion.clone()
+    };
+
+    let targetPos;
+    let targetQuat;
+    let targetBreakdown = null;
 
     if (mode === 'position') {
-      // 位置编辑：跟随 gizmo 目标，_refQuaternion 作软约束（不修改它）
-      const lockAxis = extraOptions.lockAxis ?? null;
-      this._buildPositionTarget(lockAxis);
+      targetPos = this._buildPositionTarget().clone();
+      targetQuat = this._refQuaternion.clone();
+      _pos.copy(targetPos);
+      _quat.copy(targetQuat);
 
-      result = this.ikService.solveHoldPositionSoftOrientation(
-        robot,
-        _pos,
-        this._refQuaternion,
-        {
-          rotationFactor: POSITION_SOFT_ROT_FACTOR,
-          maxIterations: 18,
-          ...extraOptions
-        }
-      );
+      if (dragging && this._dragProxyStart) {
+        targetBreakdown = {
+          proxyNow: proxyInput.position.clone(),
+          proxyDeltaMm: proxyInput.position.distanceTo(this._dragProxyStart) * 1000
+        };
+      }
 
-      // 把实际 FK 位置写入参考（不用目标 _pos）
-      this._commitActualPositionAsRef(robot);
-      // gizmo 跟目标走（视觉流畅）
-      this._proxy.position.copy(_pos);
-      this._proxy.quaternion.copy(this._refQuaternion);
+      solveOpts.positionOnly = true;
     } else {
-      // 姿态编辑：位置权重极高，锁定 _orientationLockPosition
+      // 姿态：位置锁 + 目标 = _refQuaternion（拖拽时从 gizmo 同步到 ref）
+      if (dragging) {
+        this._refQuaternion.copy(this._proxy.quaternion);
+      }
+      targetPos = this._orientationLockPosition.clone();
+      targetQuat = this._refQuaternion.clone();
       this._proxy.position.copy(this._orientationLockPosition);
-      _quat.copy(this._proxy.quaternion);
+      this._proxy.quaternion.copy(this._refQuaternion);
+      _pos.copy(targetPos);
+      _quat.copy(targetQuat);
+    }
 
-      result = this.ikService.solveOrientationHoldPosition(
-        robot,
-        this._orientationLockPosition,
-        _quat,
-        {
-          translationFactor: ORIENTATION_HOLD_TRANS_FACTOR,
-          rotationFactor: ORIENTATION_HOLD_ROT_FACTOR,
-          maxIterations: 20,
-          solvePasses: 5,
-          ...extraOptions
-        }
-      );
+    const errBefore = this.ikService._estimateError(robot, targetPos, targetQuat, solveOpts);
 
-      // gizmo 位置钉在锁点
+    // 位置已收敛时跳过求解，避免冗余链零空间破坏 _refQuaternion 对应的姿态
+    if (mode === 'position' && solveOpts.positionOnly) {
+      const posTol = solveOpts.convergedPositionTolerance ?? 0.004;
+      if (errBefore.position < posTol) {
+        return { success: true, skipped: true, error: errBefore };
+      }
+    }
+
+    const appliedWeights = { ...weights, ...solveOpts };
+
+    const sessionId = beginIkSolveSession({
+      mode,
+      title: mode === 'position' ? '位置 IK' : '姿态 IK',
+      context: {
+        source: dragging ? 'drag' : 'nudge',
+        endLink: this.endEffectorLinkName
+      },
+      targetPos: targetPos.clone(),
+      refQuat: targetQuat.clone(),
+      dragStartFk: this._dragStartFk,
+      fkBeforeSolve: fkBefore,
+      errBefore,
+      targetBreakdown,
+      weights,
+      initialJoints: jointsBefore
+    });
+
+    const result = this.ikService.solve(robot, targetPos, targetQuat, solveOpts);
+
+    const jointsAfter = this.ikService.captureChainJointAngles(robot);
+    const fkAfter = this.ikService.captureEeFk(robot);
+    const errAfter = result.error ?? this.ikService._estimateError(robot, targetPos, targetQuat, solveOpts);
+
+    if (mode === 'position') {
+      // 拖拽中 / 面板增量：不做姿态回拉，避免把位置拉斜
+      const skipHold = dragging || extraOptions.skipOrientationHold;
+      if (!skipHold) {
+        this._holdOrientationAtRef(robot, targetPos);
+      }
+      this._commitActualPositionAsRef(robot);
+      this._proxy.quaternion.copy(this._refQuaternion);
+      // 拖拽中 gizmo 跟鼠标；非拖拽由 _applyNudge / _onDragEnd 决定是否对齐 FK
+      if (!dragging && !extraOptions.keepProxyAtTarget) {
+        this._proxy.position.copy(this._refPosition);
+      }
+    } else if (mode === 'orientation') {
       this._proxy.position.copy(this._orientationLockPosition);
+      this._proxy.quaternion.copy(this._refQuaternion);
     }
 
     this._lastSolveSuccess = result.success;
     robot.updateMatrixWorld(true);
-    this._proxy.updateMatrixWorld(true);
+    if (!dragging) {
+      this._proxy.updateMatrixWorld(true);
+    }
     this._updateGizmoMatrices();
+
+    if (sessionId != null) {
+      endIkSolveSession({
+        success: result.success,
+        result,
+        jointsBefore,
+        jointsAfter,
+        proxyInput,
+        appliedWeights,
+        fkAfter,
+        errAfter,
+        errBefore: result.errorBefore ?? errBefore,
+        ikFkBefore: result.ikFkBefore,
+        ikFkAfter: result.ikFkAfter,
+        solverStatus: result.statusLabel,
+        loopDeltaMm: result.loopDeltaMm,
+        targetPos,
+        refQuat: targetQuat,
+        weights
+      });
+    }
+
     return result;
   }
 
@@ -534,7 +681,7 @@ export class EndEffectorControls {
     if (!solveMode) return;
 
     try {
-      this._applyIkSolve(solveMode);
+      this._applyIkSolve(solveMode, { dragging: true });
       this._syncJointUi();
       this.editor.curveEditor?.drawDebounced();
     } catch (err) {
@@ -548,51 +695,44 @@ export class EndEffectorControls {
   nudgePosition(axis, sign) {
     if (!this.enabled) return false;
     const step = this._getPositionStepM() * sign;
-    // 从实际参考位置起步
-    _pos.copy(this._refPosition);
+    // 与 gizmo 一致：沿世界系 XYZ 从当前 proxy 位置步进
+    _pos.copy(this._proxy.position);
     if (axis === 'x') _pos.x += step;
     else if (axis === 'y') _pos.y += step;
     else _pos.z += step;
     this._proxy.position.copy(_pos);
     this._proxy.updateMatrixWorld(true);
-    return this._applyNudge('position', { lockAxis: axis });
+    return this._applyNudge('position', { skipOrientationHold: true });
   }
 
   nudgeOrientation(axis, sign) {
     if (!this.enabled) return false;
-    // 姿态 nudge 开始时才从 FK 刷新锁点（避免多次连续 nudge 因 IK 误差累积漂移）
-    // 只有在第一次调用时（_orientationLockPosition 已在 drag/setGoalMode 时设定）刷新
-    // 如果 _refPosition 与实际 FK 偏差较大，才重新锁
-    const link = getUrdfLinkObject(this.editor.robotRight, this.endEffectorLinkName);
-    if (link) {
-      link.getWorldPosition(_pos);
-      if (_pos.distanceTo(this._orientationLockPosition) > 0.005) {
-        this._lockOrientationPositionFromFk();
-      }
-    }
     this._proxy.position.copy(this._orientationLockPosition);
 
+    // 在 _refQuaternion 基础上绕世界轴增量旋转（四元数，避免欧拉万向节）
+    _quat.copy(this._refQuaternion);
     const step = this._getRotationStepRad() * sign;
     if (axis === 'x') _axis.set(1, 0, 0);
     else if (axis === 'y') _axis.set(0, 1, 0);
     else _axis.set(0, 0, 1);
     _deltaQuat.setFromAxisAngle(_axis, step);
-    this._proxy.quaternion.premultiply(_deltaQuat);
+    _quat.premultiply(_deltaQuat);
+    _quat.normalize();
+    this._refQuaternion.copy(_quat);
+    this._proxy.quaternion.copy(_quat);
     this._proxy.updateMatrixWorld(true);
     return this._applyNudge('orientation');
   }
 
   _applyNudge(mode, extra = {}) {
     this._jointSnapshotBeforeDrag = this._captureChainJointAngles();
-    const result = this._applyIkSolve(mode, { maxIterations: 18, ...extra });
+    const result = this._applyIkSolve(mode, { dragging: false, ...extra });
     this._syncJointUi();
     this.editor.curveEditor?.drawDebounced();
 
     if (mode === 'orientation') {
       this._proxy.position.copy(this._orientationLockPosition);
-      // 松手后更新 _refQuaternion 为实际 FK 四元数
-      const link = getUrdfLinkObject(this.editor.robotRight, this.endEffectorLinkName);
-      if (link) link.getWorldQuaternion(this._refQuaternion);
+      this._proxy.quaternion.copy(this._refQuaternion);
     } else {
       this._applyProxyFromRefs(this.goalMode === 'pose' ? 'pose' : 'position');
     }
@@ -647,35 +787,37 @@ export class EndEffectorControls {
     let showIkError = false;
 
     if (isPositionEnd && robot) {
-      this._buildPositionTarget();
-      const targetPos = _pos.clone();
-      this.ikService.solveHoldPositionSoftOrientation(
-        robot,
-        _pos,
-        this._refQuaternion,
-        { maxIterations: 24, rotationFactor: POSITION_SOFT_ROT_FACTOR }
-      );
+      const targetPos = this._proxy.position.clone();
+      const w = this._getIkWeights().position;
+      // 拖拽每帧已求解；松手只做一次精修，不做姿态回拉、不 snap 回 FK
+      this._applyIkSolve('position', {
+        dragEnd: true,
+        dragging: false,
+        skipOrientationHold: true,
+        keepProxyAtTarget: true
+      });
       robot.updateMatrixWorld(true);
-      this._commitActualPositionAsRef(robot);
       const link = getUrdfLinkObject(robot, this.endEffectorLinkName);
       if (link) {
         link.getWorldPosition(_pos);
-        showIkError = _pos.distanceTo(targetPos) > 0.05;
+        const tol = w.convergedPositionTolerance ?? 0.004;
+        showIkError = _pos.distanceTo(targetPos) > Math.max(tol * 3, 0.05);
       }
+      this._proxy.position.copy(targetPos);
+      this._proxy.quaternion.copy(this._refQuaternion);
+      this._updateGizmoMatrices();
       this._syncJointUi();
     } else if (isOrientationEnd && robot) {
-      // 做最终高精度姿态求解
-      _quat.copy(this._proxy.quaternion);
-      this.ikService.solveOrientationHoldPosition(robot, this._orientationLockPosition, _quat, {
-        translationFactor: ORIENTATION_HOLD_TRANS_FACTOR,
-        rotationFactor: ORIENTATION_HOLD_ROT_FACTOR,
-        maxIterations: 24,
-        solvePasses: 8
+      this._refQuaternion.copy(this._proxy.quaternion);
+      this._applyIkSolve('orientation', {
+        dragEnd: true,
+        dragging: false,
+        keepProxyAtTarget: true
       });
       robot.updateMatrixWorld(true);
-      // 更新 _refQuaternion 为实际 FK 四元数（供后续位置编辑维持）
-      const link = getUrdfLinkObject(robot, this.endEffectorLinkName);
-      if (link) link.getWorldQuaternion(this._refQuaternion);
+      this._proxy.position.copy(this._orientationLockPosition);
+      this._proxy.quaternion.copy(this._refQuaternion);
+      this._updateGizmoMatrices();
       this._syncJointUi();
     }
 
@@ -686,10 +828,6 @@ export class EndEffectorControls {
     } else if (this._chainAnglesChanged()) {
       this._commitKeyframe();
     }
-
-    const syncQuat = isOrientationEnd || this.goalMode === 'orientation';
-    this._applyProxyFromRefs(this.goalMode, { syncQuatFromFk: syncQuat });
-    this._updateGizmoMatrices();
   }
 
   // ─── 辅助 ────────────────────────────────────────────────────────────────
@@ -745,8 +883,10 @@ export class EndEffectorControls {
     if (this._isDragging()) return;
     if (this.editor.timelineController?.isPlaying) return;
 
-    this._syncEeReferencesFromFk();
-    this._applyProxyFromRefs(this.goalMode, { syncQuatFromFk: true });
+    this._syncEeReferencesFromFk({ syncOrientation: this.goalMode !== 'position' });
+    this._applyProxyFromRefs(this.goalMode, {
+      syncQuatFromFk: this.goalMode !== 'position'
+    });
     this._updateGizmoMatrices();
   }
 
@@ -758,8 +898,10 @@ export class EndEffectorControls {
       this.controlsTranslate.enabled = false;
       this.controlsRotate.enabled = false;
     } else if (this.enabled) {
-      this._syncEeReferencesFromFk();
-      this._applyProxyFromRefs(this.goalMode, { syncQuatFromFk: true });
+      this._syncEeReferencesFromFk({ syncOrientation: this.goalMode !== 'position' });
+      this._applyProxyFromRefs(this.goalMode, {
+        syncQuatFromFk: this.goalMode !== 'position'
+      });
       this._updateControlsAttachment();
       this._updateGizmoMatrices();
     }
