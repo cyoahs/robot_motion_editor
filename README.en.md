@@ -1,98 +1,71 @@
 # Robot Keyframe Editor
 
-A web-based robot motion editing tool with support for URDF loading, CSV trajectory editing, dual-viewport comparison, and project file management.
+A browser-based robot motion trajectory editor with URDF loading, CSV editing, dual-viewport comparison, inverse kinematics (IK) end-effector editing, and project persistence.
 
-**其他语言:** [中文](README.md)
+**中文:** [README.md](README.md)
 
-## 🌐 Live Demo
+## Live Demo
 
 [motion-editor.cyoahs.dev](https://motion-editor.cyoahs.dev) | Hosted on Cloudflare Pages
 
-## 🔒 Privacy & Security
+## Demonstrations
 
-✅ **Runs Completely Locally** — All data processing happens in your browser, nothing is uploaded to any server
+Screen recordings embedded as GIF for inline preview on GitHub and in Markdown viewers.
 
-## ✨ Core Features
+### IK End-Effector Editing
 
-- **Dual-Viewport Comparison**: Original trajectory on the left, edited results on the right with synchronized camera
-- **Trajectory Editing**: Residual-based keyframe system with support for joint and base editing
-- **Project Save/Load**: Save complete project state (URDF, trajectories, keyframes, edit history)
-- **Auto-Save**: Hybrid storage with Cookie + IndexedDB, automatically saves work state
-- **Curve Editor**: Visualize joint and base changes over time with Bezier interpolation support
-- **Dynamics Visualization**: Real-time display of center of mass position and contact polygon projection
-- **Axis Gizmo**: 3D axis indicator in the bottom-right corner, click to switch orthogonal views
-- **URDF Parsing**: Automatic loading of URDF and mesh files from a folder
-- **Multi-language**: Chinese/English interface switching
+Drag the end-effector in the 3D viewport, adjust pose, and write keyframes with configurable solver parameters.
 
-## 💾 Auto-Save Mechanism
+![IK end-effector editing](docs/assets/demo/end-effector-ik-edit.gif)
 
-The application uses an intelligent layered storage strategy:
+### Joint Editing
 
-- **localStorage (5MB)**: Stores trajectories, keyframes, UI state, and small config files (<50KB)
-- **IndexedDB (50MB+)**: Stores large mesh files (e.g., .stl, .dae)
-- **Incremental Auto-Save**: Full save only when URDF changes, otherwise saves only trajectory and keyframes
-- **Authorization Management**: Synchronously clears all storage when enabling/disabling auto-save
+Edit joint trajectories via the sidebar and curve panel with keyframe management.
 
-When auto-save is enabled, refreshing the page automatically restores the last editing state.
+![Joint editing](docs/assets/demo/joint-edit.gif)
+
+### Viewport & Visualization
+
+Configure ghost reference model, overlay/split layout, and playback rate.
+
+![Viewport settings](docs/assets/demo/viewport-settings.gif)
+
+## Privacy
+
+All processing runs locally in the browser. No data is uploaded to a server.
+
+## Features
+
+- Residual keyframes on CSV base trajectories; linear / Bezier interpolation
+- Keyframe clipboard, drag-to-move, keyboard shortcuts
+- Drag-and-drop URDF folders and CSV files
+- Viewport overlay/split with ghost reference model
+- IK end-effector editing via `closed-chain-ik`
+- On-demand curve plots with legend; timeline sync
+- Project save/load, auto-save, COM visualization, EN/ZH UI
+
+## Changelog
+
+The following features were developed and contributed by **fandes** ([@fandesfyf](https://github.com/fandesfyf)).
+
+| Date | Summary |
+|------|---------|
+| 2026-05-30 | IK end-effector editing with `closed-chain-ik`; viewport overlay/split and ghost model; drag-and-drop URDF/CSV import |
+| 2026-05-31 | Dual IK gizmos and position-priority solve strategy |
+| 2026-06-01 | Viewport toolbar, playback rate, timeline zoom, editable FPS |
+| 2026-06-03 | IK solver refactor and tuning panel; keyframe clipboard and shortcuts; on-demand curves with legend; timeline–curve view sync |
+
+See [README.md](README.md) for the full feature list (Chinese).
 
 ## Quick Start
 
 ```bash
-npm install           # Install dependencies
-npm run dev           # Start development server
-npm run build         # Production build
+npm install
+npm run dev
+npm run build
 ```
 
-## Usage Guide
-
-### Basic Workflow
-
-1. **Load URDF**: Select a folder containing URDF and mesh files
-2. **Load Trajectory**: Load a unitree CSV (base xyz + quaternion xyzw + joint radians) or seed CSV (Frame + cm/degrees); data is converted to unitree internally
-3. **Edit Keyframes**: Click DOF names to show curves, adjust parameters and add keyframes (Shift+click for multiple curves)
-4. **Save Project**: Save the complete editing state (can be loaded to restore)
-5. **Export Trajectory**: Select unitree/seed format and export FPS, then export the combined CSV trajectory; differing FPS values are resampled automatically
-
-### Project Management
-
-- **Save Project**: Export a project file containing URDF, trajectories, keyframes, and edit history
-- **Load Project**: Restore a complete editing state from a saved project file
-- **Incremental Editing**: Based on the residual system, only modified portions are stored
-
-### Dynamics Visualization
-
-- **Center of Mass Display**: Real-time calculation and display of robot center of mass
-- **Support Polygon**: Display the convex hull projection of contact points on the ground
-- **Stability Indication**: Intuitively assess the static stability of the current pose
-
-### Quick Features
-
-- **Align Lowest**: The "Align Lowest" button in base control auto-adjusts XYZ to align the edited robot's lowest point with the base trajectory
-- **Axis Gizmo**: The 3D axis indicator in the bottom-right corner allows quick switching to orthogonal views by clicking X/Y/Z axes
-
-## Tech Stack
-
-- Vite: Frontend build tool
-- Three.js: 3D graphics rendering
-- urdf-loader: URDF parsing
-- Vanilla JavaScript: Framework-free development
-
-## Project Structure
-
-```
-src/
-├── main.js              # Application entry point (dual-viewport rendering)
-├── urdfLoader.js        # URDF loading and parsing
-├── trajectoryManager.js # Trajectory and keyframe management
-├── trajectoryFormatConverter.js # unitree/seed CSV format conversion
-├── jointController.js   # Joint control UI
-├── baseController.js    # Base control UI (with align feature)
-├── curveEditor.js       # Curve editor
-├── comVisualizer.js     # Center of mass and support polygon visualization
-├── axisGizmo.js         # Axis indicator gizmo
-├── timelineController.js # Timeline control
-└── i18n.js              # Internationalization (Chinese/English)
-```
+See [DEVELOPMENT.md](DEVELOPMENT.md) and [USAGE.md](USAGE.md).
 
 ## License
 

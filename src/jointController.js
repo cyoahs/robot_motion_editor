@@ -37,7 +37,7 @@ export class JointController {
 
       const label = document.createElement('label');
       label.style.cssText = 'cursor: pointer; display: flex; align-items: center; user-select: none;';
-      label.title = '点击切换曲线显示';
+      label.title = '点击显示此关节曲线';
       
       const labelText = document.createElement('span');
       labelText.textContent = joint.name || `Joint ${index + 1}`;
@@ -62,18 +62,14 @@ export class JointController {
       
       // 点击label切换曲线可见性
       label.addEventListener('click', (e) => {
-        if (this.editor.curveEditor) {
-          const curveKey = `joint_${index}`;
-          const visible = this.editor.curveEditor.toggleCurveVisibility(curveKey, e.shiftKey);
-          const color = this.editor.curveEditor.getCurveColor(curveKey);
-          if (color) {
-            // 更新背景色
-            if (visible) {
-              control.style.backgroundColor = color + '20'; // 20% 透明度
-            } else {
-              control.style.backgroundColor = '';
-            }
-          }
+        if (!this.editor.curveEditor) return;
+        const curveKey = `joint_${index}`;
+        const visible = e.shiftKey
+          ? this.editor.curveEditor.toggleCurveVisibility(curveKey, true)
+          : this.editor.curveEditor.selectJointCurve(index);
+        const color = this.editor.curveEditor.getCurveColor(curveKey);
+        if (color) {
+          control.style.backgroundColor = visible ? color + '20' : '';
         }
       });
       
@@ -162,8 +158,6 @@ export class JointController {
   }
 
   updateKeyframeIndicators() {
-    const t0 = performance.now();
-    
     if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
       // 没有轨迹时隐藏所有圈圈
       this.joints.forEach((joint, index) => {
@@ -231,8 +225,6 @@ export class JointController {
       }
     });
     
-    const t1 = performance.now();
-    console.log(`⏱️ updateKeyframeIndicators 耗时: ${(t1-t0).toFixed(2)}ms`);
   }
   
   updateCurveBackgrounds() {
@@ -254,7 +246,7 @@ export class JointController {
     });
   }
 
-  applyJointValue(index, value) {
+  applyJointValue(index, value, { skipAutoKeyframe = false } = {}) {
     if (this.joints[index] && this.joints[index].joint) {
       this.joints[index].joint.setJointValue(value);
     }
@@ -264,16 +256,19 @@ export class JointController {
       if (this.editor.comVisualizerRight && this.editor.robotRight) {
         this.editor.comVisualizerRight.update(this.editor.robotRight);
       }
-      // 触发包络线防抖更新
-      this.editor.scheduleFootprintUpdate();
     }
     
-    // 如果当前帧是关键帧，自动更新残差
-    this.autoUpdateKeyframe();
+    if (!skipAutoKeyframe) {
+      this.autoUpdateKeyframe();
+    }
   }
 
   autoUpdateKeyframe() {
     if (!this.editor.trajectoryManager.hasTrajectory()) {
+      return;
+    }
+    
+    if (this.editor.isIkDragging) {
       return;
     }
     
@@ -319,11 +314,12 @@ export class JointController {
     }
   }
 
-  updateJoints(jointValues) {
+  updateJoints(jointValues, { silent = false } = {}) {
     this.jointValues = [...jointValues];
     
     const container = document.getElementById('joint-controls');
     const controls = container.querySelectorAll('.joint-control');
+    const skipAutoKeyframe = silent;
     
     controls.forEach((control, index) => {
       if (index >= jointValues.length) return;
@@ -335,15 +331,36 @@ export class JointController {
       if (slider) slider.value = value;
       if (numberInput) numberInput.value = value.toFixed(3);
       
-      this.applyJointValue(index, value);
+      this.applyJointValue(index, value, { skipAutoKeyframe });
     });
     
-    // 更新关键帧指示器
-    this.updateKeyframeIndicators();
+    if (!silent) {
+      this.updateKeyframeIndicators();
+    }
   }
 
   getCurrentJointValues() {
     return [...this.jointValues];
+  }
+
+  /** IK 求解后同步：更新模型与 UI，不触发自动关键帧 */
+  syncFromRobotSilent(robot) {
+    if (!robot) return;
+    const container = document.getElementById('joint-controls');
+    this.joints.forEach((joint, index) => {
+      const val = robot.joints[joint.name]?.angle ?? this.jointValues[index] ?? 0;
+      this.jointValues[index] = val;
+      if (joint.joint) {
+        joint.joint.setJointValue(val);
+      }
+      const control = container?.querySelector(`.joint-control[data-joint-index="${index}"]`);
+      if (control) {
+        const slider = control.querySelector('input[type="range"]');
+        const numberInput = control.querySelector('input[type="number"]');
+        if (slider) slider.value = val;
+        if (numberInput) numberInput.value = val.toFixed(3);
+      }
+    });
   }
 
   resetToBase() {

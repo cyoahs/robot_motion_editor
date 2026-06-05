@@ -1,4 +1,10 @@
 import { i18n } from './i18n.js';
+import {
+  EE_POSE_COMPONENTS,
+  eeCurveKeyPrefix,
+  applyFrameStateToRobot,
+  sampleEndEffectorPose
+} from './ik/eePoseSampler.js';
 
 /**
  * 曲线编辑器 - 可视化和编辑关节角度和基体状态随时间的变化
@@ -19,7 +25,7 @@ export class CurveEditor {
       offsetY: 0,      // Y轴平移（值域）
       scaleY: 1,       // Y轴缩放
       minScaleX: 0.1,  // X轴最小缩放
-      maxScaleX: 10,   // X轴最大缩放
+      maxScaleX: 50,   // 与时间轴 maxZoom 对齐
       minScaleY: 0.1,  // Y轴最小缩放
       maxScaleY: 10    // Y轴最大缩放
     };
@@ -43,6 +49,13 @@ export class CurveEditor {
     // 防抖定时器，用于优化绘制性能
     this.drawDebounceTimer = null;
     this.drawDebounceDelay = 16; // ~60fps
+
+    // 静态层离屏缓存（网格/曲线/关键帧线），播放时仅重绘当前帧竖线
+    this._staticCanvas = null;
+    this._staticCtx = null;
+    this._staticDirty = true;
+    this._viewRedrawRaf = null;
+    this._dataRedrawRaf = null;
     
     // CSS 变量缓存 (Safari 性能优化)
     this.cachedStyles = {};
@@ -75,6 +88,7 @@ export class CurveEditor {
       return;
     }
     this.ctx = this.canvas.getContext('2d');
+    this.legendEl = document.getElementById('curve-legend');
     
     // 创建RPY按钮
     this.createRPYButtons();
@@ -120,7 +134,7 @@ export class CurveEditor {
         if (curve) {
           curve.visible = !curve.visible;
           this.updateRPYButtonStyle(btn, curve.visible);
-          this.draw();
+          this.invalidateAndDraw();
         }
       });
       
@@ -239,36 +253,54 @@ export class CurveEditor {
     // 监听时间轴滚动事件
     const timelineViewport = document.getElementById('timeline-viewport');
     if (timelineViewport) {
-      timelineViewport.addEventListener('scroll', () => this.draw());
+      timelineViewport.addEventListener('scroll', () => {
+        if (this.isExpanded) {
+          this.drawPlayheadOnly();
+        }
+      });
     }
+  }
+
+  _measureCanvasLogicalSize() {
+    const content = document.getElementById('curve-editor-content');
+    if (!content) return { width: 1, height: this.height };
+
+    const rect = content.getBoundingClientRect();
+    const container = document.getElementById('curve-editor-container');
+    const fallbackW = container?.clientWidth || content.clientWidth || 320;
+    const width = Math.max(1, rect.width || fallbackW);
+    return { width, height: this.height };
   }
 
   resizeCanvas() {
     if (!this.canvas) return;
-    
-    // 获取父容器的宽度
+
     const content = document.getElementById('curve-editor-content');
-    if (!content) return;
-    
-    const rect = content.getBoundingClientRect();
-    
-    // 设置画布实际像素大小（考虑设备像素比）
+    if (!content || content.style.display === 'none') return;
+
+    const { width: logicalW, height: logicalH } = this._measureCanvasLogicalSize();
     const dpr = window.devicePixelRatio || 1;
-    this.canvas.width = rect.width * dpr;
-    this.canvas.height = this.height * dpr;
-    
-    // 设置画布显示大小
-    this.canvas.style.width = rect.width + 'px';
-    this.canvas.style.height = this.height + 'px';
-    
-    // 重置和缩放上下文以匹配设备像素比
+
+    this.canvas.width = Math.max(1, Math.floor(logicalW * dpr));
+    this.canvas.height = Math.max(1, Math.floor(logicalH * dpr));
+    this.canvas.style.width = `${logicalW}px`;
+    this.canvas.style.height = `${logicalH}px`;
+
     this.ctx = this.canvas.getContext('2d');
-    this.ctx.scale(dpr, dpr);
-    
-    // 重新缓存样式 (主题可能变化)
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    this._staticCanvas = null;
+    this._staticCtx = null;
     this.cacheStyles();
-    
-    this.draw();
+    this.invalidateAndDraw();
+  }
+
+  _scheduleResizeAndDraw() {
+    requestAnimationFrame(() => {
+      this.resizeCanvas();
+      this.updateCurves();
+      this.invalidateAndDraw();
+    });
   }
 
   toggleExpand() {
@@ -280,9 +312,9 @@ export class CurveEditor {
     if (this.isExpanded) {
       content.style.display = 'block';
       toggleIcon.textContent = '▼';
-      this.resizeCanvas();
-      this.updateCurves();
-      this.draw();
+      this._scheduleResizeAndDraw();
+      this.editor.timelineCurveViewSync?.syncFromTimeline();
+      this.updateCurveLegend();
     } else {
       content.style.display = 'none';
       toggleIcon.textContent = '▶';
@@ -306,7 +338,7 @@ export class CurveEditor {
     this.updateInterpolationButton();
     
     // 重新绘制曲线和更新机器人状态
-    this.draw();
+    this.invalidateAndDraw();
     if (this.editor.timelineController) {
       const currentFrame = this.editor.timelineController.getCurrentFrame();
       this.editor.updateRobotState(currentFrame);
@@ -327,21 +359,39 @@ export class CurveEditor {
     toggle.checked = isBezier;
   }
 
+  hasVisibleCurves() {
+    for (const curve of this.curves.values()) {
+      if (curve.visible) return true;
+    }
+    return false;
+  }
+
+  /** 已加载轨迹且（有关节曲线选中 或 有关键帧）时可绘制 */
+  _shouldRenderCurvePlot(metrics) {
+    if (!metrics?.hasData) return false;
+    return this.hasVisibleCurves() || metrics.keyframes.length > 0;
+  }
+
   /**
-   * 更新曲线数据
+   * 关键帧增删改后：同步曲线定义，不自动展开/显示全部曲线
    */
-  updateCurves() {
+  onKeyframesChanged() {
+    this.syncCurveDefinitions();
+    if (this.isExpanded) {
+      this.invalidateAndDraw();
+    }
+  }
+
+  /**
+   * 更新曲线定义（不改变 visible，不自动展开）
+   */
+  syncCurveDefinitions() {
     if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
       return;
     }
-    
+
     const keyframes = this.editor.trajectoryManager.getKeyframes();
-    
-    // 如果有关键帧且当前是折叠状态，则展开
-    if (keyframes.length > 0 && !this.isExpanded) {
-      this.toggleExpand();
-    }
-    
+
     // 如果没有关键帧，清空曲线但保留定义
     if (keyframes.length === 0) {
       // 仍然定义曲线，但标记为不可见
@@ -390,57 +440,40 @@ export class CurveEditor {
         }
       });
       
-      this.draw();
+      if (this.isExpanded) {
+        this.invalidateAndDraw();
+      }
       return;
     }
-    
+
     // 更新关节曲线
     if (this.editor.jointController) {
       this.editor.jointController.joints.forEach((joint, index) => {
         const key = `joint_${index}`;
-        
-        // 检查是否有残差
-        let hasResidual = false;
-        for (const kf of keyframes) {
-          if (kf.residual && Math.abs(kf.residual[index] || 0) > 0.001) {
-            hasResidual = true;
-            break;
-          }
-        }
-        
+
         if (!this.curves.has(key)) {
           this.curves.set(key, {
             name: joint.name || `Joint ${index + 1}`,
             type: 'joint',
             index: index,
-            visible: false, // 默认不显示
+            visible: false,
             color: this.getNextColor(),
             data: []
           });
         }
       });
     }
-    
+
     // 更新基体位置曲线
-    ['x', 'y', 'z'].forEach((axis, index) => {
+    ['x', 'y', 'z'].forEach((axis) => {
       const key = `base_pos_${axis}`;
-      
-      // 检查是否有残差
-      let hasResidual = false;
-      for (const kf of keyframes) {
-        if (kf.baseResidual && kf.baseResidual.position &&
-            Math.abs(kf.baseResidual.position[axis] || 0) > 0.001) {
-          hasResidual = true;
-          break;
-        }
-      }
-      
+
       if (!this.curves.has(key)) {
         this.curves.set(key, {
           name: `Base Position ${axis.toUpperCase()}`,
           type: 'base_position',
           axis: axis,
-          visible: false, // 默认不显示
+          visible: false,
           color: this.getNextColor(),
           data: []
         });
@@ -461,12 +494,182 @@ export class CurveEditor {
         });
       }
     });
+
+    const eeLink = this.editor.ikPanel?.endEffectorLink;
+    if (eeLink) {
+      const prefix = eeCurveKeyPrefix(eeLink);
+      if (!this.curves.has(`${prefix}_px`)) {
+        this.setActiveEndEffector(eeLink, { redraw: false });
+      }
+    }
+  }
+
+  /** @param {{ autoExpand?: boolean }} [options] */
+  updateCurves(options = {}) {
+    this.syncCurveDefinitions();
+    if (options.autoExpand) {
+      const keyframes = this.editor.trajectoryManager?.getKeyframes() ?? [];
+      if (keyframes.length > 0 && !this.isExpanded) {
+        this.toggleExpand();
+      }
+    } else if (this.isExpanded && this.hasVisibleCurves()) {
+      this.invalidateAndDraw();
+    }
   }
 
   getNextColor() {
     const color = this.colors[this.colorIndex % this.colors.length];
     this.colorIndex++;
     return color;
+  }
+
+  /** 移除所有末端位姿曲线 */
+  removeEndEffectorCurves() {
+    for (const key of [...this.curves.keys()]) {
+      if (key.startsWith('ee_')) {
+        this.curves.delete(key);
+      }
+    }
+  }
+
+  /**
+   * 为当前 IK 末端 Link 注册 6 条曲线（位置 XYZ + 姿态 RPY，世界系，rad/m）
+   */
+  setActiveEndEffector(linkName, { redraw = true } = {}) {
+    this.removeEndEffectorCurves();
+    if (!linkName) {
+      if (redraw) this.drawDebounced();
+      return;
+    }
+
+    const prefix = eeCurveKeyPrefix(linkName);
+    const palette = ['#569cd6', '#6a9955', '#ce9178', '#c586c0', '#dcdcaa', '#4fc1ff'];
+    const compLabels = {
+      px: 'Pos X', py: 'Pos Y', pz: 'Pos Z',
+      rx: 'Rot X', ry: 'Rot Y', rz: 'Rot Z'
+    };
+
+    EE_POSE_COMPONENTS.forEach((comp, i) => {
+      const key = `${prefix}_${comp.key}`;
+      this.curves.set(key, {
+        name: `${linkName} ${compLabels[comp.key]}`,
+        type: 'ee_pose',
+        linkName,
+        component: comp.key,
+        visible: false,
+        color: palette[i % palette.length],
+        data: []
+      });
+    });
+
+    if (redraw && this.hasVisibleCurves()) {
+      this.drawDebounced();
+    }
+  }
+
+  _afterCurveVisibilityChange() {
+    this.updateRPYButtons();
+    this.updateCurveLegend();
+    if (this.editor.jointController?.updateCurveBackgrounds) {
+      this.editor.jointController.updateCurveBackgrounds();
+    }
+    if (this.editor.baseController?.updateCurveBackgrounds) {
+      this.editor.baseController.updateCurveBackgrounds();
+    }
+    if (this.isExpanded) {
+      this.invalidateAndDraw();
+    }
+  }
+
+  /** 右上角图例：当前显示的曲线（关节名 + 颜色） */
+  updateCurveLegend() {
+    const legend = this.legendEl || document.getElementById('curve-legend');
+    if (!legend) return;
+
+    const visible = [];
+    this.curves.forEach((curve, key) => {
+      if (curve.visible) {
+        visible.push({ key, curve });
+      }
+    });
+
+    if (visible.length === 0) {
+      legend.hidden = true;
+      legend.replaceChildren();
+      return;
+    }
+
+    legend.hidden = false;
+    legend.replaceChildren();
+
+    const hasJoint = visible.some((v) => v.curve.type === 'joint');
+    const showBaseHint = hasJoint || visible.some((v) =>
+      v.curve.type === 'base_position' || v.curve.type === 'base_euler' || v.curve.type === 'ee_pose'
+    );
+
+    visible.forEach(({ curve }) => {
+      const row = document.createElement('div');
+      row.className = 'curve-legend-item';
+
+      const swatch = document.createElement('span');
+      swatch.className = 'curve-legend-swatch';
+      swatch.style.backgroundColor = curve.color;
+
+      const label = document.createElement('span');
+      label.className = 'curve-legend-label';
+      label.textContent = curve.name;
+      label.title = curve.name;
+
+      row.append(swatch, label);
+      legend.appendChild(row);
+    });
+
+    if (showBaseHint) {
+      const hint = document.createElement('div');
+      hint.className = 'curve-legend-hint';
+
+      const baseRow = document.createElement('div');
+      baseRow.className = 'curve-legend-item';
+      const baseSwatch = document.createElement('span');
+      baseSwatch.className = 'curve-legend-swatch is-base';
+      const baseLabel = document.createElement('span');
+      baseLabel.className = 'curve-legend-label';
+      baseLabel.textContent = i18n.t('curveLegendBase');
+      baseRow.append(baseSwatch, baseLabel);
+
+      hint.appendChild(baseRow);
+      legend.appendChild(hint);
+    }
+  }
+
+  /**
+   * 选中单条曲线（用于关节/基座标签点击）：仅显示该曲线，再次点击同一项则隐藏
+   */
+  selectSingleCurve(curveKey) {
+    if (!this.curves.has(curveKey) && this.editor.trajectoryManager?.hasTrajectory()) {
+      this.syncCurveDefinitions();
+    }
+    const curve = this.curves.get(curveKey);
+    if (!curve) return false;
+
+    const visibleCount = [...this.curves.values()].filter((c) => c.visible).length;
+    const onlyThis = curve.visible && visibleCount === 1;
+
+    this.curves.forEach((c) => {
+      c.visible = false;
+    });
+    curve.visible = !onlyThis;
+
+    if (curve.visible && !this.isExpanded) {
+      this.toggleExpand();
+    }
+
+    this._afterCurveVisibilityChange();
+    return curve.visible;
+  }
+
+  selectJointCurve(jointIndex) {
+    return this.selectSingleCurve(`joint_${jointIndex}`);
   }
 
   /**
@@ -477,51 +680,33 @@ export class CurveEditor {
   toggleCurveVisibility(curveKey, shiftKey = false) {
     const curve = this.curves.get(curveKey);
     if (!curve) return false;
-    
+
+    if (!shiftKey) {
+      return this.selectSingleCurve(curveKey);
+    }
+
     const isEulerCurve = curve.type === 'base_euler';
-    
-    if (shiftKey) {
-      // Shift+点击：切换当前曲线，但要确保欧拉角和其他曲线不混合
-      if (isEulerCurve) {
-        // 如果是欧拉角曲线，先隐藏所有非欧拉角曲线
-        this.curves.forEach((c) => {
-          if (c.type !== 'base_euler') {
-            c.visible = false;
-          }
-        });
-      } else {
-        // 如果是其他曲线，先隐藏所有欧拉角曲线
-        this.curves.forEach((c) => {
-          if (c.type === 'base_euler') {
-            c.visible = false;
-          }
-        });
-      }
-      curve.visible = !curve.visible;
-    } else {
-      // 普通点击：只显示当前曲线，隐藏其他所有曲线
-      const wasVisible = curve.visible;
+
+    if (isEulerCurve) {
       this.curves.forEach((c) => {
-        c.visible = false;
+        if (c.type !== 'base_euler') {
+          c.visible = false;
+        }
       });
-      // 切换当前曲线状态
-      curve.visible = !wasVisible;
+    } else {
+      this.curves.forEach((c) => {
+        if (c.type === 'base_euler') {
+          c.visible = false;
+        }
+      });
     }
-    
-    // 更新RPY按钮
-    this.updateRPYButtons();
-    
-    // 更新关节控制面板的背景色
-    if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
-      this.editor.jointController.updateCurveBackgrounds();
+    curve.visible = !curve.visible;
+
+    if (curve.visible && !this.isExpanded) {
+      this.toggleExpand();
     }
-    
-    // 更新基体控制面板的背景色
-    if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
-      this.editor.baseController.updateCurveBackgrounds();
-    }
-    
-    this.draw();
+
+    this._afterCurveVisibilityChange();
     return curve.visible;
   }
   
@@ -554,21 +739,14 @@ export class CurveEditor {
       eulerY.visible = newVisible; // Pitch
       eulerZ.visible = false; // Yaw默认不显示
       
-      // 更新关节控制面板
-      if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
-        this.editor.jointController.updateCurveBackgrounds();
-      }
     }
-    
-    // 更新基体控制面板的背景色
-    if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
-      this.editor.baseController.updateCurveBackgrounds();
+
+    const newVisible = eulerX.visible || eulerY.visible;
+    if (newVisible && !this.isExpanded) {
+      this.toggleExpand();
     }
-    
-    // 更新RPY按钮
-    this.updateRPYButtons();
-    
-    this.draw();
+
+    this._afterCurveVisibilityChange();
     return eulerX.visible;
   }
   
@@ -614,50 +792,12 @@ export class CurveEditor {
     return curve ? curve.visible : false;
   }
 
-  /**
-   * 重置为默认显示（只显示有残差的曲线）
-   */
+  /** 隐藏全部曲线（默认不自动展示） */
   resetToDefault() {
-    if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
-      return;
-    }
-    
-    const keyframes = this.editor.trajectoryManager.getKeyframes();
-    
-    this.curves.forEach((curve, key) => {
-      let hasResidual = false;
-      
-      if (curve.type === 'joint') {
-        for (const kf of keyframes) {
-          if (kf.residual && Math.abs(kf.residual[curve.index] || 0) > 0.001) {
-            hasResidual = true;
-            break;
-          }
-        }
-      } else if (curve.type === 'base_position') {
-        for (const kf of keyframes) {
-          if (kf.baseResidual && kf.baseResidual.position &&
-              Math.abs(kf.baseResidual.position[curve.axis] || 0) > 0.001) {
-            hasResidual = true;
-            break;
-          }
-        }
-      }
-      
-      curve.visible = hasResidual;
+    this.curves.forEach((curve) => {
+      curve.visible = false;
     });
-    
-    // 更新关节控制面板的背景颜色
-    if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
-      this.editor.jointController.updateCurveBackgrounds();
-    }
-    
-    // 更新基体控制面板的背景颜色
-    if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
-      this.editor.baseController.updateCurveBackgrounds();
-    }
-    
-    this.draw();
+    this._afterCurveVisibilityChange();
   }
 
   /**
@@ -676,87 +816,201 @@ export class CurveEditor {
     return curve ? curve.visible : false;
   }
 
-  /**
-   * 绘制曲线
-   */
-  draw() {
-    const drawStart = performance.now();
-    
-    if (!this.isExpanded || !this.ctx) return;
-    
-    const width = this.canvas.width / (window.devicePixelRatio || 1);
-    const height = this.canvas.height / (window.devicePixelRatio || 1);
-    
-    // 清空画布
-    this.ctx.clearRect(0, 0, width, height);
-    
-    // 绘制背景
-    this.ctx.fillStyle = this.cachedStyles.bgPrimary;
-    this.ctx.fillRect(0, 0, width, height);
-    
-    if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
-      this.drawNoData();
-      return;
+  _markStaticDirty() {
+    this._staticDirty = true;
+  }
+
+  _scheduleViewRedraw() {
+    if (this._viewRedrawRaf) return;
+    this._viewRedrawRaf = requestAnimationFrame(() => {
+      this._viewRedrawRaf = null;
+      this.invalidateAndDraw();
+    });
+  }
+
+  _scheduleDataRedraw() {
+    if (this._dataRedrawRaf) return;
+    this._dataRedrawRaf = requestAnimationFrame(() => {
+      this._dataRedrawRaf = null;
+      this.invalidateAndDraw();
+    });
+  }
+
+  _getPlotMetrics() {
+    if (!this.isExpanded || !this.ctx) return null;
+
+    const { width, height } = this._measureCanvasLogicalSize();
+    if (this.canvas.width > 0 && this.canvas.height > 0) {
+      const dpr = window.devicePixelRatio || 1;
+      const fromCanvas = {
+        width: this.canvas.width / dpr,
+        height: this.canvas.height / dpr
+      };
+      if (fromCanvas.width >= 1 && fromCanvas.height >= 1) {
+        return this._buildPlotMetrics(fromCanvas.width, fromCanvas.height);
+      }
     }
-    
+    return this._buildPlotMetrics(width, height);
+  }
+
+  _buildPlotMetrics(width, height) {
+
+    if (!this.editor.trajectoryManager?.hasTrajectory()) {
+      return { width, height, hasData: false };
+    }
+
     const frameCount = this.editor.trajectoryManager.getFrameCount();
     const keyframes = this.editor.trajectoryManager.getKeyframes();
-    
-    if (keyframes.length === 0) {
-      this.drawNoData();
-      return;
-    }
-    
-    const currentFrame = this.editor.timelineController ? 
-      this.editor.timelineController.getCurrentFrame() : 0;
-    
-    // 获取时间轴的缩放和滚动状态
-    const timelineController = this.editor.timelineController;
-    const zoomLevel = timelineController ? timelineController.zoomLevel : 1;
-    const scrollLeft = document.getElementById('timeline-viewport')?.scrollLeft || 0;
-    
-    // 计算绘图区域
     const plotLeft = this.padding.left;
     const plotRight = width - this.padding.right;
     const plotTop = this.padding.top;
     const plotBottom = height - this.padding.bottom;
-    const plotWidth = plotRight - plotLeft;
-    const plotHeight = plotBottom - plotTop;
-    
-    // 绘制网格
-    this.drawGrid(plotLeft, plotTop, plotWidth, plotHeight, frameCount);
-    
-    // 绘制关键帧竖线
-    this.drawKeyframeLines(keyframes, plotLeft, plotTop, plotWidth, plotHeight, frameCount);
-    
-    // 绘制当前帧竖线
-    this.drawCurrentFrameLine(currentFrame, plotLeft, plotTop, plotWidth, plotHeight, frameCount);
-    
-    // 绘制曲线
-    this.drawCurves(plotLeft, plotTop, plotWidth, plotHeight, frameCount, keyframes);
-    
-    // 绘制坐标轴
-    this.drawAxes(plotLeft, plotTop, plotWidth, plotHeight);
-    
-    // 绘制框选框
+    const plotWidth = Math.max(1, plotRight - plotLeft);
+    const plotHeight = Math.max(1, plotBottom - plotTop);
+
+    return {
+      width,
+      height,
+      hasData: true,
+      frameCount,
+      keyframes,
+      plotLeft,
+      plotTop,
+      plotWidth,
+      plotHeight
+    };
+  }
+
+  _ensureOffscreen(logicalW, logicalH) {
+    const dpr = window.devicePixelRatio || 1;
+    const pw = Math.max(1, Math.floor(logicalW * dpr));
+    const ph = Math.max(1, Math.floor(logicalH * dpr));
+    if (!this._staticCanvas || this._staticCanvas.width !== pw || this._staticCanvas.height !== ph) {
+      this._staticCanvas = document.createElement('canvas');
+      this._staticCanvas.width = pw;
+      this._staticCanvas.height = ph;
+      this._staticCtx = this._staticCanvas.getContext('2d');
+      this._staticDirty = true;
+    }
+    this._staticCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  _renderStaticLayer(metrics) {
+    this._ensureOffscreen(metrics.width, metrics.height);
+    const ctx = this._staticCtx;
+    const { width, height, frameCount, keyframes, plotLeft, plotTop, plotWidth, plotHeight } = metrics;
+
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = this.cachedStyles.bgPrimary;
+    ctx.fillRect(0, 0, width, height);
+
+    if (!this._shouldRenderCurvePlot(metrics)) {
+      this._staticDirty = false;
+      return;
+    }
+
+    this.drawGrid(plotLeft, plotTop, plotWidth, plotHeight, frameCount, ctx);
+    this.drawKeyframeLines(keyframes, plotLeft, plotTop, plotWidth, plotHeight, frameCount, ctx);
+    this.drawCurves(plotLeft, plotTop, plotWidth, plotHeight, frameCount, keyframes, ctx);
+    this.drawAxes(plotLeft, plotTop, plotWidth, plotHeight, ctx);
+    this._staticDirty = false;
+  }
+
+  _blitStaticAndOverlays(metrics) {
+    const { width, height, frameCount, keyframes, plotLeft, plotTop, plotWidth, plotHeight } = metrics;
+    this.ctx.clearRect(0, 0, width, height);
+
+    if (!metrics.hasData) {
+      this.drawNoData();
+      return;
+    }
+    if (!this._shouldRenderCurvePlot(metrics)) {
+      this.drawSelectJointHint();
+      return;
+    }
+
+    if (this._staticCanvas && this._staticCanvas.width > 0 && this._staticCanvas.height > 0) {
+      this.ctx.drawImage(this._staticCanvas, 0, 0, width, height);
+    } else {
+      this._renderStaticLayer(metrics);
+      if (this._staticCanvas) {
+        this.ctx.drawImage(this._staticCanvas, 0, 0, width, height);
+      }
+    }
+
+    const currentFrame = this.editor.timelineController?.getCurrentFrame() ?? 0;
+    this.drawCurrentFrameLine(currentFrame, plotLeft, plotTop, plotWidth, plotHeight, frameCount, this.ctx);
+
     if (this.isBoxSelecting && this.boxSelectStart && this.boxSelectEnd) {
       const x1 = Math.min(this.boxSelectStart.x, this.boxSelectEnd.x);
       const y1 = Math.min(this.boxSelectStart.y, this.boxSelectEnd.y);
       const x2 = Math.max(this.boxSelectStart.x, this.boxSelectEnd.x);
       const y2 = Math.max(this.boxSelectStart.y, this.boxSelectEnd.y);
-      
-      // 半透明填充
       this.ctx.fillStyle = 'rgba(100, 150, 255, 0.2)';
       this.ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
-      
-      // 边框
       this.ctx.strokeStyle = '#6496ff';
       this.ctx.lineWidth = 1;
       this.ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
     }
-    
-    const drawEnd = performance.now();
-    console.log(`⏱️ curveEditor.draw() 耗时: ${(drawEnd - drawStart).toFixed(2)}ms`);
+  }
+
+  /** 播放前预渲染静态层，避免首帧卡顿 */
+  prepareForPlayback() {
+    if (!this.isExpanded || !this.ctx) return;
+    const metrics = this._getPlotMetrics();
+    if (!this._shouldRenderCurvePlot(metrics)) return;
+    this._markStaticDirty();
+    this._renderStaticLayer(metrics);
+  }
+
+  /** 播放中仅更新当前帧竖线（不重绘全部曲线） */
+  drawPlayheadOnly() {
+    if (!this.isExpanded || !this.ctx) return;
+    const metrics = this._getPlotMetrics();
+    if (!metrics) return;
+    if (!this._shouldRenderCurvePlot(metrics)) {
+      this.draw();
+      return;
+    }
+    if (this._staticDirty) {
+      this._renderStaticLayer(metrics);
+    }
+    this._blitStaticAndOverlays(metrics);
+  }
+
+  /**
+   * 绘制曲线（默认复用静态离屏层，仅重绘播放头等叠加层）
+   */
+  draw() {
+    if (!this.isExpanded || !this.ctx) return;
+
+    const metrics = this._getPlotMetrics();
+    if (!metrics) return;
+
+    if (!metrics.hasData) {
+      this.ctx.clearRect(0, 0, metrics.width, metrics.height);
+      this.drawNoData();
+      this._markStaticDirty();
+      return;
+    }
+
+    if (!this._shouldRenderCurvePlot(metrics)) {
+      this.ctx.clearRect(0, 0, metrics.width, metrics.height);
+      this.drawSelectJointHint();
+      this._markStaticDirty();
+      return;
+    }
+
+    if (this._staticDirty) {
+      this._renderStaticLayer(metrics);
+    }
+    this._blitStaticAndOverlays(metrics);
+  }
+
+  /** 曲线数据 / 视图变换变化后强制重绘静态层 */
+  invalidateAndDraw() {
+    this._markStaticDirty();
+    this.draw();
   }
   
   /**
@@ -764,39 +1018,54 @@ export class CurveEditor {
    * 在短时间内多次调用只会执行最后一次
    */
   drawDebounced() {
+    if (!this.isExpanded) return;
     if (this.drawDebounceTimer) {
       clearTimeout(this.drawDebounceTimer);
     }
     this.drawDebounceTimer = setTimeout(() => {
-      this.draw();
+      if (this.editor.timelineController?.isPlaying) {
+        this.drawPlayheadOnly();
+      } else if (this.hasVisibleCurves()) {
+        this.invalidateAndDraw();
+      }
       this.drawDebounceTimer = null;
     }, this.drawDebounceDelay);
   }
 
-  drawNoData() {
+  _drawCenterHint(text) {
     const width = this.canvas.width / (window.devicePixelRatio || 1);
     const height = this.canvas.height / (window.devicePixelRatio || 1);
-    
+
+    this.ctx.fillStyle = this.cachedStyles.bgPrimary;
+    this.ctx.fillRect(0, 0, width, height);
     this.ctx.fillStyle = this.cachedStyles.textTertiary;
     this.ctx.font = '14px sans-serif';
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
-    this.ctx.fillText('请加载轨迹数据', width / 2, height / 2);
+    this.ctx.fillText(text, width / 2, height / 2);
   }
 
-  drawGrid(left, top, width, height, frameCount) {
-    this.ctx.strokeStyle = this.cachedStyles.borderPrimary;
-    this.ctx.lineWidth = 0.5;
-    this.ctx.setLineDash([2, 2]);
+  drawNoData() {
+    this._drawCenterHint(i18n.t('curveNoTrajectory'));
+  }
+
+  drawSelectJointHint() {
+    this._drawCenterHint(i18n.t('curveSelectJointHint'));
+  }
+
+  drawGrid(left, top, width, height, frameCount, targetCtx = this.ctx) {
+    targetCtx.strokeStyle = this.cachedStyles.borderPrimary;
+    targetCtx.lineWidth = 0.5;
+    targetCtx.setLineDash([2, 2]);
     
     // 横向网格线（值域）
     const gridLines = 5;
     for (let i = 0; i <= gridLines; i++) {
       const y = top + (height / gridLines) * i;
-      this.ctx.beginPath();
-      this.ctx.moveTo(left, y);
-      this.ctx.lineTo(left + width, y);
-      this.ctx.stroke();
+      targetCtx.beginPath();
+      targetCtx.moveTo(left, y);
+      targetCtx.lineTo(left + width, y);
+      targetCtx.stroke();
     }
     
     // 纵向网格线（时间）
@@ -804,50 +1073,53 @@ export class CurveEditor {
     for (let frame = 0; frame < frameCount; frame += frameStep) {
       const x = this.frameToX(frame, left, width, frameCount);
       if (x >= left && x <= left + width) {
-        this.ctx.beginPath();
-        this.ctx.moveTo(x, top);
-        this.ctx.lineTo(x, top + height);
-        this.ctx.stroke();
+        targetCtx.beginPath();
+        targetCtx.moveTo(x, top);
+        targetCtx.lineTo(x, top + height);
+        targetCtx.stroke();
       }
     }
     
-    this.ctx.setLineDash([]);
+    targetCtx.setLineDash([]);
   }
 
-  drawKeyframeLines(keyframes, left, top, width, height, frameCount) {
-    this.ctx.strokeStyle = this.cachedStyles.warningColor;
-    this.ctx.globalAlpha = 0.3;
-    this.ctx.lineWidth = 1;
-    this.ctx.setLineDash([5, 5]);
+  drawKeyframeLines(keyframes, left, top, width, height, frameCount, targetCtx = this.ctx) {
+    targetCtx.strokeStyle = this.cachedStyles.warningColor;
+    targetCtx.globalAlpha = 0.3;
+    targetCtx.lineWidth = 1;
+    targetCtx.setLineDash([5, 5]);
     
     keyframes.forEach(kf => {
       const x = this.frameToX(kf.frame, left, width, frameCount);
       if (x >= left && x <= left + width) {
-        this.ctx.beginPath();
-        this.ctx.moveTo(x, top);
-        this.ctx.lineTo(x, top + height);
-        this.ctx.stroke();
+        targetCtx.beginPath();
+        targetCtx.moveTo(x, top);
+        targetCtx.lineTo(x, top + height);
+        targetCtx.stroke();
       }
     });
     
-    this.ctx.globalAlpha = 1;
-    this.ctx.setLineDash([]);
+    targetCtx.globalAlpha = 1;
+    targetCtx.setLineDash([]);
   }
 
-  drawCurrentFrameLine(currentFrame, left, top, width, height, frameCount) {
+  drawCurrentFrameLine(currentFrame, left, top, width, height, frameCount, targetCtx = this.ctx) {
     const x = this.frameToX(currentFrame, left, width, frameCount);
     
     if (x >= left && x <= left + width) {
-      this.ctx.strokeStyle = this.cachedStyles.accentInfo;
-      this.ctx.lineWidth = 2;
-      this.ctx.beginPath();
-      this.ctx.moveTo(x, top);
-      this.ctx.lineTo(x, top + height);
-      this.ctx.stroke();
+      targetCtx.strokeStyle = this.cachedStyles.accentInfo;
+      targetCtx.lineWidth = 2;
+      targetCtx.beginPath();
+      targetCtx.moveTo(x, top);
+      targetCtx.lineTo(x, top + height);
+      targetCtx.stroke();
     }
   }
 
-  drawCurves(left, top, width, height, frameCount, keyframes) {
+  drawCurves(left, top, width, height, frameCount, keyframes, targetCtx = this.ctx) {
+    const hasEeCurves = [...this.curves.values()].some((c) => c.visible && c.type === 'ee_pose');
+    const robotSnap = hasEeCurves ? this.editor.captureRobotRightState?.() : null;
+
     // 计算可见帧范围 (只计算屏幕上实际显示的部分)
     const visibleFrameStart = Math.max(0, this.xToFrame(left, left, width, frameCount));
     const visibleFrameEnd = Math.min(frameCount - 1, this.xToFrame(left + width, left, width, frameCount));
@@ -870,10 +1142,10 @@ export class CurveEditor {
       const step = Math.max(1, Math.floor(visibleFrameCount / 500)); // 最多500个采样点
       
       // 绘制原始轨迹（绿色，较细）
-      this.ctx.strokeStyle = '#4ec9b0';
-      this.ctx.lineWidth = 1;
-      this.ctx.globalAlpha = 0.5;
-      this.ctx.beginPath();
+      targetCtx.strokeStyle = '#4ec9b0';
+      targetCtx.lineWidth = 1;
+      targetCtx.globalAlpha = 0.5;
+      targetCtx.beginPath();
       
       let firstPoint = true;
       for (let frame = visibleFrameStart; frame <= visibleFrameEnd; frame += step) {
@@ -883,21 +1155,21 @@ export class CurveEditor {
           const y = this.valueToY(value, top, height, minValue, maxValue);
           
           if (firstPoint) {
-            this.ctx.moveTo(x, y);
+            targetCtx.moveTo(x, y);
             firstPoint = false;
           } else {
-            this.ctx.lineTo(x, y);
+            targetCtx.lineTo(x, y);
           }
         }
       }
       
-      this.ctx.stroke();
-      this.ctx.globalAlpha = 1;
+      targetCtx.stroke();
+      targetCtx.globalAlpha = 1;
       
       // 绘制编辑后的轨迹（曲线颜色，较粗）
-      this.ctx.strokeStyle = curve.color;
-      this.ctx.lineWidth = 2;
-      this.ctx.beginPath();
+      targetCtx.strokeStyle = curve.color;
+      targetCtx.lineWidth = 2;
+      targetCtx.beginPath();
       
       firstPoint = true;
       for (let frame = visibleFrameStart; frame <= visibleFrameEnd; frame += step) {
@@ -907,15 +1179,15 @@ export class CurveEditor {
           const y = this.valueToY(value, top, height, minValue, maxValue);
           
           if (firstPoint) {
-            this.ctx.moveTo(x, y);
+            targetCtx.moveTo(x, y);
             firstPoint = false;
           } else {
-            this.ctx.lineTo(x, y);
+            targetCtx.lineTo(x, y);
           }
         }
       }
       
-      this.ctx.stroke();
+      targetCtx.stroke();
       
       // 绘制关键帧标记（欧拉角曲线不显示关键帧标记，因为它们只是可视化）
       if (curve.type !== 'base_euler') {
@@ -927,20 +1199,28 @@ export class CurveEditor {
             
             if (x >= left && x <= left + width) {
               // 绘制关键帧点
-              this.ctx.fillStyle = curve.color;
-              this.ctx.beginPath();
-              this.ctx.arc(x, y, 4, 0, Math.PI * 2);
-              this.ctx.fill();
+              targetCtx.fillStyle = curve.color;
+              targetCtx.beginPath();
+              targetCtx.arc(x, y, 4, 0, Math.PI * 2);
+              targetCtx.fill();
               
               // 白色边框
-              this.ctx.strokeStyle = this.cachedStyles.bgSecondary;
-              this.ctx.lineWidth = 2;
-              this.ctx.stroke();
+              targetCtx.strokeStyle = this.cachedStyles.bgSecondary;
+              targetCtx.lineWidth = 2;
+              targetCtx.stroke();
             }
           }
         });
       }
     });
+
+    if (robotSnap && targetCtx === this.ctx) {
+      this.editor.restoreRobotRightState(robotSnap);
+      const frame = this.editor.timelineController?.getCurrentFrame() ?? 0;
+      this.editor.updateRobotState(frame);
+    } else if (robotSnap) {
+      this.editor.restoreRobotRightState(robotSnap);
+    }
   }
 
   drawValueLabels(left, top, height, minValue, maxValue) {
@@ -957,14 +1237,14 @@ export class CurveEditor {
     }
   }
 
-  drawAxes(left, top, width, height) {
-    this.ctx.strokeStyle = this.cachedStyles.borderPrimary;
-    this.ctx.lineWidth = 1;
+  drawAxes(left, top, width, height, targetCtx = this.ctx) {
+    targetCtx.strokeStyle = this.cachedStyles.borderPrimary;
+    targetCtx.lineWidth = 1;
     
     // 绘制四边框
-    this.ctx.beginPath();
-    this.ctx.rect(left, top, width, height);
-    this.ctx.stroke();
+    targetCtx.beginPath();
+    targetCtx.rect(left, top, width, height);
+    targetCtx.stroke();
   }
 
   getKeyframeValue(keyframe, curve) {
@@ -982,7 +1262,8 @@ export class CurveEditor {
       }
       return 0; // 没有残差返回0
     } else if (curve.type === 'base_euler') {
-      // 欧拉角只用于可视化，不能被编辑，返回null使其不可点击
+      return null;
+    } else if (curve.type === 'ee_pose') {
       return null;
     }
     return null;
@@ -1051,6 +1332,15 @@ export class CurveEditor {
       // 将四元数转换为欧拉角 (ZYX顺序，单位为度)
       const euler = this.quaternionToEuler(quat);
       return euler[curve.axis];
+
+    } else if (curve.type === 'ee_pose') {
+      const robot = this.editor.robotRight;
+      if (!robot || !curve.linkName) return null;
+      if (!applyFrameStateToRobot(this.editor, robot, frame, includeResiduals)) {
+        return null;
+      }
+      const pose = sampleEndEffectorPose(robot, curve.linkName);
+      return pose ? pose[curve.component] : null;
     }
     
     return null;
@@ -1139,6 +1429,9 @@ export class CurveEditor {
       return { minValue: -1, maxValue: 1 };
     }
 
+    const hasEeCurves = [...this.curves.values()].some((c) => c.visible && c.type === 'ee_pose');
+    const robotSnap = hasEeCurves ? this.editor.captureRobotRightState?.() : null;
+
     const keyframes = this.editor.trajectoryManager.getKeyframes();
     const frameCount = this.editor.trajectoryManager.getFrameCount();
     
@@ -1186,6 +1479,12 @@ export class CurveEditor {
     minValue -= margin;
     maxValue += margin;
     
+    if (robotSnap) {
+      this.editor.restoreRobotRightState(robotSnap);
+      const frame = this.editor.timelineController?.getCurrentFrame() ?? 0;
+      this.editor.updateRobotState(frame);
+    }
+
     // Y轴始终自适应，不应用缩放变换
     return { minValue, maxValue };
   }
@@ -1244,7 +1543,8 @@ export class CurveEditor {
       const offsetDeltaX = deltaX / plotWidth / this.viewTransform.scaleX;
       
       this.viewTransform.offsetX = this.panStartOffsetX + offsetDeltaX;
-      this.draw();
+      this._scheduleViewRedraw();
+      this.editor.timelineCurveViewSync?.syncFromCurveDebounced();
       return;
     }
     
@@ -1258,7 +1558,7 @@ export class CurveEditor {
     if (this.draggingPoint) {
       // 拖动关键帧点
       this.updatePointValue(this.draggingPoint, y);
-      this.draw();
+      this._scheduleDataRedraw();
     } else {
       // 检查悬停
       const point = this.findPointAt(x, y);
@@ -1308,7 +1608,8 @@ export class CurveEditor {
       this.boxSelectStart = null;
       this.boxSelectEnd = null;
       this.canvas.style.cursor = 'default';
-      this.draw();
+      this._scheduleViewRedraw();
+      this.editor.timelineCurveViewSync?.syncFromCurve();
       return;
     }
     
@@ -1318,6 +1619,7 @@ export class CurveEditor {
       this.panStart = null;
       this.panStartOffsetX = 0;
       this.canvas.style.cursor = 'default';
+      this.editor.timelineCurveViewSync?.syncFromCurve();
       return;
     }
     
@@ -1485,7 +1787,8 @@ export class CurveEditor {
         this.viewTransform.scaleX = clampedScale;
       }
       
-      this.draw();
+      this._scheduleViewRedraw();
+      this.editor.timelineCurveViewSync?.syncFromCurve();
     }
   }
 
@@ -1517,8 +1820,6 @@ export class CurveEditor {
 
   // 重置视图变换
   resetView() {
-    this.viewTransform.offsetX = 0;
-    this.viewTransform.scaleX = 1;
-    this.draw();
+    this.editor.timelineCurveViewSync?.resetBoth();
   }
 }

@@ -141,9 +141,6 @@ export class CookieManager {
         cameraMode: editor.cameraMode,
         followRobot: editor.followRobot,
         showCOM: editor.showCOM,
-        autoRefreshFootprint: editor.autoRefreshFootprint,
-        footprintHeightThresholdCm: editor.footprintHeightThresholdCm,
-        
         // 曲线编辑器状态
         curveEditorExpanded: editor.curveEditor ? editor.curveEditor.isExpanded : false,
         visibleCurves: editor.curveEditor ? Array.from(editor.curveEditor.curves.entries())
@@ -453,14 +450,15 @@ console.log('  🔧 开始加载 URDF...');
             editor.urdfLoader.loadFromMap(fileMap, (robot) => {
               console.log('  🤖 右侧机器人已创建');
               editor.robotRight = robot;
-              editor.sceneRight.add(editor.robotRight);
               editor.robot = robot;
+              editor.viewportManager?.applyEditedRenderOrder(editor.robotRight);
               
               // 创建左侧机器人副本
               editor.urdfLoader.loadFromMap(new Map(fileMap), async (leftRobot) => {
                 console.log('  🤖 左侧机器人已创建');
                 editor.robotLeft = leftRobot;
-                editor.sceneLeft.add(editor.robotLeft);
+                editor.viewportManager?.applyGhostMaterialWhenReady(editor.robotLeft);
+                editor.viewportManager?.attachRobots();
                 
                 // 初始化控制器
                 const joints = editor.urdfLoader.getJoints();
@@ -469,6 +467,7 @@ console.log('  🔧 开始加载 URDF...');
                 const { BaseController } = await import('./baseController.js');
                 editor.jointController = new JointController(joints, editor);
                 editor.baseController = new BaseController(editor);
+                editor.notifyUrdfReady?.();
                 
                 resolve();
               });
@@ -568,18 +567,6 @@ console.log('  🔧 开始加载 URDF...');
         editor.toggleCOM();
       }
       
-      if (typeof state.autoRefreshFootprint === 'boolean' && state.autoRefreshFootprint !== editor.autoRefreshFootprint) {
-        editor.toggleAutoRefreshFootprint();
-      }
-      
-      if (typeof state.footprintHeightThresholdCm === 'number') {
-        editor.footprintHeightThresholdCm = state.footprintHeightThresholdCm;
-        const input = document.getElementById('footprint-height-threshold');
-        if (input) {
-          input.value = state.footprintHeightThresholdCm;
-        }
-      }
-
       // 恢复曲线编辑器状态
       if (editor.curveEditor) {
         if (typeof state.curveEditorExpanded === 'boolean' && state.curveEditorExpanded !== editor.curveEditor.isExpanded) {
@@ -608,7 +595,7 @@ console.log('  🔧 开始加载 URDF...');
             editor.baseController.updateCurveBackgrounds();
           }
           
-          editor.curveEditor.draw();
+          editor.curveEditor.invalidateAndDraw();
         }
       }
 

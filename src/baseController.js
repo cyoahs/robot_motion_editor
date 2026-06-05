@@ -380,7 +380,7 @@ export class BaseController {
     }
   }
 
-  applyBaseTransform() {
+  applyBaseTransform({ skipAutoKeyframe = false } = {}) {
     if (!this.editor.robot) return;
     
     const robot = this.editor.robot;
@@ -393,12 +393,11 @@ export class BaseController {
     // 更新COM显示
     if (this.editor.showCOM && this.editor.comVisualizerRight && this.editor.robotRight) {
       this.editor.comVisualizerRight.update(this.editor.robotRight);
-      // 触发包络线防抖更新
-      this.editor.scheduleFootprintUpdate();
     }
     
-    // 如果当前帧是关键帧，自动更新
-    this.autoUpdateKeyframe();
+    if (!skipAutoKeyframe) {
+      this.autoUpdateKeyframe();
+    }
   }
 
   autoUpdateKeyframe() {
@@ -429,7 +428,7 @@ export class BaseController {
     }
   }
 
-  updateBase(position, quaternion) {
+  updateBase(position, quaternion, { silent = false } = {}) {
     this.baseValues.position = { ...position };
     this.baseValues.quaternion = { ...quaternion };
     
@@ -462,7 +461,7 @@ export class BaseController {
       }
     });
     
-    this.applyBaseTransform();
+    this.applyBaseTransform({ skipAutoKeyframe: silent });
   }
 
   getCurrentBaseValues() {

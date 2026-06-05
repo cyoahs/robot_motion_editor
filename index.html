@@ -4,7 +4,39 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>机器人关键帧编辑器</title>
+  <script>
+    (function () {
+      var t = localStorage.getItem('theme');
+      if (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+        t = 'light';
+      }
+      document.documentElement.setAttribute('data-theme', t || 'dark');
+    })();
+  </script>
   <style>
+    /* 默认深色变量（JS 未加载前也有效） */
+    :root {
+      --bg-primary: #1e1e1e;
+      --bg-secondary: #252526;
+      --bg-tertiary: #2d2d30;
+      --bg-input: #3c3c3c;
+      --border-primary: #3e3e42;
+      --border-secondary: #4e4e52;
+      --text-primary: #d4d4d4;
+      --text-secondary: #cccccc;
+      --text-tertiary: #858585;
+      --accent-primary: #0e639c;
+      --accent-hover: #1177bb;
+      --accent-info: #007acc;
+      --success-color: #4ec9b0;
+      --warning-color: #f48771;
+      --overlay-bg: rgba(0, 0, 0, 0.4);
+      --overlay-text: #ffffff;
+      --slider-track: #3c3c3c;
+      --slider-fill: #007acc;
+      --slider-thumb: #007acc;
+    }
+
     /* 浅色模式 */
     :root[data-theme="light"] {
       --bg-primary: #ffffff;
@@ -69,6 +101,29 @@
       display: flex;
       flex-direction: column;
       height: 100vh;
+      position: relative;
+    }
+
+    .file-drop-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 2000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--overlay-bg);
+      border: 3px dashed var(--accent-info);
+      border-radius: 8px;
+      margin: 8px;
+      pointer-events: none;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--overlay-text);
+      backdrop-filter: blur(4px);
+    }
+
+    .file-drop-overlay[hidden] {
+      display: none !important;
     }
 
     .toolbar {
@@ -176,6 +231,7 @@
     .main-content {
       display: flex;
       flex: 1;
+      min-height: 0;
       overflow: hidden;
     }
 
@@ -183,16 +239,496 @@
       flex: 1;
       position: relative;
       min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+      background: var(--bg-primary);
+    }
+
+    #viewport canvas {
+      display: block;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    .viewport-toolbar {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      z-index: 150;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      pointer-events: none;
+      max-width: calc(100% - 20px);
+    }
+
+    .viewport-toolbar-row {
+      --viewport-toolbar-chip-h: 32px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      pointer-events: auto;
+      width: 100%;
+      min-height: var(--viewport-toolbar-chip-h);
+    }
+
+    .viewport-toolbar-pin {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 0;
+      background: transparent;
+      border: none;
+      backdrop-filter: none;
+      flex: 1;
+      min-width: 0;
+      min-height: var(--viewport-toolbar-chip-h);
+    }
+
+    .viewport-toolbar-pin:empty {
+      display: none;
+    }
+
+    .viewport-pin-item {
+      display: inline-flex;
+      align-items: center;
+      flex-shrink: 0;
+      height: var(--viewport-toolbar-chip-h);
+    }
+
+    .viewport-pin-block,
+    .viewport-toolbar-mirror.viewport-pin-block {
+      display: inline-flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      min-height: var(--viewport-toolbar-chip-h);
+      height: var(--viewport-toolbar-chip-h);
+      padding: 0 10px;
+      box-sizing: border-box;
+      background: var(--overlay-bg);
+      border: 1px solid var(--border-primary);
+      border-radius: 4px;
+      backdrop-filter: blur(5px);
+    }
+
+    .viewport-toolbar-mirror.viewport-pin-block {
+      background: var(--bg-secondary);
+    }
+
+    .viewport-pin-block button,
+    .viewport-toolbar-mirror button {
+      min-height: 24px;
+      padding: 4px 10px;
+      font-size: 11px;
+      box-sizing: border-box;
+    }
+
+    .viewport-pin-block-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      white-space: nowrap;
+      font-size: 11px;
+      color: var(--text-primary);
+    }
+
+    .viewport-toolbar-pin .viewport-pin-block-item,
+    .viewport-toolbar-mirror .viewport-pin-block-item {
+      color: var(--overlay-text);
+    }
+
+    .viewport-ghost-swatch,
+    .viewport-edited-swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      border: 1px solid var(--border-primary);
+      flex-shrink: 0;
+    }
+
+    .viewport-ghost-swatch {
+      background: #6a9955;
+    }
+
+    .viewport-edited-swatch {
+      background: #ffffff;
+    }
+
+    .viewport-toolbar-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: var(--viewport-toolbar-chip-h);
+      min-height: var(--viewport-toolbar-chip-h);
+      padding: 0 12px;
+      box-sizing: border-box;
+      background: var(--overlay-bg);
+      color: var(--overlay-text);
+      border: 1px solid var(--border-primary);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      line-height: 1;
+      backdrop-filter: blur(5px);
+      white-space: nowrap;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 2;
+    }
+
+    .viewport-toolbar-toggle:hover {
+      border-color: var(--accent-primary);
+    }
+
+    .viewport-toolbar-panel {
+      display: none;
+      width: 100%;
+      max-width: min(520px, calc(100vw - 360px));
+      max-height: min(70vh, 480px);
+      overflow-y: auto;
+      padding: 10px 12px;
+      background: var(--overlay-bg);
+      border: 1px solid var(--border-primary);
+      border-radius: 6px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      font-size: 11px;
+      color: var(--text-primary);
+      pointer-events: auto;
+    }
+
+    .viewport-toolbar-panel.is-open {
+      display: block;
+    }
+
+    .viewport-toolbar-panel.is-floating {
+      position: fixed;
+      z-index: 200;
+      margin: 0;
+      width: min(520px, calc(100vw - 24px));
+    }
+
+    .viewport-toolbar-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border-primary);
+      font-weight: 600;
+      cursor: move;
+      user-select: none;
+    }
+
+    .viewport-toolbar-panel-header .viewport-toolbar-panel-close {
+      cursor: pointer;
+    }
+
+    .viewport-toolbar-mirror {
+      pointer-events: auto;
+    }
+
+    .viewport-toolbar-panel-close {
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 4px;
+    }
+
+    .viewport-toolbar-section {
+      margin-bottom: 10px;
+    }
+
+    .viewport-toolbar-section-title {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--text-secondary);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .viewport-toolbar-section-body {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .viewport-tool-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-primary);
+      border-radius: 4px;
+    }
+
+    .viewport-pin-settings {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed var(--border-primary);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 12px;
+    }
+
+    .viewport-pin-settings-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 500;
+      margin-right: 2px;
+    }
+
+    .viewport-pin-icon {
+      font-size: 12px;
+      line-height: 1;
+    }
+
+    .viewport-pin-options {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 12px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .viewport-pin-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .playback-rate-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .playback-rate-wrap select {
+      min-height: 28px;
+      padding: 4px 6px;
+      font-size: 12px;
+      border: 1px solid var(--border-primary);
+      border-radius: 3px;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      box-sizing: border-box;
+    }
+
+    .fps-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .fps-wrap input[type="number"] {
+      width: 52px;
+      min-height: 28px;
+      padding: 4px 6px;
+      font-size: 12px;
+      border: 1px solid var(--border-primary);
+      border-radius: 3px;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      box-sizing: border-box;
+    }
+
+    .fps-wrap input[type="number"]:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
 
     #sidebar {
       width: 300px;
+      min-width: 300px;
+      flex-shrink: 0;
+      min-height: 0;
       background: var(--bg-secondary);
       border-left: 1px solid var(--border-primary);
-      padding: 10px;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
       transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+
+    #sidebar-scroll {
+      flex: 1;
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+      padding: 10px;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    #sidebar-scroll::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    #sidebar-scroll::-webkit-scrollbar-thumb {
+      background: var(--border-secondary);
+      border-radius: 4px;
+    }
+
+    #sidebar-scroll::-webkit-scrollbar-thumb:hover {
+      background: var(--text-tertiary);
+    }
+
+    /* 脚部控制（侧栏 + 弹窗）默认隐藏 */
+    #foot-panel-section,
+    #foot-identification-modal,
+    #foot-edit-modal {
+      display: none !important;
+    }
+
+    #ik-controls select,
+    #ik-controls button.ik-preset-btn {
+      background: var(--bg-input);
+      color: var(--text-primary);
+      border: 1px solid var(--border-primary);
+      border-radius: 3px;
+    }
+
+    #ik-controls button.ik-preset-btn:hover {
+      background: var(--bg-tertiary);
+    }
+
+    .ik-tuning-details {
+      margin-bottom: 8px;
+      font-size: 11px;
+    }
+
+    .ik-tuning-details > summary {
+      cursor: pointer;
+      padding: 4px 0;
+      color: var(--text-secondary);
+      font-weight: 600;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .ik-tuning-details > summary::before {
+      content: '▶';
+      display: inline-block;
+      font-size: 10px;
+      line-height: 1;
+      color: var(--text-tertiary);
+      transition: transform 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .ik-tuning-details[open] > summary::before {
+      transform: rotate(90deg);
+    }
+
+    .ik-tuning-details > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .ik-tuning-details > summary::marker {
+      content: '';
+    }
+
+    .ik-tuning-body {
+      margin-top: 8px;
+      padding: 10px;
+      background: var(--bg-tertiary);
+      border-radius: 6px;
+      border: 1px solid var(--border-primary);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .ik-tuning-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .ik-tuning-field-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      color: var(--text-secondary);
+      font-size: 10px;
+      line-height: 1.3;
+    }
+
+    .ik-tuning-field-head strong {
+      color: var(--text-primary);
+      font-weight: 600;
+      font-size: 11px;
+    }
+
+    .ik-tuning-val {
+      font-variant-numeric: tabular-nums;
+      color: var(--accent-info);
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+
+    .ik-tuning-field input[type="range"] {
+      width: 100%;
+      height: 4px;
+      margin: 2px 0;
+      accent-color: var(--accent-primary);
+      cursor: pointer;
+    }
+
+    .ik-tuning-field input[type="number"] {
+      width: 100%;
+      padding: 4px 6px;
+      font-size: 11px;
+      border: 1px solid var(--border-primary);
+      border-radius: 3px;
+      background: var(--bg-input);
+      color: var(--text-primary);
+      box-sizing: border-box;
+    }
+
+    .ik-tuning-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 10px;
+    }
+
+    .ik-tuning-hint {
+      margin: 0;
+      color: var(--text-tertiary);
+      font-size: 10px;
+      line-height: 1.4;
     }
 
     .joint-control {
@@ -257,6 +793,23 @@
       background: var(--accent-hover);
     }
 
+    #ik-reset-reference {
+      width: 100%;
+      margin-bottom: 8px;
+      padding: 6px 8px;
+      font-size: 11px;
+      cursor: pointer;
+      background: var(--accent-primary);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      transition: background-color 0.2s ease;
+    }
+
+    #ik-reset-reference:hover {
+      background: var(--accent-hover);
+    }
+
     .joint-control input[type="number"] {
       width: 70px;
       padding: 2px 4px;
@@ -269,18 +822,174 @@
     }
 
     #timeline {
-      height: 120px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 0;
+      height: auto;
       background: var(--bg-secondary);
       border-top: 1px solid var(--border-primary);
-      padding: 10px;
+      padding: 10px 10px 8px;
       transition: background-color 0.3s ease, border-color 0.3s ease;
       flex-shrink: 0;
+      overflow: visible;
+    }
+
+    #keyframe-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    #keyframe-controls button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 28px;
+      box-sizing: border-box;
     }
 
     #keyframe-markers {
       position: relative;
       height: 20px;
-      margin-bottom: 10px;
+      margin-bottom: 5px;
+    }
+
+    #keyframe-markers .keyframe-marker {
+      cursor: grab;
+      user-select: none;
+      touch-action: none;
+    }
+
+    #keyframe-markers .keyframe-marker.is-dragging {
+      cursor: grabbing;
+      z-index: 5;
+      transition: none;
+    }
+
+    .keyframe-context-menu {
+      position: fixed;
+      z-index: 3000;
+      min-width: 200px;
+      padding: 4px 0;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-primary);
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      font-size: 12px;
+    }
+
+    .keyframe-context-menu button {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      width: 100%;
+      padding: 8px 12px;
+      border: none;
+      background: transparent;
+      color: var(--text-primary);
+      text-align: left;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .keyframe-context-menu .keyframe-menu-label {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .keyframe-context-menu .keyframe-menu-shortcut {
+      flex-shrink: 0;
+      font-size: 11px;
+      opacity: 0.55;
+      font-family: ui-monospace, monospace;
+    }
+
+    .keyframe-context-menu button:hover:not(:disabled) {
+      background: var(--bg-tertiary);
+    }
+
+    .keyframe-context-menu button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .keyframe-context-menu button.danger:hover:not(:disabled) {
+      background: rgba(244, 71, 71, 0.15);
+      color: var(--warning-color);
+    }
+
+    #curve-editor-content {
+      position: relative;
+    }
+
+    .curve-legend {
+      position: absolute;
+      top: 8px;
+      right: 10px;
+      z-index: 2;
+      max-width: min(280px, 45%);
+      padding: 6px 10px;
+      background: rgba(30, 30, 30, 0.82);
+      border: 1px solid var(--border-primary);
+      border-radius: 6px;
+      font-size: 11px;
+      line-height: 1.45;
+      color: var(--text-primary);
+      pointer-events: none;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    }
+
+    [data-theme="light"] .curve-legend {
+      background: rgba(255, 255, 255, 0.92);
+    }
+
+    .curve-legend[hidden] {
+      display: none !important;
+    }
+
+    .curve-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 2px 0;
+    }
+
+    .curve-legend-item:first-child {
+      margin-top: 0;
+    }
+
+    .curve-legend-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .curve-legend-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    .curve-legend-swatch.is-base {
+      background: #4ec9b0;
+      opacity: 0.85;
+    }
+
+    .curve-legend-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .curve-legend-hint {
+      margin-top: 4px;
+      padding-top: 4px;
+      border-top: 1px solid var(--border-primary);
+      font-size: 10px;
+      color: var(--text-tertiary);
     }
 
     #timeline-slider {
@@ -292,15 +1001,16 @@
       overflow-y: hidden;
       touch-action: none;
       position: relative;
+      flex-shrink: 0;
     }
     
     #timeline-scrollbar {
       width: 100%;
       height: 12px;
+      flex-shrink: 0;
       background: var(--bg-secondary);
       border-radius: 6px;
       position: relative;
-      margin-top: 5px;
       cursor: pointer;
       transition: background-color 0.3s ease;
     }
@@ -325,11 +1035,18 @@
 
     .timeline-info {
       display: flex;
+      flex-wrap: wrap;
       justify-content: space-between;
+      align-items: center;
+      gap: 6px 12px;
+      flex-shrink: 0;
       font-size: 12px;
-      color: var(--text-tertiary);
+      line-height: 1.4;
+      color: var(--text-secondary);
       transition: color 0.3s ease;
-      padding-bottom: 8px;
+      padding: 4px 0 2px;
+      position: relative;
+      z-index: 2;
     }
     
     /* Toggle Switch 样式 - 大方形按钮 */
@@ -721,6 +1438,7 @@
   </div>
 
   <div id="app">
+    <div id="file-drop-overlay" class="file-drop-overlay" hidden data-i18n="dropHint">拖放 URDF 文件夹或 CSV 轨迹文件到此处</div>
     <div class="toolbar">
       <label for="urdf-folder" data-i18n="loadURDF">
         加载 URDF 文件夹
@@ -778,45 +1496,63 @@
 
     <div class="main-content">
       <div id="viewport" style="position: relative;">
-        <div style="position: absolute; top: 10px; left: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: var(--success-color); pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="baseTrajectory">原始轨迹 (Base)</div>
-        <div style="position: absolute; top: 10px; right: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: var(--warning-color); pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="editedTrajectory">编辑后 (Modified)</div>
-        <div style="position: absolute; top: 50%; left: 50%; width: 2px; height: 100%; background: var(--border-primary); transform: translateX(-50%); pointer-events: none; z-index: 99; transition: background-color 0.3s ease;"></div>
-        
-        <!-- 相机控制按钮 -->
-        <div style="position: absolute; bottom: 10px; left: 10px; z-index: 100; display: flex; gap: 5px;">
-          <button id="toggle-camera-mode" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="rotate">
-            🔄 旋转
-          </button>
-          <button id="reset-camera" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="resetCamera">
-            🔄 重置视角
-          </button>
-          <button id="follow-robot" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="followOff">
-            🤖 跟随: 关
-          </button>
-          <button id="toggle-com" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="comOn">
-            🎯 重心: 开
-          </button>
-          <button id="refresh-footprint" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);">
-            <span data-i18n="refreshFootprint">👣 刷新包络线</span>
-            <input id="footprint-height-threshold" type="number" min="0" step="0.1" value="10" style="width: 48px; padding: 2px 4px; font-size: 11px; border: 1px solid var(--border-primary); border-radius: 3px; background: var(--bg-secondary); color: var(--text-primary);" />
-            <span>cm</span>
-          </button>
-          <button id="toggle-auto-refresh" style="padding: 5px 10px; background: var(--overlay-bg); color: var(--overlay-text); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="autoRefreshOff">
-            ⏱️ 自动刷新: 关
-          </button>
-          <div style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--overlay-bg); border: 1px solid var(--border-primary); border-radius: 4px; backdrop-filter: blur(5px);">
-            <button id="auto-rotate-major" style="padding: 4px 8px; font-size: 11px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 3px; cursor: pointer;" data-i18n="autoRotateMajor">🔄 主轴</button>
-            <input id="rotation-clamp-major" type="number" min="0" step="0.01" value="0.02" style="width: 50px; padding: 2px 4px; font-size: 11px; border: 1px solid var(--border-primary); border-radius: 3px; background: var(--bg-secondary); color: var(--text-primary);" title="主轴旋转角度上限 (弧度)" />
-            <span style="font-size: 11px; color: var(--text-secondary);">rad</span>
+        <div id="viewport-label-left" style="position: absolute; top: 10px; left: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: var(--success-color); pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px); display: none;" data-i18n="baseTrajectory">原始轨迹 (Base)</div>
+        <div id="viewport-label-right" style="position: absolute; top: 10px; right: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: var(--warning-color); pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px); display: none;" data-i18n="editedTrajectory">编辑后 (Modified)</div>
+        <div id="viewport-split-divider" style="position: absolute; top: 50%; left: 50%; width: 2px; height: 100%; background: var(--border-primary); transform: translateX(-50%); pointer-events: none; z-index: 99; transition: background-color 0.3s ease; display: none;"></div>
+        <div id="viewport-toolbar" class="viewport-toolbar">
+          <div class="viewport-toolbar-row">
+            <div id="viewport-toolbar-pin" class="viewport-toolbar-pin" aria-label="Pinned viewport tools"></div>
+            <button type="button" id="viewport-toolbar-toggle" class="viewport-toolbar-toggle" aria-expanded="false" data-i18n="viewportToolbarToggle">⚙ 可视化配置</button>
           </div>
-          <div style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--overlay-bg); border: 1px solid var(--border-primary); border-radius: 4px; backdrop-filter: blur(5px);">
-            <button id="auto-rotate-minor" style="padding: 4px 8px; font-size: 11px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 3px; cursor: pointer;" data-i18n="autoRotateMinor">🔄 次轴</button>
-            <input id="rotation-clamp-minor" type="number" min="0" step="0.01" value="0.02" style="width: 50px; padding: 2px 4px; font-size: 11px; border: 1px solid var(--border-primary); border-radius: 3px; background: var(--bg-secondary); color: var(--text-primary);" title="次轴旋转角度上限 (弧度)" />
-            <span style="font-size: 11px; color: var(--text-secondary);">rad</span>
+          <div id="viewport-toolbar-panel" class="viewport-toolbar-panel">
+            <div class="viewport-toolbar-panel-header" id="viewport-toolbar-panel-header">
+              <span data-i18n="viewportToolbarTitle">可视化配置</span>
+              <button type="button" id="viewport-toolbar-close" class="viewport-toolbar-panel-close" title="Close">×</button>
+            </div>
+            <div class="viewport-toolbar-section" data-section="viewport">
+              <span class="viewport-toolbar-section-title" data-i18n="viewportDisplayMode">显示模式</span>
+              <div id="viewport-tool-block" class="viewport-pin-block">
+                <label class="viewport-pin-block-item">
+                  <input type="radio" name="viewport-mode" id="viewport-mode-overlay" value="overlay" checked />
+                  <span data-i18n="viewportOverlay">同屏叠显</span>
+                </label>
+                <label class="viewport-pin-block-item">
+                  <input type="radio" name="viewport-mode" id="viewport-mode-split" value="split" />
+                  <span data-i18n="viewportSplit">左右分屏</span>
+                </label>
+                <label class="viewport-pin-block-item">
+                  <input type="checkbox" id="show-ghost-model" checked />
+                  <span class="viewport-ghost-swatch" aria-hidden="true"></span>
+                  <span data-i18n="showGhost">参考模型(原始)</span>
+                </label>
+                <label class="viewport-pin-block-item">
+                  <input type="checkbox" id="show-edited-model" checked />
+                  <span class="viewport-edited-swatch" aria-hidden="true"></span>
+                  <span data-i18n="showEdited">编辑后模型</span>
+                </label>
+              </div>
+            </div>
+            <div class="viewport-toolbar-section" data-section="camera">
+              <span class="viewport-toolbar-section-title" data-i18n="viewportSectionCamera">相机与显示</span>
+              <div id="viewport-tool-camera-block" class="viewport-pin-block">
+                <button id="toggle-camera-mode" type="button" style="padding: 5px 10px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="rotate">🔄 旋转</button>
+                <button id="reset-camera" type="button" style="padding: 5px 10px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="resetCamera">🔄 重置视角</button>
+                <button id="follow-robot" type="button" style="padding: 5px 10px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="followOff">🤖 跟随: 关</button>
+                <button id="toggle-com" type="button" style="padding: 5px 10px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; font-size: 11px;" data-i18n="comOn">🎯 重心: 开</button>
+              </div>
+            </div>
+            <div class="viewport-pin-settings" id="viewport-pin-settings">
+              <span class="viewport-pin-settings-label">
+                <span class="viewport-pin-icon" aria-hidden="true">📌</span>
+                <span data-i18n="viewportPinBar">固定</span>
+              </span>
+              <div class="viewport-pin-options" id="viewport-pin-options"></div>
+            </div>
           </div>
         </div>
       </div>
       <div id="sidebar">
+        <div id="sidebar-scroll">
         <!-- 基体控制 -->
         <div style="border-bottom: 1px solid var(--border-primary); margin-bottom: 10px; padding-bottom: 10px; transition: border-color 0.3s ease;">
           <div id="base-control-header" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px; background: var(--bg-tertiary); border-radius: 4px; transition: background-color 0.3s ease;">
@@ -825,8 +1561,8 @@
           <div id="base-controls" style="display: none; margin-top: 10px;"></div>
         </div>
         
-        <!-- 脚部控制 -->
-        <div style="border-bottom: 1px solid var(--border-primary); margin-bottom: 10px; padding-bottom: 10px; transition: border-color 0.3s ease;">
+        <!-- 脚部控制（已隐藏，见 #foot-panel-section） -->
+        <div id="foot-panel-section" style="border-bottom: 1px solid var(--border-primary); margin-bottom: 10px; padding-bottom: 10px; transition: border-color 0.3s ease;">
           <div id="foot-control-header" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px; background: var(--bg-tertiary); border-radius: 4px; transition: background-color 0.3s ease;">
             <h3 style="margin: 0; font-size: 13px;" data-i18n="footControl">▶ 脚部控制 (Feet)</h3>
           </div>
@@ -836,18 +1572,140 @@
             <div id="feet-list" style="max-height: 300px; overflow-y: auto;"></div>
           </div>
         </div>
+
+        <!-- IK 末端编辑 -->
+        <div id="ik-panel-section" style="border-bottom: 1px solid var(--border-primary); margin-bottom: 10px; padding-bottom: 10px; transition: border-color 0.3s ease;">
+          <div id="ik-control-header" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px; background: var(--bg-tertiary); border-radius: 4px;">
+            <h3 style="margin: 0; font-size: 13px;" data-i18n="ikControl">▶ IK末端编辑</h3>
+          </div>
+          <div id="ik-controls" style="display: none; margin-top: 10px; font-size: 12px; color: var(--text-primary);">
+            <p id="ik-load-hint" style="margin: 0 0 8px; color: var(--text-tertiary); font-size: 11px;">请先加载 URDF</p>
+            <div id="ik-controls-body" style="display: none;">
+              <label style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px; cursor: pointer;">
+                <input type="checkbox" id="ik-enable" />
+                <span data-i18n="ikEnable">启用末端拖拽 IK</span>
+              </label>
+              <label style="display: block; margin-bottom: 6px;">
+                <span data-i18n="ikEndLink">末端 Link</span>
+                <select id="ik-end-link" style="width: 100%; margin-top: 4px; padding: 4px; font-size: 12px; background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 3px;"></select>
+              </label>
+              <div id="ik-preset-buttons" style="margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 2px;"></div>
+              <div style="margin-bottom: 8px;">
+                <span data-i18n="ikAdjustMode">调整模式</span>
+                <div style="margin-top: 4px;">
+                  <label style="margin-right: 10px; cursor: pointer;">
+                    <input type="radio" name="ik-goal-mode" value="pose" checked />
+                    <span data-i18n="ikGoalPose">位置+姿态</span>
+                  </label>
+                  <label style="margin-right: 10px; cursor: pointer;">
+                    <input type="radio" name="ik-goal-mode" value="position" />
+                    <span data-i18n="ikGoalPosition">仅位置</span>
+                  </label>
+                  <label style="cursor: pointer;">
+                    <input type="radio" name="ik-goal-mode" value="orientation" />
+                    <span data-i18n="ikGoalOrientation">仅姿态</span>
+                  </label>
+                </div>
+              </div>
+              <button type="button" id="ik-reset-reference" data-i18n="ikResetReference">重置到参考位姿</button>
+              <div style="margin-bottom: 8px; font-size: 11px;">
+                <div style="margin-bottom: 4px;">
+                  <span data-i18n="ikNudgePosition">位置增量</span>
+                  <input type="number" id="ik-pos-step" value="0.01" min="0.001" step="0.001" style="width: 56px; margin-left: 6px; padding: 2px 4px; font-size: 11px;" />
+                  <span>m</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;">
+                  <div style="display: flex; gap: 2px;"><button type="button" class="ik-nudge-btn" data-kind="pos" data-axis="x" data-sign="-1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">X−</button><button type="button" class="ik-nudge-btn" data-kind="pos" data-axis="x" data-sign="1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">X+</button></div>
+                  <div style="display: flex; gap: 2px;"><button type="button" class="ik-nudge-btn" data-kind="pos" data-axis="y" data-sign="-1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">Y−</button><button type="button" class="ik-nudge-btn" data-kind="pos" data-axis="y" data-sign="1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">Y+</button></div>
+                  <div style="display: flex; gap: 2px;"><button type="button" class="ik-nudge-btn" data-kind="pos" data-axis="z" data-sign="-1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">Z−</button><button type="button" class="ik-nudge-btn" data-kind="pos" data-axis="z" data-sign="1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">Z+</button></div>
+                </div>
+              </div>
+              <div style="margin-bottom: 4px; font-size: 11px;">
+                <div style="margin-bottom: 4px;">
+                  <span data-i18n="ikNudgeOrientation">姿态增量</span>
+                  <input type="number" id="ik-rot-step" value="3" min="0.1" step="0.5" style="width: 48px; margin-left: 6px; padding: 2px 4px; font-size: 11px;" />
+                  <span>°</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;">
+                  <div style="display: flex; gap: 2px;"><button type="button" class="ik-nudge-btn" data-kind="rot" data-axis="x" data-sign="-1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">RX−</button><button type="button" class="ik-nudge-btn" data-kind="rot" data-axis="x" data-sign="1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">RX+</button></div>
+                  <div style="display: flex; gap: 2px;"><button type="button" class="ik-nudge-btn" data-kind="rot" data-axis="y" data-sign="-1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">RY−</button><button type="button" class="ik-nudge-btn" data-kind="rot" data-axis="y" data-sign="1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">RY+</button></div>
+                  <div style="display: flex; gap: 2px;"><button type="button" class="ik-nudge-btn" data-kind="rot" data-axis="z" data-sign="-1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">RZ−</button><button type="button" class="ik-nudge-btn" data-kind="rot" data-axis="z" data-sign="1" style="flex:1;padding:3px;font-size:10px;cursor:pointer;">RZ+</button></div>
+                </div>
+              </div>
+              <label style="display: flex; align-items: center; gap: 6px; margin: 8px 0; cursor: pointer; font-size: 11px;">
+                <input type="checkbox" id="ik-show-debug" />
+                <span data-i18n="ikShowDebug">显示 IK 调试日志（控制台）</span>
+              </label>
+              <details id="ik-tuning-details" class="ik-tuning-details">
+                <summary data-i18n="ikTuning">Solver Parameters</summary>
+                <div class="ik-tuning-body">
+                  <div class="ik-tuning-field">
+                    <div class="ik-tuning-field-head">
+                      <strong data-i18n="ikWeightTranslation">Translation weight</strong>
+                      <span class="ik-tuning-val" id="ik-w-pos-trans-val">1.000</span>
+                    </div>
+                    <input type="range" id="ik-w-pos-trans" min="0" max="1" step="0.001" value="1"
+                      aria-label="translationFactor" />
+                  </div>
+                  <div class="ik-tuning-field">
+                    <div class="ik-tuning-field-head">
+                      <strong data-i18n="ikWeightRotation">Rotation weight</strong>
+                      <span class="ik-tuning-val" id="ik-w-pos-rot-val">0.012</span>
+                    </div>
+                    <input type="range" id="ik-w-pos-rot" min="0" max="1" step="0.001" value="0.012"
+                      aria-label="rotationFactor" />
+                  </div>
+                  <div class="ik-tuning-grid">
+                    <label class="ik-tuning-field">
+                      <div class="ik-tuning-field-head">
+                        <strong data-i18n="ikMaxIter">Max iterations</strong>
+                      </div>
+                      <input type="number" id="ik-w-pos-iter" value="32" min="1" step="1" />
+                    </label>
+                    <label class="ik-tuning-field">
+                      <div class="ik-tuning-field-head">
+                        <strong data-i18n="ikDamping">Damping</strong>
+                      </div>
+                      <input type="number" id="ik-w-pos-damp" value="0.012" min="0.0001" max="0.2" step="0.001" />
+                    </label>
+                    <label class="ik-tuning-field">
+                      <div class="ik-tuning-field-head">
+                        <strong data-i18n="ikClamp">Step clamp (m)</strong>
+                      </div>
+                      <input type="number" id="ik-w-pos-clamp" value="0.02" min="0.001" max="0.2" step="0.001" />
+                    </label>
+                    <label class="ik-tuning-field">
+                      <div class="ik-tuning-field-head">
+                        <strong data-i18n="ikDiverge">Diverge threshold</strong>
+                      </div>
+                      <input type="number" id="ik-w-pos-diverge" value="0.02" min="0.001" max="0.5" step="0.001" />
+                    </label>
+                    <label class="ik-tuning-field" style="grid-column: 1 / -1;">
+                      <div class="ik-tuning-field-head">
+                        <strong data-i18n="ikPosTol">Position tolerance (m)</strong>
+                      </div>
+                      <input type="number" id="ik-w-pos-tol" value="0.004" min="0.0005" max="0.05" step="0.0005" />
+                    </label>
+                  </div>
+                  <p class="ik-tuning-hint" data-i18n="ikTuningHint">One IK solve per drag frame; shared by position and orientation edits.</p>
+                </div>
+              </details>
+            </div>
+          </div>
+        </div>
         
         <!-- 关节控制 -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 5px; background: var(--bg-tertiary); border-radius: 4px; transition: background-color 0.3s ease;">
           <h3 style="margin: 0; color: var(--text-primary); transition: color 0.3s ease;" data-i18n="jointControl">关节控制</h3>
           <button id="reset-joints" style="padding: 4px 12px; font-size: 12px; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer; transition: background-color 0.2s ease;" data-i18n="reset">重置</button>
         </div>
-        <div id="joint-controls" style="overflow-y: auto; flex: 1;"></div>
+        <div id="joint-controls"></div>
+        </div>
       </div>
     </div>
 
     <div id="timeline">
-      <div id="keyframe-controls" style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
+      <div id="keyframe-controls">
         <button id="add-keyframe" style="padding: 4px 12px; font-size: 12px;" data-i18n="addKeyframe">添加关键帧</button>
         <button id="delete-keyframe" style="padding: 4px 12px; font-size: 12px; display: none;" data-i18n="deleteKeyframe">删除关键帧</button>
         <button id="smooth-keyframes" style="padding: 4px 12px; font-size: 12px; display: none; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer;" data-i18n="smoothKeyframes">✨ 平滑</button>
@@ -856,9 +1714,26 @@
         <button id="timeline-zoom-reset" style="padding: 4px 12px; font-size: 12px;" data-i18n-title="zoomResetTitle" data-i18n="zoomReset">1:1</button>
         <button id="timeline-zoom-in" style="padding: 4px 12px; font-size: 12px;" data-i18n-title="zoomInTitle" data-i18n="zoomIn">🔍+</button>
         <button id="play-pause" style="padding: 4px 16px; font-size: 12px;" data-i18n="play">▶ 播放</button>
-        <span id="fps-display" style="font-size: 12px; color: #858585;"><span data-i18n="fps">FPS</span>: 50</span>
+        <label class="playback-rate-wrap" for="playback-rate">
+          <span data-i18n="playbackRate">倍率</span>
+          <select id="playback-rate" aria-label="Playback speed">
+            <option value="0.1">0.1×</option>
+            <option value="0.25">0.25×</option>
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="1.5">1.5×</option>
+            <option value="2">2×</option>
+            <option value="3">3×</option>
+          </select>
+        </label>
+        <label class="fps-wrap" for="project-fps">
+          <span data-i18n="fps">FPS</span>
+          <input type="number" id="project-fps" min="1" max="240" step="1" value="50" disabled
+            data-i18n-title="fpsInputTitle" title="轨迹帧率（导入后可在时间轴修改）">
+        </label>
       </div>
-      <div id="timeline-viewport" style="position: relative; overflow-x: hidden; overflow-y: hidden; width: 100%; margin-bottom: 5px;">
+      <div id="timeline-viewport" style="position: relative; overflow-x: hidden; overflow-y: hidden; width: 100%;"
+        data-i18n-title="timelineWheelZoom" title="滚轮缩放时间轴（最小 1× 显示整段轨迹），Shift+滚轮或横向滚轮平移">
         <div id="timeline-content" style="position: relative; width: 100%; min-width: 100%;">
           <div id="keyframe-markers" style="position: relative; height: 20px; margin-bottom: 5px;"></div>
           <input type="range" id="timeline-slider" min="0" max="100" value="0" style="width: 100%; margin: 0;">
@@ -896,6 +1771,7 @@
         <button id="curve-reset-view" style="padding: 4px 12px; font-size: 11px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 3px; cursor: pointer; transition: all 0.2s;" data-i18n="resetView">重置缩放</button>
       </div>
       <div id="curve-editor-content" style="display: none;">
+        <div id="curve-legend" class="curve-legend" hidden></div>
         <canvas id="curve-canvas" style="width: 100%; height: 200px; cursor: default; transition: background 0.3s ease;"></canvas>
       </div>
     </div>
@@ -903,7 +1779,7 @@
 
   <!-- 使用说明弹窗 -->
   <div id="help-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center;">
-    <div style="background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 8px; padding: 20px; max-width: 700px; max-height: 80vh; width: 90%; overflow-y: auto; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); transition: background-color 0.3s ease, border-color 0.3s ease;">
+    <div style="background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 8px; padding: 20px; max-width: 760px; max-height: 80vh; width: 90%; overflow-y: auto; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); transition: background-color 0.3s ease, border-color 0.3s ease;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
         <h3 style="margin: 0; color: var(--text-secondary); font-size: 17px; transition: color 0.3s ease;" data-i18n="userGuide">📖 使用说明</h3>
         <button id="close-help-modal" style="background: none; border: none; color: var(--text-tertiary); font-size: 20px; cursor: pointer; padding: 0; width: 24px; height: 24px; transition: color 0.3s ease;">×</button>
@@ -914,33 +1790,76 @@
         <div style="margin-bottom: 20px;">
           <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="basicWorkflow">基本流程</h4>
           <ol style="margin: 0; padding-left: 20px; color: var(--text-primary);">
-            <li style="margin-bottom: 8px;" data-i18n="helpStep1">加载 URDF：选择包含 URDF 和 mesh 文件的文件夹</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpStep2">加载轨迹：加载 CSV 文件（前 7 列为 base xyz + 四元数 xyzw，后续为关节角度）</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpStep3">编辑关键帧：点击自由度名称显示曲线，调整参数后添加关键帧（Shift+点击多选曲线）</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpStep4">保存工程：保存完整的编辑状态（支持加载恢复）</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpStep5">导出轨迹：导出融合后的 CSV 轨迹</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpStep1">加载 URDF：将机器人文件夹拖到页面，或点击「加载 URDF 文件夹」</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpStep2">加载轨迹：拖入 .csv 或点击加载；支持 unitree / seed 格式</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpStep3">编辑：侧栏调整关节/基座，或启用 IK末端编辑 拖拽末端；点击关节名可预览曲线</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpStep4">关键帧：工具栏添加；当前帧已有关键帧时，修改会自动写入该帧</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpStep5">保存工程 / 导出融合后的 CSV 轨迹</li>
           </ol>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="helpImportTitle">拖入导入</h4>
+          <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
+            <li style="margin-bottom: 8px;" data-i18n="helpImport1">URDF：整包文件夹（含 .urdf 与 meshes）拖入浏览器即可</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpImport2">CSV：可单独拖入；同一文件夹内 URDF 与 CSV 会分别识别</li>
+          </ul>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="helpIkTitle">IK 末端编辑</h4>
+          <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
+            <li style="margin-bottom: 8px;" data-i18n="helpIk1">展开侧栏「IK末端编辑」，选择末端 Link 并启用拖拽 IK</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpIk2">在 3D 视口拖动手柄调整位置/姿态，松手后写入当前帧关键帧</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpIk3">面板内可调位置/姿态权重与求解参数；播放时手柄自动隐藏</li>
+          </ul>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="helpKeyframeTitle">关键帧</h4>
+          <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
+            <li style="margin-bottom: 8px;" data-i18n="helpKeyframe1">拖动时间轴上的关键帧竖条可改帧号（保留编辑内容）</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpKeyframe2">右键菜单：复制 / 粘贴到帧 / 删除（菜单内显示快捷键）</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpKeyframe3">Ctrl+C 复制，Ctrl+V 粘贴到播放头，Delete 或 Backspace 删除</li>
+          </ul>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="helpCurveTitle">曲线面板</h4>
+          <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
+            <li style="margin-bottom: 8px;" data-i18n="helpCurve1">点击关节名称显示该关节曲线（无需先有关键帧）</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpCurve2">右上角图例显示当前关节；Shift+点击可多选曲线</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpCurve3">滚轮缩放、Shift+拖拽平移；与时间轴 X 轴视图双向同步</li>
+          </ul>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="helpViewportTitle">视口与可视化</h4>
+          <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
+            <li style="margin-bottom: 8px;" data-i18n="helpViewport1">视口右上角 ⚙：Ghost 参考模型、同屏叠显/左右分屏、播放倍率等</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpViewport2">叠显模式下原始轨迹以半透明 Ghost 与编辑模型同屏显示</li>
+          </ul>
         </div>
 
         <!-- 核心功能 -->
         <div style="margin-bottom: 20px;">
           <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="coreFeatures">核心功能</h4>
           <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
-            <li style="margin-bottom: 8px;" data-i18n="helpFeature1">双视口对比：左侧显示原始轨迹，右侧显示编辑结果，相机同步</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpFeature2">曲线编辑器：可视化关节和基体随时间的变化曲线，支持贝塞尔插值</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpFeature3">动力学可视化：实时显示重心位置和支撑多边形投影</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpFeature4">工程保存/加载：保存完整工程状态（URDF、轨迹、关键帧、编辑历史）</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature1">残差关键帧：在 CSV 基线上叠加编辑，支持线性 / 贝塞尔插值</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature2">双视口 / 叠显：参考轨迹与编辑结果对比，相机可同步</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature3">曲线按需绘制，避免一次显示全部关节造成卡顿</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpFeature4">工程保存/加载、自动保存；重心与支撑多边形可视化</li>
           </ul>
         </div>
 
         <!-- 快捷功能 -->
         <div style="margin-bottom: 20px;">
-          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="quickFeatures">快捷功能</h4>
+          <h4 style="color: var(--text-secondary); font-size: 15px; margin-bottom: 10px; transition: color 0.3s ease;" data-i18n="quickFeatures">快捷键与其它</h4>
           <ul style="margin: 0; padding-left: 20px; color: var(--text-primary);">
-            <li style="margin-bottom: 8px;" data-i18n="helpQuick1">平移对齐：基座控制中的"平移对齐"按钮可自动调整XYZ，使编辑后机器人的最低点与原始轨迹对齐</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpQuick2">坐标轴指示器：右下角的3D轴指示器，点击X/Y/Z轴可快速切换到对应的正交视角</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpQuick3">相机跟随：开启跟随模式后，相机会自动跟随机器人移动</li>
-            <li style="margin-bottom: 8px;" data-i18n="helpQuick4">重心显示：实时显示机器人重心位置和地面投影包络线</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick1">空格：播放/暂停；← / →：上一帧 / 下一帧</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick2">时间轴滚轮缩放；Shift+滚轮横向平移</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick3">坐标轴指示器：点击 X/Y/Z 切换正交视角</li>
+            <li style="margin-bottom: 8px;" data-i18n="helpQuick4">基座「平移对齐」：使编辑模型最低点与原始轨迹对齐</li>
           </ul>
         </div>
 
@@ -1037,7 +1956,7 @@
         </div>
         
         <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-primary); transition: border-color 0.3s ease;">
-          <a id="github-link" href="https://github.com/cyoahs/robot_motion_editor" target="_blank" style="color: var(--success-color); text-decoration: none; display: flex; align-items: center; gap: 5px; font-size: 14px; transition: color 0.3s ease;">
+          <a id="github-link" href="https://github.com/cyoahs/robot_motion_editor" target="_blank" rel="noopener noreferrer" style="color: var(--success-color); text-decoration: none; display: flex; align-items: center; gap: 5px; font-size: 14px; transition: color 0.3s ease;">
             <span>📦</span>
             <span data-i18n="viewOnGitHub">在 GitHub 上查看源代码</span>
             <span style="font-size: 11px;">↗</span>

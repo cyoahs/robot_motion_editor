@@ -1,107 +1,163 @@
 # 机器人关键帧编辑器
 
-基于 Web 的机器人运动编辑工具，支持 URDF 加载、CSV 轨迹编辑、双视口对比和工程文件管理。
+基于 Web 的机器人运动轨迹编辑工具，支持 URDF 模型加载、CSV 轨迹编辑、双视口对比、逆运动学（IK）末端编辑与工程状态管理。
 
-**Other language:** [English](README.en.md)
+**English:** [README.en.md](README.en.md)
 
-## 🌐 在线体验
+## 在线体验
 
 [motion-editor.cyoahs.dev](https://motion-editor.cyoahs.dev) | 托管于 Cloudflare Pages
 
-## 🔒 隐私安全
+## 功能演示
 
-✅ **完全本地运行** — 所有数据处理在浏览器完成，无服务器上传
+以下演示基于典型编辑流程录制，可在 README 与 GitHub 页面中直接预览。
 
-## ✨ 核心特性
+### IK 末端编辑
 
-- **双视口对比**: 左侧显示原始轨迹，右侧显示编辑结果，相机同步
-- **轨迹编辑**: 基于残差的关键帧系统，支持关节和基体编辑
-- **工程保存/加载**: 保存完整工程状态（URDF、轨迹、关键帧、编辑历史）
-- **自动保存**: Cookie + IndexedDB 混合存储，自动保存工作状态
-- **曲线编辑器**: 可视化关节和基体随时间的变化曲线，支持贝塞尔插值
-- **动力学可视化**: 实时显示重心位置和支撑多边形投影
-- **坐标轴指示器**: 右下角3D指示器，点击快速切换正交视角
-- **URDF 解析**: 自动加载文件夹中的 URDF 和 mesh 文件
-- **多语言支持**: 中文/英文界面切换
+在三维视口中拖拽末端执行器，调整位姿并将编辑结果写入当前帧关键帧；支持求解参数在线配置。
 
-## 💾 自动保存机制
+![IK 末端编辑演示](docs/assets/demo/end-effector-ik-edit.gif)
 
-应用采用智能分层存储策略：
+### 关节编辑
 
-- **localStorage (5MB)**: 存储轨迹、关键帧、UI状态和小型配置文件（<50KB）
-- **IndexedDB (50MB+)**: 存储大型 mesh 文件（如 .stl, .dae）
-- **自动增量保存**: 仅在 URDF 变化时完整保存，否则仅保存轨迹和关键帧
-- **授权管理**: 启用/禁用自动保存时同步清理所有存储
+通过侧栏关节控制与曲线面板，对轨迹进行关节空间编辑与关键帧管理。
 
-启用自动保存后，刷新页面将自动恢复上次编辑状态。
+![关节编辑演示](docs/assets/demo/joint-edit.gif)
+
+### 视口与可视化设置
+
+配置 Ghost 参考模型、同屏叠显/左右分屏、播放倍率等可视化选项。
+
+![视口设置演示](docs/assets/demo/viewport-settings.gif)
+
+## 隐私与安全
+
+所有数据处理均在浏览器本地完成，不上传至服务器。
+
+## 主要功能
+
+### 轨迹与关键帧
+
+- 基于 CSV 基线轨迹的残差关键帧编辑，支持线性与贝塞尔插值
+- 关键帧复制、粘贴、删除与拖动改帧（保留绝对编辑内容）
+- 快捷键：`Ctrl+C` / `Ctrl+V`、`Delete` / `Backspace`（右键菜单同步提示）
+
+### 数据导入
+
+- 支持将 URDF 资源目录或 CSV 轨迹文件拖入页面加载
+- 自动解析子目录中的 mesh，兼容 `package://` 路径引用
+- 支持 unitree 与 seed 两种 CSV 格式（自动单位转换）
+
+### 三维视口
+
+- 参考轨迹 Ghost 叠显或左右分屏对比，可选相机同步
+- 视口工具栏：Ghost 显隐、透明度、播放倍率、布局切换
+- 坐标轴指示器快速切换正交视角
+
+### IK 末端编辑
+
+- 基于 [closed-chain-ik](https://www.npmjs.com/package/closed-chain-ik) 的末端位姿拖拽求解
+- 位置与姿态统一权重配置，参考四元数增量编辑
+- 可选求解日志与运动学校验（见 `tests/`）
+
+### 曲线与时间轴
+
+- 按关节名称按需显示曲线；曲线面板图例标识当前编辑对象
+- 时间轴滚轮缩放与平移；曲线与时间轴 X 轴视图双向同步
+- 工程 FPS 可在线修改
+
+### 其它
+
+- 工程保存/加载与自动保存（Cookie + IndexedDB）
+- 重心与支撑多边形可视化
+- 中英文界面
+
+## 更新记录
+
+以下功能由贡献者 **fandes**（[@fandesfyf](https://github.com/fandesfyf)）开发并提交。
+
+| 日期 | 内容 |
+|------|------|
+| 2026-05-30 | IK 末端编辑与 `closed-chain-ik` 集成；视口叠显/分屏与 Ghost 模型；URDF/CSV 拖入导入 |
+| 2026-05-31 | IK 双 Gizmo 与位置优先求解策略 |
+| 2026-06-01 | 视口配置工具栏、播放倍率、时间轴缩放与可编辑 FPS |
+| 2026-06-03 | IK 求解器重构与调参面板；关键帧剪贴板与快捷键；曲线按需绘制与图例；时间轴与曲线视图同步 |
+
+### 新增与增强功能
+
+| 类别 | 说明 |
+|------|------|
+| IK 末端编辑 | 三维手柄拖拽、关键帧自动写入、权重与迭代参数配置 |
+| 视口 | Ghost 参考轨迹、叠显/分屏、可视化工具栏 |
+| 数据导入 | URDF 目录与 CSV 拖放加载 |
+| 关键帧 | 复制/粘贴/删除、拖动改帧、绝对位姿语义 |
+| 时间轴 | 缩放、平移、与曲线面板联动 |
+| 曲线 | 按关节显示、图例、性能优化 |
+
+## 自动保存
+
+- **localStorage**：轨迹、关键帧与界面状态
+- **IndexedDB**：大型 mesh 资源
+- URDF 未变更时仅增量保存轨迹与关键帧
 
 ## 快速开始
 
+**环境要求：** Node.js 18+（推荐 20+），支持 WebGL 的现代浏览器。
+
 ```bash
-npm install           # 安装依赖
-npm run dev           # 启动开发服务器
-npm run build         # 生产构建
+npm install
+npm run dev          # http://localhost:3000
+npm run build
+npm run preview
+npm run test:ik-fk   # 见 DEVELOPMENT.md
 ```
 
-## 使用说明
+- 开发说明：[DEVELOPMENT.md](DEVELOPMENT.md)
+- 使用手册：[USAGE.md](USAGE.md)
+- 视口与 IK 设计：[docs/REQUIREMENTS-viewport-ik.md](docs/REQUIREMENTS-viewport-ik.md)
 
-### 基本流程
+## 使用概要
 
-1. **加载 URDF**: 选择包含 URDF 和 mesh 文件的文件夹
-2. **加载轨迹**: 加载 unitree CSV（base xyz + 四元数 xyzw + 关节弧度）或 seed CSV（Frame + cm/degree），内部会自动转换为 unitree 数据
-3. **编辑关键帧**: 点击自由度名称显示曲线，调整参数后添加关键帧（Shift+点击多选曲线）
-4. **保存工程**: 保存完整的编辑状态（支持加载恢复）
-5. **导出轨迹**: 选择 unitree/seed 格式和导出 FPS 后导出融合后的 CSV 轨迹；FPS 不同时会自动插值重采样
+1. 加载 URDF（拖入文件夹或文件选择器）
+2. 加载 CSV 轨迹（拖入或文件选择器）
+3. 编辑关节、基座或 IK 末端，添加/更新关键帧
+4. 可选：在曲线面板查看关节轨迹
+5. 保存工程或导出 CSV
 
-### 工程管理
-
-- **保存工程**: 导出包含 URDF、轨迹、关键帧、编辑历史的工程文件
-- **加载工程**: 恢复已保存的完整编辑状态
-- **增量编辑**: 基于残差系统，仅存储修改部分
-
-### 动力学可视化
-
-- **重心显示**: 实时计算并显示机器人重心位置
-- **支撑多边形**: 显示底面接触点构成的凸包投影
-- **稳定性指示**: 直观判断当前姿态的静态稳定性
-
-### 快捷功能
-
-- **平移对齐**: 基座控制中的"平移对齐"按钮可自动调整XYZ，使编辑后机器人的最低点与原始轨迹对齐
-- **坐标轴指示器**: 右下角的3D轴指示器，点击X/Y/Z轴可快速切换到对应的正交视角
+关键帧快捷键：`Ctrl+C` 复制，`Ctrl+V` 粘贴至播放头，`Delete` 删除。详见应用内「使用说明」与 [USAGE.md](USAGE.md)。
 
 ## 技术栈
 
-- Vite: 前端构建工具
-- Three.js: 3D 图形渲染
-- urdf-loader: URDF 解析
-- 原生 JavaScript: 无框架依赖
+| 组件 | 说明 |
+|------|------|
+| Vite | 构建与开发服务 |
+| Three.js | 三维渲染 |
+| urdf-loader | URDF 解析 |
+| closed-chain-ik | 末端 IK 求解 |
 
 ## 项目结构
 
 ```
-src/
-├── main.js              # 应用主入口（双视口渲染）
-├── urdfLoader.js        # URDF 加载和解析
-├── trajectoryManager.js # 轨迹和关键帧管理
-├── trajectoryFormatConverter.js # unitree/seed CSV 格式转换
-├── jointController.js   # 关节控制 UI
-├── baseController.js    # 基体控制 UI（含平移对齐）
-├── curveEditor.js       # 曲线编辑器
-├── comVisualizer.js     # 重心和支撑多边形可视化
-├── axisGizmo.js         # 坐标轴指示器
-├── timelineController.js # 时间轴控制
-├── cookieManager.js     # 自动保存管理（localStorage）
-├── indexedDBManager.js  # 大文件存储（IndexedDB）
-├── themeManager.js      # 主题管理
-└── i18n.js              # 多语言支持
-```
-├── axisGizmo.js         # 坐标轴指示器
-├── timelineController.js # 时间轴控制
-└── i18n.js              # 国际化（中文/英文）
+robot_motion_editor/
+├── index.html
+├── docs/
+│   ├── assets/demo/              # README 演示 GIF
+│   └── REQUIREMENTS-viewport-ik.md
+├── tests/
+├── DEVELOPMENT.md
+├── USAGE.md
+└── src/
+    ├── main.js
+    ├── viewportManager.js
+    ├── viewportToolbar.js
+    ├── timelineController.js
+    ├── timelineCurveViewSync.js
+    ├── curveEditor.js
+    ├── trajectoryManager.js
+    ├── fileDropHandler.js
+    └── ik/                         # IK 求解与面板
 ```
 
 ## License
 
 MIT
-

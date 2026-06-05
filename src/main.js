@@ -5,6 +5,7 @@ import { TrajectoryManager } from './trajectoryManager.js';
 import { JointController } from './jointController.js';
 import { BaseController } from './baseController.js';
 import { TimelineController } from './timelineController.js';
+import { TimelineCurveViewSync } from './timelineCurveViewSync.js';
 import { COMVisualizer } from './comVisualizer.js';
 import { i18n } from './i18n.js';
 import { ThemeManager } from './themeManager.js';
@@ -12,7 +13,18 @@ import { CurveEditor } from './curveEditor.js';
 import { AxisGizmo } from './axisGizmo.js';
 import { VideoExporter } from './videoExporter.js';
 import { CookieManager } from './cookieManager.js';
+import { ViewportManager } from './viewportManager.js';
+import { ViewportToolbar } from './viewportToolbar.js';
 import { DEFAULT_FPS_BY_FORMAT, TRAJECTORY_FORMATS } from './trajectoryFormatConverter.js';
+import {
+  collectFilesFromDataTransfer,
+  hasFileTransfer,
+  classifyDroppedFiles
+} from './fileDropHandler.js';
+import {
+  captureRobotState,
+  restoreRobotState
+} from './ik/eePoseSampler.js';
 
 class RobotKeyframeEditor {
   constructor() {
@@ -77,18 +89,28 @@ class RobotKeyframeEditor {
     this.cameraMode = 'rotate'; // 'rotate' 或 'pan'
     this.followRobot = false;
     this.showCOM = true; // 默认显示重心
-    this.autoRefreshFootprint = false; // 自动刷新包络线开关，默认关闭
-    this.footprintUpdateTimer = null; // 包络线更新防抖定时器
-    this.footprintHeightThresholdCm = 10; // 包络线link高度阈值（cm）
     this.defaultCameraPosition = new THREE.Vector3(3, 3, 2);
     this.defaultCameraTarget = new THREE.Vector3(0, 0, 0.5);
     
     // 脚部识别数据：[{ linkName, ankleJoints: [] }]
     this.identifiedFeet = [];
 
-    this.init();
-    this.setupEventListeners();
-    this.animate();
+    this.viewportManager = null;
+    this.endEffectorControls = null;
+    this.ikPanel = null;
+    this._pendingUrdfForIk = false;
+    this._ikModuleFailed = false;
+    this.isIkDragging = false;
+
+    try {
+      this.init();
+      this.setupEventListeners();
+      this.animate();
+      this.updateStatus(i18n.t('ready'), 'success');
+    } catch (err) {
+      console.error('编辑器初始化失败:', err);
+      this.updateStatus(`${i18n.t('initFailed')}: ${err.message}`, 'error');
+    }
   }
 
   updateStatus(message, type = 'info') {
@@ -160,8 +182,8 @@ class RobotKeyframeEditor {
     this.comVisualizerRight = new COMVisualizer(this.sceneRight);
     // 创建相机 (Z-up 坐标系，正交投影)
     const viewport = document.getElementById('viewport');
-    const fullWidth = viewport.clientWidth;
-    const fullHeight = viewport.clientHeight;
+    const fullWidth = Math.max(viewport?.clientWidth || 1, 1);
+    const fullHeight = Math.max(viewport?.clientHeight || 1, 1);
     const halfWidth = fullWidth / 2;
     const aspect = halfWidth / fullHeight;
     const frustumSize = 5; // 可视范围大小
@@ -195,8 +217,9 @@ class RobotKeyframeEditor {
     this.camera = this.cameraRight;
 
     // 创建渲染器
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setSize(fullWidth, fullHeight);
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setSize(fullWidth, fullHeight, false);
     this.renderer.autoClear = false; // 手动控制清除，用于多视口渲染
     viewport.appendChild(this.renderer.domElement);
 
@@ -206,12 +229,21 @@ class RobotKeyframeEditor {
     this.controls.dampingFactor = 0.05;
     this.controls.target.set(0, 0, 0.5);
     
-    // 同步左侧相机跟随右侧相机（位置、旋转、缩放）
+    // 分屏模式下同步左侧相机；叠显模式由 cameraMain 驱动
     this.controls.addEventListener('change', () => {
-      this.cameraLeft.position.copy(this.cameraRight.position);
-      this.cameraLeft.quaternion.copy(this.cameraRight.quaternion);
-      this.cameraLeft.zoom = this.cameraRight.zoom;
-      this.cameraLeft.updateProjectionMatrix();
+      const mode = this.viewportManager?.mode;
+      const active = this.controls.object;
+      if (mode === 'split') {
+        this.cameraLeft.position.copy(this.cameraRight.position);
+        this.cameraLeft.quaternion.copy(this.cameraRight.quaternion);
+        this.cameraLeft.zoom = this.cameraRight.zoom;
+        this.cameraLeft.updateProjectionMatrix();
+      } else if (mode === 'overlay' && active === this.viewportManager?.cameraMain) {
+        this.cameraRight.position.copy(active.position);
+        this.cameraRight.quaternion.copy(active.quaternion);
+        this.cameraRight.zoom = active.zoom;
+        this.cameraRight.updateProjectionMatrix();
+      }
     });
     
     // 兼容双控制器引用
@@ -250,9 +282,23 @@ class RobotKeyframeEditor {
 
     // 初始化曲线编辑器
     this.curveEditor = new CurveEditor(this);
+
+    this.timelineCurveViewSync = new TimelineCurveViewSync(this);
     
     // 初始化坐标轴指示器（右侧视口）
     this.axisGizmo = new AxisGizmo(this, this.cameraRight, this.controls, 'right');
+
+    this.viewportManager = new ViewportManager(this);
+    this.viewportManager.initScenes(this.themeManager.getCurrentTheme(), this.frustumSize);
+    this.viewportManager.setMode(this.viewportManager.mode, { skipStorage: true });
+    this.viewportManager.setupUi();
+
+    this.viewportToolbar = new ViewportToolbar();
+    this.viewportToolbar.init();
+    this.viewportManager.syncUiFromState();
+    this.viewportToolbar.syncAllMirrors();
+
+    this._initIkModulesAsync();
 
     // 窗口大小调整
     window.addEventListener('resize', () => this.handleResize());
@@ -261,29 +307,100 @@ class RobotKeyframeEditor {
     this.restoreStateIfAvailable().catch(err => {
       console.error('恢复状态错误:', err);
     });
+
+    // 布局完成后再次校正视口尺寸（避免 flex 未算完时 aspect=0 导致黑屏）
+    requestAnimationFrame(() => {
+      this.handleResize();
+      this.viewportManager?.render();
+    });
+  }
+
+  /** @returns {import('urdf-loader').URDFRobot | null} */
+  get robotGhost() {
+    return this.robotLeft;
+  }
+
+  /** @returns {import('urdf-loader').URDFRobot | null} */
+  get robotEdited() {
+    return this.robotRight;
   }
 
   handleResize() {
-    const viewport = document.getElementById('viewport');
-    const fullWidth = viewport.clientWidth;
-    const fullHeight = viewport.clientHeight;
-    const halfWidth = fullWidth / 2;
-    const aspect = halfWidth / fullHeight;
-    
-    // 更新正交相机的frustum
-    this.cameraLeft.left = this.frustumSize * aspect / -2;
-    this.cameraLeft.right = this.frustumSize * aspect / 2;
-    this.cameraLeft.top = this.frustumSize / 2;
-    this.cameraLeft.bottom = this.frustumSize / -2;
-    this.cameraLeft.updateProjectionMatrix();
-    
-    this.cameraRight.left = this.frustumSize * aspect / -2;
-    this.cameraRight.right = this.frustumSize * aspect / 2;
-    this.cameraRight.top = this.frustumSize / 2;
-    this.cameraRight.bottom = this.frustumSize / -2;
-    this.cameraRight.updateProjectionMatrix();
-    
-    this.renderer.setSize(fullWidth, fullHeight);
+    this.viewportManager?.handleResize();
+  }
+
+  async _initIkModulesAsync() {
+    try {
+      const [{ IkPanel }, { EndEffectorControls }, { installIkSolveLogGlobals }, { installIkKinematicsVerifyGlobals }] = await Promise.all([
+        import('./ik/ikPanel.js'),
+        import('./ik/endEffectorControls.js'),
+        import('./ik/ikSolveLogger.js'),
+        import('./ik/ikKinematicsVerify.js')
+      ]);
+      installIkSolveLogGlobals();
+      installIkKinematicsVerifyGlobals(() => this.endEffectorControls?.ikService);
+      this.endEffectorControls = new EndEffectorControls(this);
+      this.ikPanel = new IkPanel(this);
+      if (this._pendingIkProjectSettings) {
+        this.ikPanel.applyProjectSettings(this._pendingIkProjectSettings);
+        this._pendingIkProjectSettings = null;
+      }
+      if (this.robotRight || this._pendingUrdfForIk) {
+        this.ikPanel.onUrdfLoaded();
+        this._pendingUrdfForIk = false;
+      }
+    } catch (err) {
+      console.warn('IK 模块加载失败，3D 编辑仍可用:', err);
+      this._ikModuleLoadError = err?.message || String(err);
+      this._ikModuleFailed = true;
+      this.endEffectorControls = null;
+      this.ikPanel = null;
+      this.refreshIkPanelUi();
+    }
+  }
+
+  /** 同步 IK 区域 DOM（不依赖 IkPanel 是否已构造） */
+  refreshIkPanelUi() {
+    const hint = document.getElementById('ik-load-hint');
+    const body = document.getElementById('ik-controls-body');
+    const robot = this.robotRight;
+
+    if (!robot) {
+      if (hint) {
+        hint.style.display = 'block';
+        hint.textContent = i18n.t('ikNeedUrdf');
+      }
+      if (body) body.style.display = 'none';
+      return;
+    }
+
+    if (!this.ikPanel) {
+      if (hint) {
+        hint.style.display = 'block';
+        hint.textContent = this._ikModuleFailed
+          ? `${i18n.t('ikModuleFailed')}${this._ikModuleLoadError ? ` (${this._ikModuleLoadError})` : ''}`
+          : i18n.t('ikModuleLoading');
+      }
+      if (body) body.style.display = 'none';
+      return;
+    }
+
+    if (hint) hint.style.display = 'none';
+    if (body) body.style.display = 'block';
+  }
+
+  /** URDF 就绪后通知 IK 面板（处理 IK 模块晚于 URDF 加载的竞态） */
+  notifyUrdfReady() {
+    if (!this.robotRight) {
+      this.refreshIkPanelUi();
+      return;
+    }
+    this._pendingUrdfForIk = true;
+    if (this.ikPanel) {
+      this.ikPanel.onUrdfLoaded();
+      this._pendingUrdfForIk = false;
+    }
+    this.refreshIkPanelUi();
   }
 
   setupEventListeners() {
@@ -299,6 +416,8 @@ class RobotKeyframeEditor {
         this.loadCSV(file);
       }
     });
+
+    this.setupFileDrop();
 
     // 添加关键帧
     document.getElementById('add-keyframe').addEventListener('click', () => {
@@ -322,6 +441,9 @@ class RobotKeyframeEditor {
       }
       if (this.baseController) {
         this.baseController.resetToBase();
+      }
+      if (this.trajectoryManager?.hasTrajectory()) {
+        this.addKeyframe();
       }
     });
 
@@ -378,36 +500,6 @@ class RobotKeyframeEditor {
       this.toggleCOM();
     });
 
-    // 刷新地面投影包络线
-    document.getElementById('refresh-footprint').addEventListener('click', () => {
-      this.refreshFootprint();
-    });
-
-    const footprintHeightInput = document.getElementById('footprint-height-threshold');
-    if (footprintHeightInput) {
-      // 防止输入框点击触发按钮刷新
-      footprintHeightInput.addEventListener('click', (event) => {
-        event.stopPropagation();
-      });
-      footprintHeightInput.addEventListener('keydown', (event) => {
-        event.stopPropagation();
-      });
-    }
-
-    // 切换自动刷新包络线
-    document.getElementById('toggle-auto-refresh').addEventListener('click', () => {
-      this.toggleAutoRefreshFootprint();
-    });
-
-    // 自动旋转按钮
-    document.getElementById('auto-rotate-major').addEventListener('click', () => {
-      this.autoRotateToFootprint('major');
-    });
-
-    document.getElementById('auto-rotate-minor').addEventListener('click', () => {
-      this.autoRotateToFootprint('minor');
-    });
-    
     // 脚部识别和控制
     document.getElementById('identify-feet').addEventListener('click', () => {
       this.identifyFeet();
@@ -424,6 +516,19 @@ class RobotKeyframeEditor {
       controls.style.display = isHidden ? 'block' : 'none';
       const header = document.getElementById('foot-control-header');
       header.querySelector('h3').textContent = isHidden ? '▼ ' + header.querySelector('h3').textContent.slice(2) : '▶ ' + header.querySelector('h3').textContent.slice(2);
+    });
+
+    // IK 面板折叠（页面加载即可用，不依赖 IK 模块异步加载）
+    document.getElementById('ik-control-header')?.addEventListener('click', () => {
+      const controls = document.getElementById('ik-controls');
+      const title = document.querySelector('#ik-control-header h3');
+      if (!controls || !title) return;
+      const isHidden = controls.style.display === 'none' || !controls.style.display;
+      controls.style.display = isHidden ? 'block' : 'none';
+      title.textContent = isHidden ? i18n.t('ikControlOpen') : i18n.t('ikControl');
+      if (isHidden) {
+        this.notifyUrdfReady();
+      }
     });
     
     // 重置应用
@@ -463,10 +568,13 @@ class RobotKeyframeEditor {
     // 初始化主题图标
     this.updateThemeIcon(this.themeManager.getCurrentTheme());
 
-    // 键盘快捷键
+    // 键盘快捷键（capture：优先于浏览器默认 Ctrl+C/V 等）
     document.addEventListener('keydown', (e) => {
-      // 如果焦点在输入框内，不触发快捷键
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+      if (this._isAppShortcutBlockedByFocus()) {
+        return;
+      }
+
+      if (this.timelineController?.handleKeyframeShortcut(e)) {
         return;
       }
 
@@ -499,7 +607,95 @@ class RobotKeyframeEditor {
           }
           break;
       }
-    });
+    }, true);
+  }
+
+  /** 焦点在可编辑文本控件上时不触发应用级快捷键 */
+  _isAppShortcutBlockedByFocus() {
+    const el = document.activeElement;
+    if (!el || !(el instanceof HTMLElement)) return false;
+    if (el.isContentEditable) return true;
+    const tag = el.tagName;
+    if (tag === 'TEXTAREA') return true;
+    if (tag === 'SELECT') return true;
+    if (tag === 'INPUT') {
+      const type = (el.getAttribute('type') || 'text').toLowerCase();
+      return ['text', 'search', 'password', 'email', 'url', 'tel'].includes(type);
+    }
+    return false;
+  }
+
+  setupFileDrop() {
+    const overlay = document.getElementById('file-drop-overlay');
+    let dragDepth = 0;
+
+    const showOverlay = () => {
+      if (overlay) overlay.hidden = false;
+    };
+    const hideOverlay = () => {
+      dragDepth = 0;
+      if (overlay) overlay.hidden = true;
+    };
+
+    const onDragEnter = (e) => {
+      if (!hasFileTransfer(e.dataTransfer)) return;
+      e.preventDefault();
+      dragDepth++;
+      if (dragDepth === 1) showOverlay();
+    };
+
+    const onDragOver = (e) => {
+      if (!hasFileTransfer(e.dataTransfer)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
+
+    const onDragLeave = (e) => {
+      if (!hasFileTransfer(e.dataTransfer)) return;
+      e.preventDefault();
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) hideOverlay();
+    };
+
+    const onDrop = async (e) => {
+      if (!hasFileTransfer(e.dataTransfer)) return;
+      e.preventDefault();
+      hideOverlay();
+      try {
+        const files = await collectFilesFromDataTransfer(e.dataTransfer);
+        await this.handleDroppedFiles(files);
+      } catch (err) {
+        console.error('拖放加载失败:', err);
+        this.updateStatus(i18n.t('dropFailed'), 'error');
+      }
+    };
+
+    const app = document.getElementById('app');
+    if (app) {
+      app.addEventListener('dragenter', onDragEnter);
+      app.addEventListener('dragover', onDragOver);
+      app.addEventListener('dragleave', onDragLeave);
+      app.addEventListener('drop', onDrop);
+    }
+  }
+
+  async handleDroppedFiles(files) {
+    if (!files?.length) return;
+
+    const { urdfFiles, csvFiles } = classifyDroppedFiles(files);
+
+    if (urdfFiles.length === 0 && csvFiles.length === 0) {
+      this.updateStatus(i18n.t('dropUnsupported'), 'error');
+      return;
+    }
+
+    if (urdfFiles.length > 0) {
+      await this.loadURDFFolder(files);
+    }
+
+    if (csvFiles.length > 0) {
+      await this.loadCSV(csvFiles[0]);
+    }
   }
 
   async loadURDFFolder(files) {
@@ -537,14 +733,16 @@ class RobotKeyframeEditor {
         
         // 为右侧场景使用原始机器人
         this.robotRight = this.robot;
-        this.sceneRight.add(this.robotRight);
+        this.viewportManager.applyEditedRenderOrder(this.robotRight);
         
         // 为左侧场景创建第二个机器人实例
         console.log('🔄 为左侧场景创建第二个机器人实例...');
         const fileMapCopy = new Map(this.urdfLoader.fileMap);
         this.urdfLoader.loadFromMap(fileMapCopy, (leftRobot) => {
           this.robotLeft = leftRobot;
-          this.sceneLeft.add(this.robotLeft);
+          this.viewportManager.applyGhostMaterialWhenReady(this.robotLeft);
+          this.viewportManager.applyEditedRenderOrder(this.robotRight);
+          this.viewportManager.attachRobots();
           console.log('✅ 左侧机器人模型已添加');
           
           // 如果已经加载了轨迹，更新左侧机器人状态
@@ -569,6 +767,7 @@ class RobotKeyframeEditor {
         
         this.jointController = new JointController(joints, this);
         this.baseController = new BaseController(this);
+        this.notifyUrdfReady();
         
         // 更新COM显示（无论是否有轨迹，都显示当前状态的COM）
         if (this.showCOM) {
@@ -585,7 +784,6 @@ class RobotKeyframeEditor {
         console.log('✅ 关节控制面板已初始化');
         console.log('========================================');
         this.updateStatus(i18n.t('urdfLoadSuccess', { count: joints.length }), 'success');
-        alert(i18n.t('urdfLoadSuccess', { count: joints.length }));
         
         // 触发完整保存（包含 URDF）
         this.triggerAutoSave(true);
@@ -623,20 +821,15 @@ class RobotKeyframeEditor {
         this.timelineController.pause();
       }
       
-      // 解析CSV
+      // 解析CSV（默认 FPS 50，或由 CSV 格式解析得出）
       this.trajectoryManager.parseCSV(text, file.name);
-      
-      // 设置 FPS
-      const defaultFPS = this.trajectoryManager.fps || 50;
-      const fpsInput = prompt('请设置轨迹 FPS（帧率）:', String(defaultFPS));
-      const fps = parseInt(fpsInput) || defaultFPS;
-      this.trajectoryManager.setFPS(fps);
-      this.timelineController.setFPS(fps);
-      
+      const fps = this.trajectoryManager.fps || 50;
+
       // 更新时间轴
+      this.timelineController.setFPS(fps);
       this.timelineController.updateTimeline(
         this.trajectoryManager.getFrameCount(),
-        this.trajectoryManager.getFrameCount() / fps
+        this.trajectoryManager.getDuration()
       );
       
       // 清空关键帧标记
@@ -666,6 +859,14 @@ class RobotKeyframeEditor {
       this.updateStatus(i18n.t('csvLoadFailed'), 'error');
       alert(i18n.t('csvLoadFailed') + ': ' + error.message);
     }
+  }
+
+  captureRobotRightState() {
+    return captureRobotState(this.robotRight, this.jointController);
+  }
+
+  restoreRobotRightState(snapshot) {
+    restoreRobotState(this.robotRight, snapshot);
   }
 
   updateRobotState(frameIndex) {
@@ -722,12 +923,16 @@ class RobotKeyframeEditor {
       
       // 更新UI和右侧关节
       if (this.jointController) {
-        this.jointController.updateJoints(combinedState.joints);
+        this.jointController.updateJoints(combinedState.joints, { silent: true });
       }
       
       // 更新基体控制器显示
       if (this.baseController) {
-        this.baseController.updateBase(combinedState.base.position, combinedState.base.quaternion);
+        this.baseController.updateBase(
+          combinedState.base.position,
+          combinedState.base.quaternion,
+          { silent: true }
+        );
       }
     }
         // 更新COM可视化
@@ -778,10 +983,9 @@ class RobotKeyframeEditor {
       this.baseController.updateKeyframeIndicators();
     }
     
-    // 通知曲线编辑器更新
+    // 同步曲线定义，不自动展开/绘制全部曲线
     if (this.curveEditor) {
-      this.curveEditor.updateCurves();
-      this.curveEditor.draw();
+      this.curveEditor.onKeyframesChanged();
     }
     
     // 触发自动保存
@@ -814,10 +1018,8 @@ class RobotKeyframeEditor {
         this.baseController.updateKeyframeIndicators();
       }
       
-      // 通知曲线编辑器更新
       if (this.curveEditor) {
-        this.curveEditor.updateCurves();
-        this.curveEditor.draw();
+        this.curveEditor.onKeyframesChanged();
       }
       
       // 触发自动保存
@@ -972,9 +1174,8 @@ class RobotKeyframeEditor {
     const currentFrame = this.timelineController.getCurrentFrame();
     this.updateRobotState(currentFrame);
     
-    // 更新曲线编辑器
     if (this.curveEditor) {
-      this.curveEditor.updateCurves();
+      this.curveEditor.onKeyframesChanged();
     }
     
     // 清除选择状态
@@ -1387,6 +1588,10 @@ class RobotKeyframeEditor {
     }
 
     const projectData = this.trajectoryManager.getProjectData();
+    projectData.viewport = this.viewportManager.getSettingsForProject();
+    if (this.ikPanel) {
+      projectData.ik = this.ikPanel.getSettingsForProject();
+    }
     const json = JSON.stringify(projectData, null, 2);
     
     const originalFileName = this.trajectoryManager.originalFileName || 'project';
@@ -1431,6 +1636,16 @@ class RobotKeyframeEditor {
       
       // 加载新数据
       this.trajectoryManager.loadProjectData(projectData);
+      if (projectData.viewport) {
+        this.viewportManager.applyProjectSettings(projectData.viewport);
+      }
+      if (projectData.ik) {
+        this._pendingIkProjectSettings = projectData.ik;
+        if (this.ikPanel) {
+          this.ikPanel.applyProjectSettings(projectData.ik);
+          this._pendingIkProjectSettings = null;
+        }
+      }
       
       // 如果有URDF，更新机器人状态
       if (this.robotLeft && this.robotRight) {
@@ -1574,412 +1789,6 @@ class RobotKeyframeEditor {
     }
   }
 
-  toggleAutoRefreshFootprint() {
-    this.autoRefreshFootprint = !this.autoRefreshFootprint;
-    const button = document.getElementById('toggle-auto-refresh');
-    
-    if (this.autoRefreshFootprint) {
-      button.textContent = i18n.t('autoRefreshOn');
-      button.style.background = 'rgba(0, 200, 0, 0.3)';
-      button.style.borderColor = 'rgba(0, 200, 0, 0.6)';
-      console.log('⏱️ 开启包络线自动刷新（2秒防抖）');
-      // 立即触发一次更新
-      this.scheduleFootprintUpdate();
-    } else {
-      button.textContent = i18n.t('autoRefreshOff');
-      button.style.background = 'var(--overlay-bg)';
-      button.style.borderColor = 'var(--border-primary)';
-      // 取消待执行的定时器
-      if (this.footprintUpdateTimer) {
-        clearTimeout(this.footprintUpdateTimer);
-        this.footprintUpdateTimer = null;
-      }
-      console.log('⏱️ 关闭包络线自动刷新');
-    }
-  }
-
-  scheduleFootprintUpdate() {
-    // 只有开启自动刷新时才执行
-    if (!this.autoRefreshFootprint) {
-      return;
-    }
-    
-    // 取消之前的定时器
-    if (this.footprintUpdateTimer) {
-      clearTimeout(this.footprintUpdateTimer);
-    }
-    
-    // 设置2秒后更新包络线
-    this.footprintUpdateTimer = setTimeout(() => {
-      if (this.showCOM) {
-        console.log('⏱️ 机器人状态稳定2秒，开始异步计算包络线...');
-        this.refreshFootprint();
-      }
-    }, 2000);
-  }
-
-  getFootprintHeightThresholdMeters() {
-    const input = document.getElementById('footprint-height-threshold');
-    if (!input) {
-      return this.footprintHeightThresholdCm / 100;
-    }
-    const rawValue = parseFloat(input.value);
-    if (Number.isFinite(rawValue)) {
-      this.footprintHeightThresholdCm = Math.max(0, rawValue);
-    }
-    return this.footprintHeightThresholdCm / 100;
-  }
-
-  refreshFootprint() {
-    if (!this.robotLeft && !this.robotRight) {
-      alert(i18n.t('needRobot'));
-      return;
-    }
-    
-    console.log('👣 刷新地面投影包络线...');
-    
-    // 使用setTimeout实现异步计算，避免阻塞UI
-    const heightThresholdMeters = this.getFootprintHeightThresholdMeters();
-    setTimeout(() => {
-      if (this.comVisualizerLeft && this.robotLeft) {
-        this.comVisualizerLeft.updateFootprint(this.robotLeft, heightThresholdMeters);
-      }
-      if (this.comVisualizerRight && this.robotRight) {
-        this.comVisualizerRight.updateFootprint(this.robotRight, heightThresholdMeters);
-      }
-      console.log('✅ 地面投影包络线刷新完成');
-    }, 0);
-  }
-
-  /**
-   * 自动旋转功能：绕包络线主轴或次轴旋转，使重心投影靠近包络线
-   * @param {string} axisType - 'major' 或 'minor'
-   */
-  autoRotateToFootprint(axisType) {
-    if (!this.trajectoryManager.hasTrajectory()) {
-      alert('请先加载 CSV 轨迹');
-      return;
-    }
-
-    if (!this.robotLeft && !this.robotRight) {
-      alert(i18n.t('needRobot'));
-      return;
-    }
-
-    // 获取旋转角度上限
-    const clampInputId = axisType === 'major' ? 'rotation-clamp-major' : 'rotation-clamp-minor';
-    const clampInput = document.getElementById(clampInputId);
-    const clampValue = clampInput ? parseFloat(clampInput.value) : 0.02;
-    if (!Number.isFinite(clampValue) || clampValue <= 0) {
-      alert('请输入有效的旋转角度上限（弧度，大于0）');
-      return;
-    }
-
-    const currentFrame = this.timelineController.getCurrentFrame();
-
-    // 处理左右两侧机器人
-    let hasRotation = false;
-
-    if (this.robotLeft && this.comVisualizerLeft) {
-      const result = this.calculateAutoRotation(
-        this.robotLeft, 
-        this.comVisualizerLeft, 
-        axisType, 
-        clampValue
-      );
-      
-      if (result) {
-        this.applyRotationResidual(currentFrame, result);
-        hasRotation = true;
-        console.log(`🔄 左侧机器人自动旋转 (${axisType}): ${(result.angle * 180 / Math.PI).toFixed(2)}°`);
-      }
-    }
-
-    if (this.robotRight && this.comVisualizerRight) {
-      const result = this.calculateAutoRotation(
-        this.robotRight,
-        this.comVisualizerRight,
-        axisType,
-        clampValue
-      );
-      
-      if (result) {
-        this.applyRotationResidual(currentFrame, result);
-        hasRotation = true;
-        console.log(`🔄 右侧机器人自动旋转 (${axisType}): ${(result.angle * 180 / Math.PI).toFixed(2)}°`);
-      }
-    }
-
-    if (hasRotation) {
-      // 更新显示
-      this.updateRobotState(currentFrame);
-      
-      // 更新曲线编辑器
-      if (this.curveEditor) {
-        this.curveEditor.updateCurves();
-      }
-
-      // 触发自动保存
-      this.triggerAutoSave();
-      
-      const axisName = axisType === 'major' ? '主轴' : '次轴';
-      this.updateStatus(`✅ 自动旋转完成！绕${axisName}旋转`, 'success');
-    } else {
-      this.updateStatus('⚠️ 无法执行自动旋转，请先刷新包络线', 'error');
-    }
-  }
-
-  /**
-   * 计算自动旋转参数
-   */
-  calculateAutoRotation(robot, comVisualizer, axisType, clampValue) {
-    const data = comVisualizer.getFootprintData();
-    
-    if (!data.footprint || !data.centroid || !data.pca || !data.com) {
-      return null;
-    }
-
-    // 重心投影到地面的位置
-    const comProjection = { x: data.com.x, y: data.com.y };
-
-    // 选择旋转轴
-    const axisIndex = axisType === 'major' ? 0 : 1;
-    const rotationAxis = data.pca.eigenvectors[axisIndex];
-
-    // 计算旋转轴在3D空间中的向量（垂直于地面）
-    const axis3D = new THREE.Vector3(rotationAxis.x, rotationAxis.y, 0).normalize();
-
-    // 计算重心投影点到旋转轴的距离
-    // 旋转轴是通过质心、方向为rotationAxis的直线
-    // 点到直线的距离公式：|AP × v| / |v|，其中A是直线上一点，P是目标点，v是方向向量
-    const AP = {
-      x: comProjection.x - data.centroid.x,
-      y: comProjection.y - data.centroid.y
-    };
-    
-    // 2D叉积：AP × rotationAxis
-    const crossProduct = AP.x * rotationAxis.y - AP.y * rotationAxis.x;
-    const distToAxis = Math.abs(crossProduct); // rotationAxis已归一化
-    
-    if (distToAxis < 0.001) {
-      console.log('重心投影已经在旋转轴上或非常接近');
-      return null;
-    }
-
-    // 计算重心高度
-    const comHeight = data.com.z;
-    
-    if (Math.abs(comHeight) < 0.001) {
-      console.log('重心高度过小，无法计算旋转');
-      return null;
-    }
-
-    // 计算让重心投影准确落在旋转轴上所需的旋转角度
-    // 使用几何关系：tan(angle) = distToAxis / comHeight
-    const exactAngle = Math.atan2(distToAxis, comHeight);
-    
-    // 确定旋转方向：试探两个方向，选择让距离减小的那个
-    // 创建一个小的测试旋转
-    const testAngle = 0.01; // 1度左右的测试旋转
-    
-    // 测试正向旋转后重心的投影位置
-    const testRotationQuat = new THREE.Quaternion();
-    testRotationQuat.setFromAxisAngle(axis3D, testAngle);
-    
-    // 计算旋转后重心相对于质心的位置
-    const comRelative = new THREE.Vector3(
-      data.com.x - data.centroid.x,
-      data.com.y - data.centroid.y,
-      data.com.z
-    );
-    
-    const rotatedCom = comRelative.clone().applyQuaternion(testRotationQuat);
-    const rotatedComProjection = {
-      x: rotatedCom.x,
-      y: rotatedCom.y
-    };
-    
-    // 计算旋转后到轴的距离
-    const crossProductAfter = rotatedComProjection.x * rotationAxis.y - rotatedComProjection.y * rotationAxis.x;
-    const distToAxisAfter = Math.abs(crossProductAfter);
-    
-    // 判断方向：如果距离减小了，说明正向是对的；否则反向
-    const rotationSign = distToAxisAfter < distToAxis ? 1 : -1;
-    
-    // 应用旋转方向
-    const signedExactAngle = rotationSign * exactAngle;
-    
-    // 与clamp值比较，取较小值
-    const angle = Math.abs(signedExactAngle) <= clampValue 
-      ? signedExactAngle 
-      : rotationSign * clampValue;
-
-    console.log(`🔄 旋转角度计算: 精确=${(signedExactAngle * 180 / Math.PI).toFixed(2)}°, 实际=${(angle * 180 / Math.PI).toFixed(2)}°, 距离轴=${(distToAxis * 100).toFixed(1)}cm`);
-
-    if (Math.abs(angle) < 0.001) {
-      console.log('计算的旋转角度过小，跳过');
-      return null;
-    }
-
-    return {
-      axis: axis3D,
-      angle: angle,
-      centroid: data.centroid
-    };
-  }
-
-  /**
-   * 查找点到多边形最近的点
-   */
-  findClosestPointOnPolygon(point, polygon) {
-    let closestPoint = null;
-    let minDist = Infinity;
-
-    for (let i = 0; i < polygon.length; i++) {
-      const j = (i + 1) % polygon.length;
-      const p1 = polygon[i];
-      const p2 = polygon[j];
-
-      // 计算点到线段的最近点
-      const closest = this.closestPointOnSegment(point, p1, p2);
-      const dist = Math.sqrt(
-        (closest.x - point.x) ** 2 + (closest.y - point.y) ** 2
-      );
-
-      if (dist < minDist) {
-        minDist = dist;
-        closestPoint = closest;
-      }
-    }
-
-    return closestPoint;
-  }
-
-  /**
-   * 计算点到线段的最近点
-   */
-  closestPointOnSegment(point, segStart, segEnd) {
-    const dx = segEnd.x - segStart.x;
-    const dy = segEnd.y - segStart.y;
-    const lenSq = dx * dx + dy * dy;
-
-    if (lenSq < 1e-10) {
-      return { x: segStart.x, y: segStart.y };
-    }
-
-    const t = Math.max(0, Math.min(1, 
-      ((point.x - segStart.x) * dx + (point.y - segStart.y) * dy) / lenSq
-    ));
-
-    return {
-      x: segStart.x + t * dx,
-      y: segStart.y + t * dy
-    };
-  }
-
-  /**
-   * 应用旋转到base并生成残差
-   */
-  applyRotationResidual(frameIndex, rotationResult) {
-    const { axis, angle, centroid } = rotationResult;
-
-    // 获取当前帧的基座状态
-    const baseState = this.trajectoryManager.getBaseState(frameIndex);
-    if (!baseState) {
-      return;
-    }
-
-    // 创建旋转四元数
-    const rotationQuat = new THREE.Quaternion();
-    rotationQuat.setFromAxisAngle(axis, angle);
-
-    // 获取原始基座姿态
-    const originalQuat = new THREE.Quaternion(
-      baseState.base.quaternion.x,
-      baseState.base.quaternion.y,
-      baseState.base.quaternion.z,
-      baseState.base.quaternion.w
-    );
-
-    // 应用旋转：新四元数 = 旋转 * 原始
-    const newQuat = rotationQuat.clone().multiply(originalQuat);
-
-    // 计算基座位置的变化（绕质心旋转）
-    const originalPos = new THREE.Vector3(
-      baseState.base.position.x,
-      baseState.base.position.y,
-      baseState.base.position.z
-    );
-    
-    const centroid3D = new THREE.Vector3(centroid.x, centroid.y, 0);
-    
-    // 位置相对于质心的偏移
-    const offset = originalPos.clone().sub(centroid3D);
-    
-    // 旋转偏移向量
-    offset.applyQuaternion(rotationQuat);
-    
-    // 新位置
-    const newPos = centroid3D.clone().add(offset);
-
-    // 计算残差
-    const positionResidual = {
-      x: newPos.x - baseState.base.position.x,
-      y: newPos.y - baseState.base.position.y,
-      z: newPos.z - baseState.base.position.z
-    };
-
-    // 计算旋转残差：residualQuat = originalQuat.inverse() * newQuat
-    const quaternionResidual = originalQuat.clone().invert().multiply(newQuat);
-
-    // 确保或创建该帧的关键帧
-    if (!this.trajectoryManager.keyframes.has(frameIndex)) {
-      // 创建新关键帧
-      const jointCount = this.trajectoryManager.jointCount;
-      this.trajectoryManager.keyframes.set(frameIndex, {
-        residual: new Array(jointCount).fill(0),
-        baseResidual: {
-          position: { x: 0, y: 0, z: 0 },
-          quaternion: { x: 0, y: 0, z: 0, w: 1 }
-        }
-      });
-    }
-
-    const keyframe = this.trajectoryManager.keyframes.get(frameIndex);
-
-    // 叠加残差（累加位置，组合四元数）
-    if (!keyframe.baseResidual) {
-      keyframe.baseResidual = {
-        position: { x: 0, y: 0, z: 0 },
-        quaternion: { x: 0, y: 0, z: 0, w: 1 }
-      };
-    }
-
-    // 位置残差累加
-    keyframe.baseResidual.position.x += positionResidual.x;
-    keyframe.baseResidual.position.y += positionResidual.y;
-    keyframe.baseResidual.position.z += positionResidual.z;
-
-    // 四元数残差组合：newResidual = quaternionResidual * oldResidual
-    const oldResidualQuat = new THREE.Quaternion(
-      keyframe.baseResidual.quaternion.x,
-      keyframe.baseResidual.quaternion.y,
-      keyframe.baseResidual.quaternion.z,
-      keyframe.baseResidual.quaternion.w
-    );
-    
-    const combinedResidualQuat = quaternionResidual.multiply(oldResidualQuat);
-    
-    keyframe.baseResidual.quaternion.x = combinedResidualQuat.x;
-    keyframe.baseResidual.quaternion.y = combinedResidualQuat.y;
-    keyframe.baseResidual.quaternion.z = combinedResidualQuat.z;
-    keyframe.baseResidual.quaternion.w = combinedResidualQuat.w;
-
-    // 更新关键帧标记
-    const keyframes = Array.from(this.trajectoryManager.keyframes.keys());
-    this.timelineController.updateKeyframeMarkers(keyframes);
-  }
-  
   /**
    * 恢复保存的状态（如果可用）
    */
@@ -2027,14 +1836,17 @@ class RobotKeyframeEditor {
     
     // 移除机器人模型
     if (this.robotLeft) {
-      this.sceneLeft.remove(this.robotLeft);
+      this.sceneLeft?.remove(this.robotLeft);
+      this.viewportManager?.sceneMain?.remove(this.robotLeft);
       this.robotLeft = null;
     }
     if (this.robotRight) {
-      this.sceneRight.remove(this.robotRight);
+      this.sceneRight?.remove(this.robotRight);
+      this.viewportManager?.sceneMain?.remove(this.robotRight);
       this.robotRight = null;
       this.robot = null;
     }
+    this.viewportManager?.attachRobots();
     
     // 清除控制器
     if (this.jointController) {
@@ -2053,6 +1865,7 @@ class RobotKeyframeEditor {
     if (this.timelineController) {
       this.timelineController.pause();
       this.timelineController.updateTimeline(0, 0);
+      this.timelineController.setFPS(50);
       this.timelineController.updateKeyframeMarkers([]);
       this.timelineController.setCurrentFrame(0);
     }
@@ -2060,7 +1873,7 @@ class RobotKeyframeEditor {
     // 重置曲线编辑器
     if (this.curveEditor) {
       this.curveEditor.curves.clear();
-      this.curveEditor.draw();
+      this.curveEditor.invalidateAndDraw();
     }
     
     // 重置相机
@@ -2070,9 +1883,6 @@ class RobotKeyframeEditor {
     this.cameraMode = 'rotate';
     this.followRobot = false;
     this.showCOM = true;
-    this.autoRefreshFootprint = false;
-    this.footprintHeightThresholdCm = 10;
-    
     // 更新按钮状态
     document.getElementById('toggle-camera-mode').textContent = i18n.t('rotate');
     document.getElementById('follow-robot').textContent = i18n.t('followOff');
@@ -2081,10 +1891,6 @@ class RobotKeyframeEditor {
     document.getElementById('toggle-com').textContent = i18n.t('comOn');
     document.getElementById('toggle-com').style.background = 'rgba(255, 100, 100, 0.3)';
     document.getElementById('toggle-com').style.borderColor = 'rgba(255, 100, 100, 0.6)';
-    document.getElementById('toggle-auto-refresh').textContent = i18n.t('autoRefreshOff');
-    document.getElementById('toggle-auto-refresh').style.background = 'var(--overlay-bg)';
-    document.getElementById('toggle-auto-refresh').style.borderColor = 'var(--border-primary)';
-    
     // 清除文件名显示
     this.clearCurrentFileName();
     
@@ -2135,6 +1941,24 @@ class RobotKeyframeEditor {
   }
   
   /**
+   * 设置工程轨迹 FPS（1–240），同步时间轴时长与播放间隔
+   */
+  applyProjectFPS(rawFps) {
+    const fps = Math.round(Number(rawFps));
+    if (!Number.isFinite(fps) || fps < 1 || fps > 240) {
+      this.timelineController?.syncFpsInputFromState();
+      return false;
+    }
+    if (!this.trajectoryManager?.hasTrajectory()) {
+      return false;
+    }
+    this.trajectoryManager.setFPS(fps);
+    this.timelineController.setFPS(fps);
+    this.triggerAutoSave();
+    return true;
+  }
+
+  /**
    * 触发自动保存（防抖）
    * @param {boolean} fullSave - 是否完整保存（包括 URDF）
    */
@@ -2158,62 +1982,27 @@ class RobotKeyframeEditor {
    * 根据主题更新场景背景颜色
    */
   updateSceneBackgrounds(theme) {
-    if (theme === 'light') {
-      // 浅色模式背景
-      if (this.sceneLeft) {
-        this.sceneLeft.background = new THREE.Color(0xf0f0f0);
-      }
-      if (this.sceneRight) {
-        this.sceneRight.background = new THREE.Color(0xe8e8e8);
-      }
-    } else {
-      // 深色模式背景
-      if (this.sceneLeft) {
-        this.sceneLeft.background = new THREE.Color(0x1a1a1a);
-      }
-      if (this.sceneRight) {
-        this.sceneRight.background = new THREE.Color(0x263238);
-      }
-    }
+    this.viewportManager?.updateSceneBackgrounds(theme);
   }
 
   animate() {
     requestAnimationFrame(() => this.animate());
-    
+
+    if (!this.renderer || !this.controls) return;
+
     this.controls.update();
-    
+
+    if (this.viewportManager?.mode === 'overlay') {
+      this.viewportManager.syncOverlayCameraFromActive();
+    }
+
     // 跟随机器人平移
     if (this.followRobot && this.robotRight) {
       const robotPos = this.robotRight.position;
       this.controls.target.set(robotPos.x, robotPos.y, robotPos.z + 0.5);
     }
-    
-    // 获取整个viewport的尺寸
-    const viewport = document.getElementById('viewport');
-    const fullWidth = viewport.clientWidth;
-    const fullHeight = viewport.clientHeight;
-    const halfWidth = fullWidth / 2;
-    
-    // 清除整个画布
-    this.renderer.clear();
-    
-    // 渲染左侧视口 (原始轨迹)
-    this.renderer.setViewport(0, 0, halfWidth, fullHeight);
-    this.renderer.setScissor(0, 0, halfWidth, fullHeight);
-    this.renderer.setScissorTest(true);
-    this.renderer.render(this.sceneLeft, this.cameraLeft);
-    
-    // 渲染右侧视口 (编辑后轨迹)
-    this.renderer.setViewport(halfWidth, 0, halfWidth, fullHeight);
-    this.renderer.setScissor(halfWidth, 0, halfWidth, fullHeight);
-    this.renderer.setScissorTest(true);
-    this.renderer.render(this.sceneRight, this.cameraRight);
-    
-    // 渲染坐标轴指示器
-    if (this.axisGizmo) {
-      this.axisGizmo.update();
-      this.axisGizmo.render(this.renderer);
-    }
+
+    this.viewportManager?.render();
   }
 }
 

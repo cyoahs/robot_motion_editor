@@ -468,6 +468,161 @@ export class TrajectoryManager {
     this.keyframes.delete(frameIndex);
   }
 
+  _cloneKeyframeData(data) {
+    return {
+      residual: [...data.residual],
+      baseResidual: data.baseResidual
+        ? {
+            position: { ...data.baseResidual.position },
+            quaternion: { ...data.baseResidual.quaternion }
+          }
+        : null
+    };
+  }
+
+  /**
+   * 将关键帧残差还原为绝对关节角与基座位姿（在 fromFrame 的 base 轨迹上解码）
+   */
+  _decodeKeyframeAbsolute(fromFrame, data) {
+    const baseState = this.getBaseState(fromFrame);
+    if (!baseState || !data?.residual) return null;
+
+    const joints = baseState.joints.map((baseValue, idx) => {
+      return baseValue + (data.residual[idx] ?? 0);
+    });
+
+    let position = { ...baseState.base.position };
+    let quaternion = { ...baseState.base.quaternion };
+
+    if (data.baseResidual?.position) {
+      position = {
+        x: baseState.base.position.x + data.baseResidual.position.x,
+        y: baseState.base.position.y + data.baseResidual.position.y,
+        z: baseState.base.position.z + data.baseResidual.position.z
+      };
+    }
+
+    if (data.baseResidual?.quaternion) {
+      const qBase = new THREE.Quaternion(
+        baseState.base.quaternion.x,
+        baseState.base.quaternion.y,
+        baseState.base.quaternion.z,
+        baseState.base.quaternion.w
+      );
+      const qResidual = new THREE.Quaternion(
+        data.baseResidual.quaternion.x,
+        data.baseResidual.quaternion.y,
+        data.baseResidual.quaternion.z,
+        data.baseResidual.quaternion.w
+      );
+      const qCombined = qBase.clone().multiply(qResidual).normalize();
+      quaternion = {
+        x: qCombined.x,
+        y: qCombined.y,
+        z: qCombined.z,
+        w: qCombined.w
+      };
+    }
+
+    return { joints, position, quaternion };
+  }
+
+  /**
+   * 将绝对关节/基座位姿编码为相对 toFrame 的 CSV base 的残差
+   */
+  _encodeKeyframeResiduals(toFrame, absolute) {
+    const baseState = this.getBaseState(toFrame);
+    if (!baseState || !absolute?.joints) return null;
+
+    const residual = absolute.joints.map((value, idx) => {
+      return value - baseState.joints[idx];
+    });
+
+    const positionResidual = {
+      x: absolute.position.x - baseState.base.position.x,
+      y: absolute.position.y - baseState.base.position.y,
+      z: absolute.position.z - baseState.base.position.z
+    };
+
+    const qCurrent = new THREE.Quaternion(
+      absolute.quaternion.x,
+      absolute.quaternion.y,
+      absolute.quaternion.z,
+      absolute.quaternion.w
+    );
+    const qBase = new THREE.Quaternion(
+      baseState.base.quaternion.x,
+      baseState.base.quaternion.y,
+      baseState.base.quaternion.z,
+      baseState.base.quaternion.w
+    );
+    const qResidual = qBase.clone().invert().multiply(qCurrent);
+
+    return {
+      residual,
+      baseResidual: {
+        position: positionResidual,
+        quaternion: {
+          x: qResidual.x,
+          y: qResidual.y,
+          z: qResidual.z,
+          w: qResidual.w
+        }
+      }
+    };
+  }
+
+  /** 将关键帧从 fromFrame 移动到 toFrame（保留绝对编辑内容，按目标帧重算残差） */
+  moveKeyframe(fromFrame, toFrame) {
+    const from = Math.round(fromFrame);
+    let to = Math.round(toFrame);
+    if (!this.keyframes.has(from) || !this.hasTrajectory()) return false;
+
+    const maxFrame = this.baseTrajectory.length - 1;
+    to = Math.max(0, Math.min(maxFrame, to));
+    if (from === to) return true;
+
+    const absolute = this._decodeKeyframeAbsolute(from, this.keyframes.get(from));
+    if (!absolute) return false;
+
+    this.keyframes.delete(from);
+    const encoded = this._encodeKeyframeResiduals(to, absolute);
+    if (!encoded) return false;
+
+    this.keyframes.set(to, encoded);
+    return true;
+  }
+
+  /** 将 fromFrame 的关键帧内容复制到 toFrame（不删除源关键帧） */
+  copyKeyframeToFrame(fromFrame, toFrame) {
+    const absolute = this.getKeyframeAbsolute(fromFrame);
+    if (!absolute) return false;
+    return this.setKeyframeFromAbsolute(toFrame, absolute);
+  }
+
+  /** 读取关键帧的绝对关节/基座内容 */
+  getKeyframeAbsolute(frameIndex) {
+    const frame = Math.round(frameIndex);
+    const data = this.keyframes.get(frame);
+    if (!data || !this.hasTrajectory()) return null;
+    return this._decodeKeyframeAbsolute(frame, data);
+  }
+
+  /** 在 toFrame 写入绝对关节/基座内容（自动重算残差） */
+  setKeyframeFromAbsolute(toFrame, absolute) {
+    let to = Math.round(toFrame);
+    if (!absolute || !this.hasTrajectory()) return false;
+
+    const maxFrame = this.baseTrajectory.length - 1;
+    to = Math.max(0, Math.min(maxFrame, to));
+
+    const encoded = this._encodeKeyframeResiduals(to, absolute);
+    if (!encoded) return false;
+
+    this.keyframes.set(to, encoded);
+    return true;
+  }
+
   clearAllKeyframes() {
     this.keyframes.clear();
     console.log('🗑️ 已清除所有关键帧');

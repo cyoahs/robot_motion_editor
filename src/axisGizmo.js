@@ -239,8 +239,12 @@ export class AxisGizmo {
       this.camera.position.lerpVectors(startPosition, targetPosition, eased);
       this.controls.target.copy(lookAtTarget);
       
-      // 同步左右相机（如果是双视口）
-      if (this.viewportSide === 'right' && this.editor.cameraLeft) {
+      // 分屏模式下同步左侧相机
+      if (
+        this.viewportSide === 'right' &&
+        this.editor.viewportManager?.mode === 'split' &&
+        this.editor.cameraLeft
+      ) {
         this.editor.cameraLeft.position.copy(this.camera.position);
         this.editor.cameraLeft.quaternion.copy(this.camera.quaternion);
         this.editor.cameraLeft.zoom = this.camera.zoom;
@@ -289,35 +293,35 @@ export class AxisGizmo {
    * 渲染指示器
    */
   render(renderer) {
-    // 保存当前渲染状态
     const currentRenderTarget = renderer.getRenderTarget();
     const currentAutoClear = renderer.autoClear;
     const currentScissorTest = renderer.getScissorTest();
-    
-    // 获取容器位置和大小
+    const currentViewport = new THREE.Vector4();
+    renderer.getViewport(currentViewport);
+
     const rect = this.container.getBoundingClientRect();
     const viewport = document.getElementById('viewport');
     const viewportRect = viewport.getBoundingClientRect();
-    
-    // 计算相对于viewport的位置
+
     const x = rect.left - viewportRect.left;
     const y = viewportRect.bottom - rect.bottom;
     const width = rect.width;
     const height = rect.height;
-    
-    // 设置视口和裁剪
+
     renderer.setViewport(x, y, width, height);
     renderer.setScissor(x, y, width, height);
     renderer.setScissorTest(true);
     renderer.autoClear = false;
-    
-    // 渲染指示器
+
     renderer.render(this.scene, this.gizmoCamera);
-    
-    // 恢复渲染状态
+
     renderer.setRenderTarget(currentRenderTarget);
     renderer.autoClear = currentAutoClear;
     renderer.setScissorTest(currentScissorTest);
+    renderer.setViewport(currentViewport.x, currentViewport.y, currentViewport.z, currentViewport.w);
+    if (currentScissorTest) {
+      renderer.setScissor(currentViewport.x, currentViewport.y, currentViewport.z, currentViewport.w);
+    }
   }
   
   /**
