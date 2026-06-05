@@ -1,14 +1,12 @@
 # Robot Keyframe Editor
 
-This project is an improved fork of **[cyoahs/robot_motion_editor](https://github.com/cyoahs/robot_motion_editor)** — a browser-based keyframe motion editor.
-
 A browser-based robot motion trajectory editor with URDF loading, CSV editing, dual-viewport comparison, inverse kinematics (IK) end-effector editing, and project persistence.
 
 **中文:** [README.md](README.md)
 
 ## Live Demo
 
-**[robot-motion-ik-editor.fandesfyf.workers.dev](https://robot-motion-ik-editor.fandesfyf.workers.dev/)**
+[motion-editor.cyoahs.dev](https://motion-editor.cyoahs.dev) | Hosted on Cloudflare Pages
 
 ## Demonstrations
 
@@ -46,21 +44,18 @@ All processing runs locally in the browser. No data is uploaded to a server.
 - On-demand curve plots with legend; timeline sync
 - Project save/load, auto-save, COM visualization, EN/ZH UI
 
-## Changes vs. Upstream
+## Changelog
 
-Forked from [cyoahs/robot_motion_editor](https://github.com/cyoahs/robot_motion_editor).
+The following features were developed and contributed by **fandes** ([@fandesfyf](https://github.com/fandesfyf)).
 
-| Item | Details |
+| Date | Summary |
 |------|---------|
-| Baseline | [`48ee549`](https://github.com/cyoahs/robot_motion_editor/commit/48ee549e25042c9d4859139ef4ddb03f7b332701) (2026-05-12) |
-| Last updated | 2026-06-03 |
-| Live demo | [robot-motion-ik-editor.fandesfyf.workers.dev](https://robot-motion-ik-editor.fandesfyf.workers.dev/) |
+| 2026-05-30 | IK end-effector editing with `closed-chain-ik`; viewport overlay/split and ghost model; drag-and-drop URDF/CSV import |
+| 2026-05-31 | Dual IK gizmos and position-priority solve strategy |
+| 2026-06-01 | Viewport toolbar, playback rate, timeline zoom, editable FPS |
+| 2026-06-03 | IK solver refactor and tuning panel; keyframe clipboard and shortcuts; on-demand curves with legend; timeline–curve view sync |
 
-```bash
-git log 48ee549e25042c9d4859139ef4ddb03f7b332701..HEAD --oneline
-```
-
-See [README.md](README.md) for the full changelog (Chinese).
+See [README.md](README.md) for the full feature list (Chinese).
 
 ## Quick Start
 

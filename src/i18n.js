@@ -176,8 +176,6 @@ const translations = {
     protocol: '协议',
     userAgent: 'User Agent',
     viewOnGitHub: '在 GitHub 上查看源代码',
-    viewForkOnGitHub: '在 GitHub 上查看改进之后的源代码',
-    viewOriginalRepo: '原仓库链接',
     loading: '加载中...',
     
     // 状态信息
@@ -506,8 +504,6 @@ const translations = {
     protocol: 'Protocol',
     userAgent: 'User Agent',
     viewOnGitHub: 'View Source Code on GitHub',
-    viewForkOnGitHub: 'View improved source code on GitHub',
-    viewOriginalRepo: 'Original repository',
     loading: 'Loading...',
     
     // Status

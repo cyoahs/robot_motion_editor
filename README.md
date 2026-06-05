@@ -1,14 +1,12 @@
 # 机器人关键帧编辑器
 
-> 本项目在开源项目 **[cyoahs/robot_motion_editor](https://github.com/cyoahs/robot_motion_editor)**（浏览器端关键帧运动编辑）基础上改进扩展，增加了末端IK编辑、模型叠加显、关键帧细节处理、模型轨迹拖入加载等方便的功能。
-
 基于 Web 的机器人运动轨迹编辑工具，支持 URDF 模型加载、CSV 轨迹编辑、双视口对比、逆运动学（IK）末端编辑与工程状态管理。
 
 **English:** [README.en.md](README.en.md)
 
 ## 在线体验
 
-**[robot-motion-ik-editor.fandesfyf.workers.dev](https://robot-motion-ik-editor.fandesfyf.workers.dev/)**
+[motion-editor.cyoahs.dev](https://motion-editor.cyoahs.dev) | 托管于 Cloudflare Pages
 
 ## 功能演示
 
@@ -74,23 +72,9 @@
 - 重心与支撑多边形可视化
 - 中英文界面
 
-## 相对原仓库的更新说明
+## 更新记录
 
-本仓库在 [cyoahs/robot_motion_editor](https://github.com/cyoahs/robot_motion_editor) 基础上扩展，对比基线如下。
-
-| 项目 | 说明 |
-|------|------|
-| 基线提交 | [`48ee549`](https://github.com/cyoahs/robot_motion_editor/commit/48ee549e25042c9d4859139ef4ddb03f7b332701)（2026-05-12） |
-| 最近更新 | 2026-06-03 |
-| 在线部署 | [robot-motion-ik-editor.fandesfyf.workers.dev](https://robot-motion-ik-editor.fandesfyf.workers.dev/) |
-
-完整提交记录：
-
-```bash
-git log 48ee549e25042c9d4859139ef4ddb03f7b332701..HEAD --oneline
-```
-
-### 更新摘要（按日期）
+以下功能由贡献者 **fandes**（[@fandesfyf](https://github.com/fandesfyf)）开发并提交。
 
 | 日期 | 内容 |
 |------|------|
