@@ -1,0 +1,58 @@
+<?xml version="1.0"?>
+<robot name="g1_plate_scene">
+  <link name="_virtual_bell_root_link"/>
+
+  <joint name="_virtual_bell_x" type="prismatic">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="_virtual_bell_root_link"/>
+    <child link="_virtual_bell_x_link"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-3" upper="3" effort="100" velocity="1"/>
+  </joint>
+  <link name="_virtual_bell_x_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.001"/>
+      <inertia ixx="1e-7" ixy="0" ixz="0" iyy="1e-7" iyz="0" izz="1e-7"/>
+    </inertial>
+  </link>
+
+  <joint name="_virtual_bell_y" type="prismatic">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="_virtual_bell_x_link"/>
+    <child link="_virtual_bell_y_link"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3" upper="3" effort="100" velocity="1"/>
+  </joint>
+  <link name="_virtual_bell_y_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.001"/>
+      <inertia ixx="1e-7" ixy="0" ixz="0" iyy="1e-7" iyz="0" izz="1e-7"/>
+    </inertial>
+  </link>
+
+  <joint name="_virtual_bell_z" type="prismatic">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="_virtual_bell_y_link"/>
+    <child link="_virtual_bell_z_link"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3" upper="3" effort="100" velocity="1"/>
+  </joint>
+  <link name="_virtual_bell_z_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.001"/>
+      <inertia ixx="1e-7" ixy="0" ixz="0" iyy="1e-7" iyz="0" izz="1e-7"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 1.57 0"/>
+      <geometry>
+        <cylinder radius="0.4" length="0.04"/>
+      </geometry>
+      <material name="white">
+        <color rgba="1 1 1 1"/>
+      </material>
+    </visual>
+  </link>
+</robot>

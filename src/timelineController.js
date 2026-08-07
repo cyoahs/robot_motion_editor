@@ -8,6 +8,7 @@ export class TimelineController {
     this.currentFrame = 0;
     this.fps = 50;
     this.keyframeMarkers = [];
+    this.keyframeMarkerRenderVersion = 0;
     this.isPlaying = false;
     this.playInterval = null;
     this.zoomLevel = 1.0; // 缩放级别
@@ -16,6 +17,27 @@ export class TimelineController {
     this.selectedKeyframes = new Set(); // 选中的关键帧
     
     this.setupUI();
+  }
+
+  getTrajectoryManager() {
+    if (this.editor.getActiveTrajectoryManager) {
+      return this.editor.getActiveTrajectoryManager();
+    }
+    return this.editor.trajectoryManager;
+  }
+
+  getJointController() {
+    if (this.editor.getActiveJointController) {
+      return this.editor.getActiveJointController();
+    }
+    return this.editor.jointController;
+  }
+
+  getBaseController() {
+    if (this.editor.getActiveBaseController) {
+      return this.editor.getActiveBaseController();
+    }
+    return this.editor.baseController;
   }
 
   setupUI() {
@@ -156,7 +178,7 @@ export class TimelineController {
     this.duration = duration;
     
     const slider = document.getElementById('timeline-slider');
-    slider.max = frameCount - 1;
+    slider.max = Math.max(0, frameCount - 1);
     slider.value = 0;
     
     this.setCurrentFrame(0);
@@ -198,7 +220,8 @@ export class TimelineController {
       }
       this.updateContentPosition();
       if (this.updateScrollbar) this.updateScrollbar();
-      this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
+      const manager = this.getTrajectoryManager();
+      this.updateKeyframeMarkers(manager ? Array.from(manager.keyframes.keys()) : []);
     }, 0);
   }
 
@@ -214,7 +237,8 @@ export class TimelineController {
     
     // 控制删除按钮显示
     const deleteBtn = document.getElementById('delete-keyframe');
-    if (deleteBtn && this.editor.trajectoryManager.keyframes.has(this.currentFrame)) {
+    const manager = this.getTrajectoryManager();
+    if (deleteBtn && manager?.keyframes.has(this.currentFrame)) {
       deleteBtn.style.display = 'block';
     } else if (deleteBtn) {
       deleteBtn.style.display = 'none';
@@ -224,11 +248,13 @@ export class TimelineController {
     this.editor.updateRobotState(this.currentFrame);
     
     // 更新关键帧指示器
-    if (this.editor.jointController && this.editor.jointController.updateKeyframeIndicators) {
-      this.editor.jointController.updateKeyframeIndicators();
+    const jointController = this.getJointController();
+    if (jointController?.updateKeyframeIndicators) {
+      jointController.updateKeyframeIndicators();
     }
-    if (this.editor.baseController && this.editor.baseController.updateKeyframeIndicators) {
-      this.editor.baseController.updateKeyframeIndicators();
+    const baseController = this.getBaseController();
+    if (baseController?.updateKeyframeIndicators) {
+      baseController.updateKeyframeIndicators();
     }
     
     // 更新曲线编辑器
@@ -244,7 +270,8 @@ export class TimelineController {
   getThumbPosition(slider) {
     // 计算range input thumb的中心位置
     const rect = slider.getBoundingClientRect();
-    const ratio = (slider.value - slider.min) / (slider.max - slider.min);
+    const range = slider.max - slider.min;
+    const ratio = range > 0 ? (slider.value - slider.min) / range : 0.5;
     
     // 使用CSS自定义属性或计算样式来获取thumb宽度
     // 如果无法获取，使用默认值16px（Chrome/Safari标准）
@@ -265,6 +292,9 @@ export class TimelineController {
   updateKeyframeMarkers(keyframes) {
     const container = document.getElementById('keyframe-markers');
     if (!container) return;
+
+    const renderVersion = ++this.keyframeMarkerRenderVersion;
+    const markerManager = this.getTrajectoryManager();
     
     // 清除旧标记
     container.innerHTML = '';
@@ -278,6 +308,12 @@ export class TimelineController {
     
     // 等待DOM更新后获取宽度
     requestAnimationFrame(() => {
+      // 轨道切换、缩放或连续刷新可能让旧回调晚到；旧回调不得再追加 marker。
+      if (renderVersion !== this.keyframeMarkerRenderVersion ||
+          markerManager !== this.getTrajectoryManager()) {
+        return;
+      }
+
       // 使用slider的getBoundingClientRect来获取精确的可用宽度
       const sliderRect = slider.getBoundingClientRect();
       const sliderWidth = sliderRect.width;
@@ -302,7 +338,7 @@ export class TimelineController {
         const isSelected = this.selectedKeyframes.has(frameIndex);
         
         // 计算位置：使用有效宽度
-        const progress = frameIndex / (this.frameCount - 1);
+        const progress = this.frameCount > 1 ? frameIndex / (this.frameCount - 1) : 0.5;
         const leftPos = offset + progress * effectiveWidth;
         
         marker.style.cssText = `
@@ -346,7 +382,8 @@ export class TimelineController {
             this.updateSmoothButtonVisibility();
           } else if (e.shiftKey) {
             // Shift+点击：范围选择（从第一个选中的到当前点击的）
-            const allKeyframes = Array.from(this.editor.trajectoryManager.keyframes.keys()).sort((a, b) => a - b);
+            const manager = this.getTrajectoryManager();
+            const allKeyframes = manager ? Array.from(manager.keyframes.keys()).sort((a, b) => a - b) : [];
             
             if (this.selectedKeyframes.size === 0) {
               // 没有已选中的，直接选中当前的
@@ -378,7 +415,8 @@ export class TimelineController {
           } else {
             // 普通点击：取消所有选择并跳转到关键帧
             this.selectedKeyframes.clear();
-            this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
+            const manager = this.getTrajectoryManager();
+            this.updateKeyframeMarkers(manager ? Array.from(manager.keyframes.keys()) : []);
             this.updateSmoothButtonVisibility();
             this.setCurrentFrame(frameIndex);
           }
@@ -387,10 +425,9 @@ export class TimelineController {
         // 右键删除关键帧
         marker.addEventListener('contextmenu', (e) => {
           e.preventDefault();
+          if (markerManager !== this.getTrajectoryManager()) return;
           if (confirm(`确定删除关键帧 ${frameIndex}？`)) {
-            this.editor.trajectoryManager.removeKeyframe(frameIndex);
-            this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
-            this.editor.updateRobotState(this.currentFrame);
+            this.deleteKeyframe(frameIndex);
           }
         });
         
@@ -404,16 +441,60 @@ export class TimelineController {
    * 获取选中的关键帧（排序后的数组）
    */
   getSelectedKeyframes() {
+    const manager = this.getTrajectoryManager();
+    if (!manager?.keyframes) {
+      this.selectedKeyframes.clear();
+      this.updateSmoothButtonVisibility();
+      return [];
+    }
+
+    // 删除轨迹缩短、切轨或其他入口删除关键帧后遗留的无效选择，
+    // 避免 smooth/overlay 继续解引用不存在的关键帧。
+    let removedStaleSelection = false;
+    for (const frame of this.selectedKeyframes) {
+      if (!manager.keyframes.has(frame) || !manager.keyframes.get(frame)) {
+        this.selectedKeyframes.delete(frame);
+        removedStaleSelection = true;
+      }
+    }
+    if (removedStaleSelection) this.updateSmoothButtonVisibility();
+
     return Array.from(this.selectedKeyframes).sort((a, b) => a - b);
   }
 
   /**
    * 清除关键帧选择
    */
-  clearSelection() {
+  clearSelectedKeyframes({ refreshMarkers = false } = {}) {
     this.selectedKeyframes.clear();
-    this.updateKeyframeMarkers(Array.from(this.editor.trajectoryManager.keyframes.keys()));
+    if (refreshMarkers) {
+      const manager = this.getTrajectoryManager();
+      this.updateKeyframeMarkers(manager ? Array.from(manager.keyframes.keys()) : []);
+    }
     this.updateSmoothButtonVisibility();
+  }
+
+  // 保留旧调用名，避免现有平滑流程和外部集成失效。
+  clearSelection(options = {}) {
+    this.clearSelectedKeyframes({ refreshMarkers: true, ...options });
+  }
+
+  /**
+   * 从活动轨道删除关键帧并刷新所有依赖 UI。
+   */
+  deleteKeyframe(frameIndex) {
+    const manager = this.getTrajectoryManager();
+    if (!manager?.keyframes.has(frameIndex)) return false;
+
+    manager.removeKeyframe(frameIndex);
+    this.clearSelectedKeyframes({ refreshMarkers: false });
+    this.updateKeyframeMarkers(Array.from(manager.keyframes.keys()));
+
+    // setCurrentFrame 统一刷新删除按钮、活动轨道模型及关节/基体指示器。
+    this.editor.curveEditor?.updateCurves();
+    this.setCurrentFrame(this.currentFrame);
+    this.editor.triggerAutoSave?.();
+    return true;
   }
 
   /**

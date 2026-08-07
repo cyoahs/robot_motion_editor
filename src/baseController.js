@@ -17,9 +17,11 @@ export class BaseController {
     // 展开/折叠控制
     const header = document.getElementById('base-control-header');
     const headerTitle = header.querySelector('h3');
+    header.querySelectorAll('[data-base-controller-action]').forEach(element => element.remove());
     
     // 添加自动对齐按钮
     const alignBtn = document.createElement('button');
+    alignBtn.dataset.baseControllerAction = 'align';
     alignBtn.textContent = i18n.t('alignLowest');
     alignBtn.title = i18n.t('alignLowestTitle');
     alignBtn.style.cssText = 'margin-left: 10px; padding: 2px 8px; font-size: 11px; background: var(--success-color); color: white; border: none; border-radius: 3px; cursor: pointer; transition: background-color 0.2s;';
@@ -37,6 +39,7 @@ export class BaseController {
     
     // 添加全局重置按钮
     const resetAllBtn = document.createElement('button');
+    resetAllBtn.dataset.baseControllerAction = 'reset';
     resetAllBtn.textContent = i18n.t('reset');
     resetAllBtn.title = i18n.t('resetBaseTitle');
     resetAllBtn.style.cssText = 'margin-left: 5px; padding: 2px 8px; font-size: 11px; background: var(--accent-primary); color: white; border: none; border-radius: 3px; cursor: pointer; transition: background-color 0.2s;';
@@ -52,9 +55,9 @@ export class BaseController {
     });
     header.appendChild(resetAllBtn);
     
-    headerTitle.addEventListener('click', () => {
+    headerTitle.onclick = () => {
       this.toggleExpand();
-    });
+    };
     
     const container = document.getElementById('base-controls');
     container.innerHTML = '';
