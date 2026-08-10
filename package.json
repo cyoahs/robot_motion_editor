@@ -3,15 +3,23 @@
   "version": "1.0.0",
   "description": "A web-based robot keyframe editor with 3D visualization",
   "type": "module",
+  "packageManager": "npm@11.6.2",
+  "engines": {
+    "node": ">=24.0.0 <25.0.0",
+    "npm": ">=11.0.0 <12.0.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node tests/g1-plate-scene-split.test.js && esbuild tests/trajectory-creation-scene-fix-test.js --bundle --platform=node --target=node24 --format=cjs --outfile=/tmp/robot-motion-editor-trajectory-test.cjs --log-level=error && node /tmp/robot-motion-editor-trajectory-test.cjs && esbuild tests/cookie-manager-v3-test.js --bundle --platform=node --target=node24 --format=cjs --outfile=/tmp/robot-motion-editor-cookie-test.cjs --log-level=error && node /tmp/robot-motion-editor-cookie-test.cjs && esbuild tests/curve-timeline-interaction-test.js --bundle --platform=node --target=node24 --format=cjs --outfile=/tmp/robot-motion-editor-curve-timeline-test.cjs --log-level=error && node /tmp/robot-motion-editor-curve-timeline-test.cjs && node tests/urdf-loader-resource-test.js && node tests/mesh-optimizer-test.js && node tests/builtin-robot-assets-test.js && node tests/builtin-robots-test.js && node tests/import-ui-shared-clock-test.js"
   },
   "devDependencies": {
-    "vite": "^5.0.0"
+    "esbuild": "^0.28.1",
+    "vite": "^8.2.1"
   },
   "dependencies": {
+    "meshoptimizer": "^1.2.0",
     "three": "^0.160.0",
     "urdf-loader": "^0.12.3"
   }

@@ -1,15 +1,22 @@
 import { defineConfig } from 'vite';
-import { execSync } from 'child_process';
+import { execFileSync } from 'node:child_process';
+
+function git(...args) {
+  return execFileSync('git', args, {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore']
+  }).trim();
+}
 
 function getGitInfo() {
   try {
-    const commitHash = execSync('git rev-parse HEAD').toString().trim();
+    const commitHash = git('rev-parse', 'HEAD');
     const commitShort = commitHash.substring(0, 8);
-    const commitDate = execSync('git log -1 --format=%ci').toString().trim();
-    const branch = execSync('git rev-parse --abbrev-ref HEAD').toString().trim();
+    const commitDate = git('log', '-1', '--format=%ci');
+    const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
     let tag = '';
     try {
-      tag = execSync('git describe --tags --exact-match 2>/dev/null').toString().trim();
+      tag = git('describe', '--tags', '--exact-match');
     } catch (e) {
       // No tag on current commit
     }
@@ -50,7 +57,7 @@ const hostingEnv = getHostingEnvironment();
 export default defineConfig({
   server: {
     port: 3000,
-    open: true,
+    open: !process.env.CI,
     watch: {
       usePolling: true,
       interval: 1000

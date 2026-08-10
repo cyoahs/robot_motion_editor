@@ -73,12 +73,14 @@
 
     .toolbar {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       padding: 10px;
       background: var(--bg-secondary);
       border-bottom: 1px solid var(--border-primary);
       transition: background-color 0.3s ease, border-color 0.3s ease;
       flex-shrink: 0;
+      align-items: center;
+      flex-wrap: wrap;
     }
 
     .toolbar button,
@@ -173,6 +175,162 @@
       display: none;
     }
 
+    .toolbar-file-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar-file-group .toolbar-file-button,
+    .toolbar .dropdown-toggle {
+      white-space: nowrap;
+    }
+
+    .dropdown-submenu {
+      position: relative;
+    }
+
+    .dropdown-menu .submenu-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .submenu-toggle::after {
+      content: '›';
+      flex: 0 0 auto;
+      color: var(--text-tertiary);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .dropdown-submenu > .submenu-menu {
+      top: -8px;
+      left: calc(100% - 4px);
+      margin-top: 0;
+      z-index: 1001;
+    }
+
+    .dropdown-submenu:hover > .submenu-menu,
+    .dropdown-submenu:focus-within > .submenu-menu,
+    .dropdown-submenu.open > .submenu-menu {
+      display: flex;
+    }
+
+    .toolbar-divider {
+      width: 1px;
+      height: 28px;
+      background: var(--border-primary);
+      flex: 0 0 auto;
+    }
+
+    .dropdown-section-title {
+      padding: 6px 14px 3px;
+      color: var(--text-tertiary);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+
+    .dropdown-separator {
+      height: 1px;
+      margin: 5px 10px;
+      background: var(--border-primary);
+    }
+
+    .mode-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      padding: 2px;
+      border: 1px solid var(--border-primary);
+      border-radius: 6px;
+      background: var(--bg-primary);
+    }
+
+    .toolbar .mode-switch button {
+      padding: 6px 10px;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .toolbar .mode-switch button:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .toolbar .mode-switch button.active,
+    .toolbar .mode-switch button[aria-pressed="true"] {
+      background: var(--accent-primary);
+      color: white;
+    }
+
+    .create-mode-controls {
+      order: 10;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 8px 10px;
+      border: 1px solid var(--border-primary);
+      border-radius: 6px;
+      background: var(--bg-primary);
+    }
+
+    .create-mode-controls[hidden] {
+      display: none !important;
+    }
+
+    .create-mode-title {
+      color: var(--text-primary);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .create-mode-field {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--text-secondary);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .create-mode-field input,
+    .create-mode-field select {
+      height: 28px;
+      padding: 3px 7px;
+      border: 1px solid var(--border-primary);
+      border-radius: 4px;
+      background: var(--bg-input);
+      color: var(--text-primary);
+      font-size: 12px;
+    }
+
+    .create-mode-field input {
+      width: 82px;
+    }
+
+    .create-mode-field select {
+      min-width: 92px;
+    }
+
+    .toolbar .create-mode-controls button {
+      padding: 6px 10px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
     .main-content {
       display: flex;
       flex: 1;
@@ -193,6 +351,139 @@
       display: flex;
       flex-direction: column;
       transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+
+    .edit-target-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      margin-bottom: 10px;
+      padding: 3px;
+      border: 1px solid var(--border-primary);
+      border-radius: 6px;
+      background: var(--bg-primary);
+      flex: 0 0 auto;
+    }
+
+    .edit-target-switch button {
+      padding: 6px 8px;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.2s ease;
+    }
+
+    .edit-target-switch button:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .edit-target-switch button.active,
+    .edit-target-switch button[aria-pressed="true"] {
+      background: var(--accent-primary);
+      color: white;
+    }
+
+    .entity-control-panel {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      flex-direction: column;
+    }
+
+    .entity-control-panel[hidden] {
+      display: none !important;
+    }
+
+    .control-section {
+      flex: 0 0 auto;
+    }
+
+    .joint-control-section {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      flex-direction: column;
+    }
+
+    .scene-fix-hint {
+      margin: 0 0 8px;
+      padding: 7px 8px;
+      border: 1px solid var(--border-primary);
+      border-radius: 4px;
+      background: var(--bg-primary);
+      color: var(--text-tertiary);
+      font-size: 10px;
+      line-height: 1.4;
+    }
+
+    #joint-controls,
+    #scene-joint-controls {
+      min-height: 0;
+    }
+
+    @media (max-width: 1200px) {
+      .toolbar-divider {
+        display: none;
+      }
+
+      #current-file-name,
+      #status-text {
+        margin-left: 0 !important;
+      }
+
+      #status-text {
+        flex: 1 1 180px;
+        min-width: 120px;
+      }
+
+      #reset-button {
+        margin-left: 0 !important;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .toolbar {
+        align-content: flex-start;
+      }
+
+      .toolbar-file-group {
+        width: 100%;
+      }
+
+      .toolbar-file-group .toolbar-file-button {
+        flex: 1 1 calc(50% - 6px);
+        padding: 7px 8px;
+        text-align: center;
+      }
+
+      .toolbar-file-group > .dropdown {
+        flex: 1 1 calc(50% - 6px);
+      }
+
+      .toolbar-file-group > .dropdown > .dropdown-toggle {
+        justify-content: center;
+        width: 100%;
+      }
+
+      .dropdown-submenu > .submenu-menu {
+        position: static;
+        min-width: 0;
+        margin: 0 10px 4px 18px;
+        border-radius: 4px;
+        box-shadow: none;
+      }
+
+      .create-mode-field {
+        flex: 1 1 130px;
+      }
+
+      #sidebar {
+        width: min(300px, 42vw);
+      }
     }
 
     .joint-control {
@@ -722,21 +1013,58 @@
 
   <div id="app">
     <div class="toolbar">
-      <label for="urdf-folder" data-i18n="loadURDF">
-        加载 URDF 文件夹
-        <input type="file" id="urdf-folder" webkitdirectory directory multiple>
-      </label>
-      <label for="csv-file" data-i18n="loadCSV">
-        加载 CSV 轨迹
-        <input type="file" id="csv-file" accept=".csv">
-      </label>
+      <div id="asset-import-controls" class="toolbar-file-group">
+        <div id="add-robot-dropdown" class="dropdown">
+          <button id="add-robot-button" class="dropdown-toggle" type="button"
+                  aria-haspopup="menu" aria-expanded="false" aria-controls="add-robot-menu"
+                  data-i18n="addRobot">添加机器人</button>
+          <div id="add-robot-menu" class="dropdown-menu" role="menu" aria-labelledby="add-robot-button">
+            <button id="upload-robot-urdf" class="dropdown-item" type="button" role="menuitem"
+                    data-i18n="uploadURDF">上传 URDF</button>
+            <div class="dropdown-submenu">
+              <button id="unitree-robots-toggle" class="dropdown-item submenu-toggle" type="button"
+                      role="menuitem" aria-haspopup="menu" aria-expanded="false"
+                      aria-controls="unitree-robots-menu" data-i18n="unitreeRobots">Unitree</button>
+              <div id="unitree-robots-menu" class="dropdown-menu submenu-menu" role="menu"
+                   aria-labelledby="unitree-robots-toggle">
+                <button id="load-builtin-g1" class="dropdown-item" type="button" role="menuitem"
+                        data-robot-preset="g1" data-i18n="builtinG1">G1</button>
+                <button id="load-builtin-h2" class="dropdown-item" type="button" role="menuitem"
+                        data-robot-preset="h2" data-i18n="builtinH2">H2</button>
+              </div>
+            </div>
+          </div>
+          <input type="file" id="urdf-folder" webkitdirectory directory multiple>
+        </div>
+        <label class="toolbar-file-button" for="csv-file" data-i18n="loadCSV">
+          加载 CSV 轨迹
+          <input type="file" id="csv-file" accept=".csv">
+        </label>
+        <label class="toolbar-file-button" for="scene-urdf-folder" data-i18n="uploadScene">
+          上传场景
+          <input type="file" id="scene-urdf-folder" webkitdirectory directory multiple>
+        </label>
+      </div>
+
+      <div class="toolbar-divider" aria-hidden="true"></div>
+
+      <div id="editor-mode-switch" class="mode-switch" role="group" aria-label="Editor mode">
+        <button id="compare-mode-button" class="active" type="button" data-mode="compare" aria-pressed="true" data-i18n="compareMode">比较模式</button>
+        <button id="create-mode-button" type="button" data-mode="create" aria-pressed="false" data-i18n="createMode">创建模式</button>
+      </div>
       
       <!-- 导出下拉菜单 -->
       <div class="dropdown">
         <button class="dropdown-toggle" data-i18n="export">导出</button>
         <div class="dropdown-menu">
-          <button class="dropdown-item" id="export-trajectory" data-i18n="exportTrajectory">导出编辑轨迹</button>
-          <button class="dropdown-item" id="export-base-trajectory" data-i18n="exportBaseTrajectory">导出原始轨迹</button>
+          <div class="dropdown-section-title" data-i18n="robotTrajectoryGroup">机器人轨迹</div>
+          <button class="dropdown-item" id="export-trajectory" data-i18n="exportRobotTrajectory">导出机器人编辑轨迹</button>
+          <button class="dropdown-item" id="export-base-trajectory" data-i18n="exportRobotBaseTrajectory">导出机器人原始轨迹</button>
+          <div class="dropdown-separator" aria-hidden="true"></div>
+          <div class="dropdown-section-title" data-i18n="sceneTrajectoryGroup">场景轨迹</div>
+          <button class="dropdown-item" id="export-scene-trajectory" data-i18n="exportSceneTrajectory">导出场景编辑轨迹</button>
+          <button class="dropdown-item" id="export-scene-base-trajectory" data-i18n="exportSceneBaseTrajectory">导出场景原始轨迹</button>
+          <div class="dropdown-separator" aria-hidden="true"></div>
           <button class="dropdown-item" id="export-video" data-i18n="exportVideo">🎥 导出视频</button>
         </div>
       </div>
@@ -774,13 +1102,26 @@
         <span style="font-size: 14px;">🔒</span>
         <span data-i18n="dataPrivacy">本地处理，数据安全</span>
       </span>
+      <div id="create-mode-controls" class="create-mode-controls" style="display: none;">
+        <span class="create-mode-title" data-i18n="createModeSettings">创建轨迹</span>
+        <div class="create-mode-field">
+          <span data-i18n="frameCount">帧数</span>
+          <input id="create-frame-count" type="number" min="1" step="1" value="100" inputmode="numeric">
+        </div>
+        <div class="create-mode-field">
+          <span data-i18n="fps">FPS</span>
+          <input id="create-fps" type="number" min="1" max="240" step="1" value="50" inputmode="numeric">
+        </div>
+        <button id="create-zero-trajectory" type="button" data-i18n="createZeroTrajectory">创建零轨迹</button>
+        <button id="apply-trajectory-length" type="button" data-i18n="applyTrajectoryLength">应用长度</button>
+      </div>
     </div>
 
     <div class="main-content">
       <div id="viewport" style="position: relative;">
-        <div style="position: absolute; top: 10px; left: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: var(--success-color); pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="baseTrajectory">原始轨迹 (Base)</div>
-        <div style="position: absolute; top: 10px; right: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: var(--warning-color); pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="editedTrajectory">编辑后 (Modified)</div>
-        <div style="position: absolute; top: 50%; left: 50%; width: 2px; height: 100%; background: var(--border-primary); transform: translateX(-50%); pointer-events: none; z-index: 99; transition: background-color 0.3s ease;"></div>
+        <div id="base-viewport-label" style="position: absolute; top: 10px; left: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: var(--success-color); pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="baseTrajectory">原始轨迹 (Base)</div>
+        <div id="edited-viewport-label" style="position: absolute; top: 10px; right: 10px; background: var(--overlay-bg); padding: 5px 10px; border-radius: 4px; z-index: 100; font-size: 12px; color: var(--warning-color); pointer-events: none; transition: all 0.3s ease; backdrop-filter: blur(5px);" data-i18n="editedTrajectory">编辑后 (Modified)</div>
+        <div id="viewport-divider" style="position: absolute; top: 0; left: 50%; width: 2px; height: 100%; background: var(--border-primary); transform: translateX(-50%); pointer-events: none; z-index: 99; transition: background-color 0.3s ease;"></div>
         
         <!-- 相机控制按钮 -->
         <div style="position: absolute; bottom: 10px; left: 10px; z-index: 100; display: flex; gap: 5px;">
@@ -817,32 +1158,52 @@
         </div>
       </div>
       <div id="sidebar">
-        <!-- 基体控制 -->
-        <div style="border-bottom: 1px solid var(--border-primary); margin-bottom: 10px; padding-bottom: 10px; transition: border-color 0.3s ease;">
-          <div id="base-control-header" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px; background: var(--bg-tertiary); border-radius: 4px; transition: background-color 0.3s ease;">
-            <h3 style="margin: 0; font-size: 13px;" data-i18n="baseControl">▶ 基体控制 (Base)</h3>
-          </div>
-          <div id="base-controls" style="display: none; margin-top: 10px;"></div>
+        <div id="active-edit-target-switch" class="edit-target-switch" role="group" aria-label="Active edit target">
+          <button id="edit-target-robot" class="active" type="button" data-target="robot" aria-pressed="true" data-i18n="editRobot">机器人编辑</button>
+          <button id="edit-target-scene" type="button" data-target="scene" aria-pressed="false" data-i18n="editScene">场景编辑</button>
         </div>
-        
-        <!-- 脚部控制 -->
-        <div style="border-bottom: 1px solid var(--border-primary); margin-bottom: 10px; padding-bottom: 10px; transition: border-color 0.3s ease;">
-          <div id="foot-control-header" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px; background: var(--bg-tertiary); border-radius: 4px; transition: background-color 0.3s ease;">
-            <h3 style="margin: 0; font-size: 13px;" data-i18n="footControl">▶ 脚部控制 (Feet)</h3>
+
+        <div id="robot-control-panel" class="entity-control-panel" data-target="robot">
+          <!-- 基体控制 -->
+          <div id="robot-base-section" class="control-section" style="border-bottom: 1px solid var(--border-primary); margin-bottom: 10px; padding-bottom: 10px; transition: border-color 0.3s ease;">
+            <div id="base-control-header" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px; background: var(--bg-tertiary); border-radius: 4px; transition: background-color 0.3s ease;">
+              <h3 style="margin: 0; font-size: 13px;" data-i18n="baseControl">▶ 基体控制 (Base)</h3>
+            </div>
+            <div id="base-controls" style="display: none; margin-top: 10px;"></div>
           </div>
-          <div id="foot-controls" style="display: none; margin-top: 10px;">
-            <button id="identify-feet" style="width: 100%; padding: 6px; margin-bottom: 8px; font-size: 12px; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer;" data-i18n="identifyFeet">🦶 识别脚部</button>
-            <button id="level-feet" style="width: 100%; padding: 6px; margin-bottom: 8px; font-size: 12px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; display: none;" data-i18n="levelFeet">⚖️ 脚部水平</button>
-            <div id="feet-list" style="max-height: 300px; overflow-y: auto;"></div>
+
+          <!-- 脚部控制 -->
+          <div id="robot-foot-section" class="control-section" style="border-bottom: 1px solid var(--border-primary); margin-bottom: 10px; padding-bottom: 10px; transition: border-color 0.3s ease;">
+            <div id="foot-control-header" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px; background: var(--bg-tertiary); border-radius: 4px; transition: background-color 0.3s ease;">
+              <h3 style="margin: 0; font-size: 13px;" data-i18n="footControl">▶ 脚部控制 (Feet)</h3>
+            </div>
+            <div id="foot-controls" style="display: none; margin-top: 10px;">
+              <button id="identify-feet" style="width: 100%; padding: 6px; margin-bottom: 8px; font-size: 12px; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer;" data-i18n="identifyFeet">🦶 识别脚部</button>
+              <button id="level-feet" style="width: 100%; padding: 6px; margin-bottom: 8px; font-size: 12px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); border-radius: 4px; cursor: pointer; display: none;" data-i18n="levelFeet">⚖️ 脚部水平</button>
+              <div id="feet-list" style="max-height: 300px; overflow-y: auto;"></div>
+            </div>
+          </div>
+
+          <!-- 机器人关节控制 -->
+          <div id="robot-joint-section" class="joint-control-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 5px; background: var(--bg-tertiary); border-radius: 4px; transition: background-color 0.3s ease;">
+              <h3 style="margin: 0; color: var(--text-primary); transition: color 0.3s ease;" data-i18n="robotJointControl">机器人关节控制</h3>
+              <button id="reset-joints" style="padding: 4px 12px; font-size: 12px; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer; transition: background-color 0.2s ease;" data-i18n="reset">重置</button>
+            </div>
+            <div id="joint-controls" style="overflow-y: auto; flex: 1;"></div>
           </div>
         </div>
-        
-        <!-- 关节控制 -->
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 5px; background: var(--bg-tertiary); border-radius: 4px; transition: background-color 0.3s ease;">
-          <h3 style="margin: 0; color: var(--text-primary); transition: color 0.3s ease;" data-i18n="jointControl">关节控制</h3>
-          <button id="reset-joints" style="padding: 4px 12px; font-size: 12px; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer; transition: background-color 0.2s ease;" data-i18n="reset">重置</button>
+
+        <div id="scene-control-panel" class="entity-control-panel" data-target="scene" style="display: none;">
+          <div id="scene-joint-section" class="joint-control-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 5px; background: var(--bg-tertiary); border-radius: 4px; transition: background-color 0.3s ease;">
+              <h3 style="margin: 0; color: var(--text-primary); transition: color 0.3s ease;" data-i18n="sceneJointControl">场景自由度</h3>
+              <button id="reset-scene-joints" style="padding: 4px 12px; font-size: 12px; background: var(--accent-primary); color: white; border: none; border-radius: 4px; cursor: pointer; transition: background-color 0.2s ease;" data-i18n="reset">重置</button>
+            </div>
+            <p class="scene-fix-hint" data-i18n="sceneFixHint">勾选 Fix 后，该自由度会在整条轨迹中保持当前设定值。</p>
+            <div id="scene-joint-controls" style="overflow-y: auto; flex: 1;"></div>
+          </div>
         </div>
-        <div id="joint-controls" style="overflow-y: auto; flex: 1;"></div>
       </div>
     </div>
 
@@ -1033,6 +1394,28 @@
             <div id="cookie-notice" style="display: none; padding: 10px; background: rgba(78, 201, 176, 0.1); border: 1px solid var(--success-color); border-radius: 6px; color: var(--text-secondary); font-size: 11px;" data-i18n="cookieNotice">
               ℹ️ Cookie 仅用于在本地浏览器保存您的工作状态，不会上传到服务器。
             </div>
+          </div>
+        </div>
+
+        <!-- 本地处理设置区域 -->
+        <div id="local-processing-settings-section" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-primary);">
+          <h3 style="color: var(--text-primary); margin: 0 0 15px 0; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+            <span>⚙️</span>
+            <span data-i18n="localProcessingSettings">本地处理</span>
+          </h3>
+          <div id="local-processing-settings" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px; background: var(--bg-secondary); border-radius: 6px;">
+            <div style="min-width: 0; flex: 1;">
+              <label for="optimize-mesh-on-upload"
+                     style="display: block; color: var(--text-primary); font-size: 13px; font-weight: 500; cursor: pointer;"
+                     data-i18n="optimizeMeshOnUpload"
+                     data-i18n-title="optimizeMeshOnUploadTitle"
+                     title="上传机器人或场景 URDF 时自动减少 Mesh 面数">优化上传 Mesh</label>
+              <div id="optimize-mesh-on-upload-description" style="margin-top: 4px; color: var(--text-tertiary); font-size: 11px; line-height: 1.4;" data-i18n="optimizeMeshOnUploadDesc">上传机器人或场景时，在浏览器本地降低高面数 Mesh 的复杂度。</div>
+            </div>
+            <label class="cookie-toggle" style="position: relative; display: inline-block; flex: 0 0 48px; width: 48px; height: 24px; cursor: pointer;">
+              <input id="optimize-mesh-on-upload" type="checkbox" checked aria-describedby="optimize-mesh-on-upload-description">
+              <span class="cookie-toggle-slider"></span>
+            </label>
           </div>
         </div>
         

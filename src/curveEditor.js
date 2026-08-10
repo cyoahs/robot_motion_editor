@@ -51,6 +51,41 @@ export class CurveEditor {
     this.setupUI();
     this.setupEventListeners();
   }
+
+  getTrajectoryManager() {
+    if (this.editor.getActiveTrajectoryManager) {
+      return this.editor.getActiveTrajectoryManager();
+    }
+    return this.editor.trajectoryManager;
+  }
+
+  getJointController() {
+    if (this.editor.getActiveJointController) {
+      return this.editor.getActiveJointController();
+    }
+    return this.editor.jointController;
+  }
+
+  getBaseController() {
+    if (this.editor.getActiveBaseController) {
+      return this.editor.getActiveBaseController();
+    }
+    return this.editor.baseController;
+  }
+
+  resetForActiveTrack() {
+    this.curves.clear();
+    this.colorIndex = 0;
+    this.draggingPoint = null;
+    this.hoveredPoint = null;
+    const rpyContainer = document.getElementById('rpy-buttons-container');
+    if (rpyContainer && !this.getBaseController()) {
+      rpyContainer.style.display = 'none';
+    }
+    this.updateInterpolationButton();
+    this.updateCurves();
+    this.draw();
+  }
   
   /**
    * 缓存常用的 CSS 变量值，避免频繁调用 getComputedStyle (Safari 优化)
@@ -300,9 +335,9 @@ export class CurveEditor {
    * 切换插值模式
    */
   toggleInterpolationMode() {
-    const currentMode = this.editor.trajectoryManager.getInterpolationMode();
+    const currentMode = this.getTrajectoryManager().getInterpolationMode();
     const newMode = currentMode === 'linear' ? 'bezier' : 'linear';
-    this.editor.trajectoryManager.setInterpolationMode(newMode);
+    this.getTrajectoryManager().setInterpolationMode(newMode);
     this.updateInterpolationButton();
     
     // 重新绘制曲线和更新机器人状态
@@ -320,7 +355,7 @@ export class CurveEditor {
     const toggle = document.getElementById('interpolation-mode-toggle');
     if (!toggle) return;
     
-    const mode = this.editor.trajectoryManager.getInterpolationMode();
+    const mode = this.getTrajectoryManager().getInterpolationMode();
     const isBezier = mode === 'bezier';
     
     // 更新 checkbox 状态（CSS 会自动处理样式）
@@ -331,11 +366,11 @@ export class CurveEditor {
    * 更新曲线数据
    */
   updateCurves() {
-    if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
+    if (!this.getTrajectoryManager() || !this.getTrajectoryManager().hasTrajectory()) {
       return;
     }
     
-    const keyframes = this.editor.trajectoryManager.getKeyframes();
+    const keyframes = this.getTrajectoryManager().getKeyframes();
     
     // 如果有关键帧且当前是折叠状态，则展开
     if (keyframes.length > 0 && !this.isExpanded) {
@@ -345,8 +380,8 @@ export class CurveEditor {
     // 如果没有关键帧，清空曲线但保留定义
     if (keyframes.length === 0) {
       // 仍然定义曲线，但标记为不可见
-      if (this.editor.jointController) {
-        this.editor.jointController.joints.forEach((joint, index) => {
+      if (this.getJointController()) {
+        this.getJointController().joints.forEach((joint, index) => {
           const key = `joint_${index}`;
           if (!this.curves.has(key)) {
             this.curves.set(key, {
@@ -361,42 +396,44 @@ export class CurveEditor {
         });
       }
       
-      ['x', 'y', 'z'].forEach((axis) => {
-        const key = `base_pos_${axis}`;
-        if (!this.curves.has(key)) {
-          this.curves.set(key, {
-            name: `Base Position ${axis.toUpperCase()}`,
-            type: 'base_position',
-            axis: axis,
-            visible: false,
-            color: this.getNextColor(),
-            data: []
-          });
-        }
-      });
-      
-      // 添加基体欧拉角曲线（用于可视化四元数）
-      ['x', 'y', 'z'].forEach((axis) => {
-        const key = `base_euler_${axis}`;
-        if (!this.curves.has(key)) {
-          this.curves.set(key, {
-            name: `Base Euler ${axis.toUpperCase()}`,
-            type: 'base_euler',
-            axis: axis,
-            visible: false,
-            color: this.getNextColor(),
-            data: []
-          });
-        }
-      });
+      if (this.getBaseController()) {
+        ['x', 'y', 'z'].forEach((axis) => {
+          const key = `base_pos_${axis}`;
+          if (!this.curves.has(key)) {
+            this.curves.set(key, {
+              name: `Base Position ${axis.toUpperCase()}`,
+              type: 'base_position',
+              axis: axis,
+              visible: false,
+              color: this.getNextColor(),
+              data: []
+            });
+          }
+        });
+
+        // 添加基体欧拉角曲线（用于可视化四元数）
+        ['x', 'y', 'z'].forEach((axis) => {
+          const key = `base_euler_${axis}`;
+          if (!this.curves.has(key)) {
+            this.curves.set(key, {
+              name: `Base Euler ${axis.toUpperCase()}`,
+              type: 'base_euler',
+              axis: axis,
+              visible: false,
+              color: this.getNextColor(),
+              data: []
+            });
+          }
+        });
+      }
       
       this.draw();
       return;
     }
     
     // 更新关节曲线
-    if (this.editor.jointController) {
-      this.editor.jointController.joints.forEach((joint, index) => {
+    if (this.getJointController()) {
+      this.getJointController().joints.forEach((joint, index) => {
         const key = `joint_${index}`;
         
         // 检查是否有残差
@@ -421,46 +458,38 @@ export class CurveEditor {
       });
     }
     
-    // 更新基体位置曲线
-    ['x', 'y', 'z'].forEach((axis, index) => {
-      const key = `base_pos_${axis}`;
-      
-      // 检查是否有残差
-      let hasResidual = false;
-      for (const kf of keyframes) {
-        if (kf.baseResidual && kf.baseResidual.position &&
-            Math.abs(kf.baseResidual.position[axis] || 0) > 0.001) {
-          hasResidual = true;
-          break;
+    if (this.getBaseController()) {
+      // 更新基体位置曲线
+      ['x', 'y', 'z'].forEach((axis) => {
+        const key = `base_pos_${axis}`;
+
+        if (!this.curves.has(key)) {
+          this.curves.set(key, {
+            name: `Base Position ${axis.toUpperCase()}`,
+            type: 'base_position',
+            axis: axis,
+            visible: false,
+            color: this.getNextColor(),
+            data: []
+          });
         }
-      }
-      
-      if (!this.curves.has(key)) {
-        this.curves.set(key, {
-          name: `Base Position ${axis.toUpperCase()}`,
-          type: 'base_position',
-          axis: axis,
-          visible: false, // 默认不显示
-          color: this.getNextColor(),
-          data: []
-        });
-      }
-    });
-    
-    // 添加基体欧拉角曲线（用于可视化四元数）
-    ['x', 'y', 'z'].forEach((axis) => {
-      const key = `base_euler_${axis}`;
-      if (!this.curves.has(key)) {
-        this.curves.set(key, {
-          name: `Base Euler ${axis.toUpperCase()}`,
-          type: 'base_euler',
-          axis: axis,
-          visible: false, // 默认不显示
-          color: this.getNextColor(),
-          data: []
-        });
-      }
-    });
+      });
+
+      // 添加基体欧拉角曲线（用于可视化四元数）
+      ['x', 'y', 'z'].forEach((axis) => {
+        const key = `base_euler_${axis}`;
+        if (!this.curves.has(key)) {
+          this.curves.set(key, {
+            name: `Base Euler ${axis.toUpperCase()}`,
+            type: 'base_euler',
+            axis: axis,
+            visible: false,
+            color: this.getNextColor(),
+            data: []
+          });
+        }
+      });
+    }
   }
 
   getNextColor() {
@@ -512,13 +541,13 @@ export class CurveEditor {
     this.updateRPYButtons();
     
     // 更新关节控制面板的背景色
-    if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
-      this.editor.jointController.updateCurveBackgrounds();
+    if (this.getJointController() && this.getJointController().updateCurveBackgrounds) {
+      this.getJointController().updateCurveBackgrounds();
     }
     
     // 更新基体控制面板的背景色
-    if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
-      this.editor.baseController.updateCurveBackgrounds();
+    if (this.getBaseController() && this.getBaseController().updateCurveBackgrounds) {
+      this.getBaseController().updateCurveBackgrounds();
     }
     
     this.draw();
@@ -555,14 +584,14 @@ export class CurveEditor {
       eulerZ.visible = false; // Yaw默认不显示
       
       // 更新关节控制面板
-      if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
-        this.editor.jointController.updateCurveBackgrounds();
+      if (this.getJointController() && this.getJointController().updateCurveBackgrounds) {
+        this.getJointController().updateCurveBackgrounds();
       }
     }
     
     // 更新基体控制面板的背景色
-    if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
-      this.editor.baseController.updateCurveBackgrounds();
+    if (this.getBaseController() && this.getBaseController().updateCurveBackgrounds) {
+      this.getBaseController().updateCurveBackgrounds();
     }
     
     // 更新RPY按钮
@@ -585,8 +614,8 @@ export class CurveEditor {
     if (eulerZ) eulerZ.visible = false;
     
     // 更新基体控制面板的背景色
-    if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
-      this.editor.baseController.updateCurveBackgrounds();
+    if (this.getBaseController() && this.getBaseController().updateCurveBackgrounds) {
+      this.getBaseController().updateCurveBackgrounds();
     }
   }
   
@@ -618,11 +647,11 @@ export class CurveEditor {
    * 重置为默认显示（只显示有残差的曲线）
    */
   resetToDefault() {
-    if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
+    if (!this.getTrajectoryManager() || !this.getTrajectoryManager().hasTrajectory()) {
       return;
     }
     
-    const keyframes = this.editor.trajectoryManager.getKeyframes();
+    const keyframes = this.getTrajectoryManager().getKeyframes();
     
     this.curves.forEach((curve, key) => {
       let hasResidual = false;
@@ -648,32 +677,16 @@ export class CurveEditor {
     });
     
     // 更新关节控制面板的背景颜色
-    if (this.editor.jointController && this.editor.jointController.updateCurveBackgrounds) {
-      this.editor.jointController.updateCurveBackgrounds();
+    if (this.getJointController() && this.getJointController().updateCurveBackgrounds) {
+      this.getJointController().updateCurveBackgrounds();
     }
     
     // 更新基体控制面板的背景颜色
-    if (this.editor.baseController && this.editor.baseController.updateCurveBackgrounds) {
-      this.editor.baseController.updateCurveBackgrounds();
+    if (this.getBaseController() && this.getBaseController().updateCurveBackgrounds) {
+      this.getBaseController().updateCurveBackgrounds();
     }
     
     this.draw();
-  }
-
-  /**
-   * 获取曲线颜色
-   */
-  getCurveColor(curveKey) {
-    const curve = this.curves.get(curveKey);
-    return curve ? curve.color : null;
-  }
-
-  /**
-   * 检查曲线是否可见
-   */
-  isCurveVisible(curveKey) {
-    const curve = this.curves.get(curveKey);
-    return curve ? curve.visible : false;
   }
 
   /**
@@ -694,13 +707,13 @@ export class CurveEditor {
     this.ctx.fillStyle = this.cachedStyles.bgPrimary;
     this.ctx.fillRect(0, 0, width, height);
     
-    if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
+    if (!this.getTrajectoryManager() || !this.getTrajectoryManager().hasTrajectory()) {
       this.drawNoData();
       return;
     }
     
-    const frameCount = this.editor.trajectoryManager.getFrameCount();
-    const keyframes = this.editor.trajectoryManager.getKeyframes();
+    const frameCount = this.getTrajectoryManager().getFrameCount();
+    const keyframes = this.getTrajectoryManager().getKeyframes();
     
     if (keyframes.length === 0) {
       this.drawNoData();
@@ -968,19 +981,14 @@ export class CurveEditor {
   }
 
   getKeyframeValue(keyframe, curve) {
-    if (curve.type === 'joint') {
-      // 使用正确的数据结构：residual 是关节残差数组
-      if (keyframe.residual && keyframe.residual[curve.index] !== undefined) {
-        return keyframe.residual[curve.index];
-      }
-      return 0; // 没有残差返回0
-    } else if (curve.type === 'base_position') {
-      // 使用正确的数据结构：baseResidual.position
-      if (keyframe.baseResidual && keyframe.baseResidual.position && 
-          keyframe.baseResidual.position[curve.axis] !== undefined) {
-        return keyframe.baseResidual.position[curve.axis];
-      }
-      return 0; // 没有残差返回0
+    if (!keyframe || !Number.isInteger(keyframe.frame) || !curve) {
+      return null;
+    }
+
+    if (curve.type === 'joint' || curve.type === 'base_position') {
+      // 关键帧点绘制在编辑后绝对曲线上；命中测试必须使用同一个值，
+      // 不能再拿 residual 当作绝对值计算 Y 坐标。
+      return this.getFrameValue(keyframe.frame, curve, true);
     } else if (curve.type === 'base_euler') {
       // 欧拉角只用于可视化，不能被编辑，返回null使其不可点击
       return null;
@@ -992,10 +1000,10 @@ export class CurveEditor {
    * 获取指定帧的值（原始或编辑后）
    */
   getFrameValue(frame, curve, includeResiduals) {
-    if (!this.editor.trajectoryManager) return null;
+    if (!this.getTrajectoryManager()) return null;
     
     if (curve.type === 'joint') {
-      const baseState = this.editor.trajectoryManager.getBaseState(frame);
+      const baseState = this.getTrajectoryManager().getBaseState(frame);
       if (!baseState || !baseState.joints) return null;
       
       const baseValue = baseState.joints[curve.index];
@@ -1005,16 +1013,11 @@ export class CurveEditor {
         return baseValue;
       }
       
-      // 加上插值后的残差
-      const residual = this.editor.trajectoryManager.getInterpolatedResidual(frame);
-      if (residual && residual[curve.index] !== undefined) {
-        return baseValue + residual[curve.index];
-      }
-      
-      return baseValue;
+      const combinedState = this.getTrajectoryManager().getCombinedState(frame);
+      return combinedState?.joints?.[curve.index] ?? baseValue;
       
     } else if (curve.type === 'base_position') {
-      const baseState = this.editor.trajectoryManager.getBaseState(frame);
+      const baseState = this.getTrajectoryManager().getBaseState(frame);
       if (!baseState || !baseState.base || !baseState.base.position) return null;
       
       const baseValue = baseState.base.position[curve.axis];
@@ -1025,7 +1028,7 @@ export class CurveEditor {
       }
       
       // 加上插值后的残差
-      const residual = this.editor.trajectoryManager.getInterpolatedBaseResidual(frame);
+      const residual = this.getTrajectoryManager().getInterpolatedBaseResidual(frame);
       if (residual && residual.position && residual.position[curve.axis] !== undefined) {
         return baseValue + residual.position[curve.axis];
       }
@@ -1034,14 +1037,14 @@ export class CurveEditor {
       
     } else if (curve.type === 'base_euler') {
       // 欧拉角可视化：将四元数转换为欧拉角
-      const baseState = this.editor.trajectoryManager.getBaseState(frame);
+      const baseState = this.getTrajectoryManager().getBaseState(frame);
       if (!baseState || !baseState.base || !baseState.base.quaternion) return null;
       
       let quat = { ...baseState.base.quaternion };
       
       if (includeResiduals) {
         // 加上插值后的四元数残差
-        const residual = this.editor.trajectoryManager.getInterpolatedBaseResidual(frame);
+        const residual = this.getTrajectoryManager().getInterpolatedBaseResidual(frame);
         if (residual && residual.quaternion) {
           // 四元数相乘：result = base * residual
           quat = this.multiplyQuaternions(quat, residual.quaternion);
@@ -1135,12 +1138,12 @@ export class CurveEditor {
 
   // 计算值域范围（应用视图变换）
   calculateValueRange() {
-    if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
+    if (!this.getTrajectoryManager() || !this.getTrajectoryManager().hasTrajectory()) {
       return { minValue: -1, maxValue: 1 };
     }
 
-    const keyframes = this.editor.trajectoryManager.getKeyframes();
-    const frameCount = this.editor.trajectoryManager.getFrameCount();
+    const keyframes = this.getTrajectoryManager().getKeyframes();
+    const frameCount = this.getTrajectoryManager().getFrameCount();
     
     // 计算可见帧范围
     const width = this.canvas.width / (window.devicePixelRatio || 1);
@@ -1277,7 +1280,7 @@ export class CurveEditor {
       const x2 = Math.max(this.boxSelectStart.x, this.boxSelectEnd.x);
       
       if (Math.abs(x2 - x1) > 10) { // 至少10像素宽度
-        const frameCount = this.editor.trajectoryManager.getFrameCount();
+        const frameCount = this.getTrajectoryManager().getFrameCount();
         const width = this.canvas.width / (window.devicePixelRatio || 1);
         const plotLeft = this.padding.left;
         const plotWidth = width - this.padding.left - this.padding.right;
@@ -1339,7 +1342,7 @@ export class CurveEditor {
   }
 
   findPointAt(x, y) {
-    if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
+    if (!this.getTrajectoryManager() || !this.getTrajectoryManager().hasTrajectory()) {
       return null;
     }
     
@@ -1352,8 +1355,8 @@ export class CurveEditor {
     const plotWidth = plotRight - plotLeft;
     const plotHeight = plotBottom - plotTop;
     
-    const frameCount = this.editor.trajectoryManager.getFrameCount();
-    const keyframes = this.editor.trajectoryManager.getKeyframes();
+    const frameCount = this.getTrajectoryManager().getFrameCount();
+    const keyframes = this.getTrajectoryManager().getKeyframes();
     
     // 使用通用方法计算值域（已应用视图变换）
     const { minValue, maxValue } = this.calculateValueRange();
@@ -1363,6 +1366,9 @@ export class CurveEditor {
     // 检查每条曲线的每个关键帧
     for (const [key, curve] of this.curves) {
       if (!curve.visible) continue;
+      if (curve.type === 'joint' && this.getTrajectoryManager().isJointFixed?.(curve.index)) {
+        continue;
+      }
       
       for (let kfIndex = 0; kfIndex < keyframes.length; kfIndex++) {
         const kf = keyframes[kfIndex];
@@ -1374,7 +1380,14 @@ export class CurveEditor {
           
           const distance = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
           if (distance <= hitRadius) {
-            return { curveKey: key, keyframeIndex: kfIndex, minValue, maxValue };
+            return {
+              curveKey: key,
+              frameIndex: kf.frame,
+              // 暂时保留数组索引，兼容可能依赖旧返回结构的调用方。
+              keyframeIndex: kfIndex,
+              minValue,
+              maxValue
+            };
           }
         }
       }
@@ -1384,62 +1397,74 @@ export class CurveEditor {
   }
 
   updatePointValue(point, mouseY) {
+    const manager = this.getTrajectoryManager();
+    if (!manager?.hasTrajectory() || !point) return false;
+
     const height = this.canvas.height / (window.devicePixelRatio || 1);
     const plotTop = this.padding.top;
     const plotBottom = height - this.padding.bottom;
     const plotHeight = plotBottom - plotTop;
     
     const curve = this.curves.get(point.curveKey);
-    const keyframes = this.editor.trajectoryManager.getKeyframes();
-    const keyframe = keyframes[point.keyframeIndex];
+    if (!curve || plotHeight <= 0) return false;
+
+    const snapshotKeyframe = Number.isInteger(point.frameIndex)
+      ? null
+      : manager.getKeyframes()[point.keyframeIndex];
+    const frameIndex = Number.isInteger(point.frameIndex)
+      ? point.frameIndex
+      : snapshotKeyframe?.frame;
+    if (!Number.isInteger(frameIndex)) return false;
+
+    const keyframe = manager.keyframes.get(frameIndex);
+    const baseState = manager.getBaseState(frameIndex);
+    if (!keyframe || !baseState) return false;
     
-    // 从Y坐标计算新值
+    // 从 Y 坐标计算编辑后轨迹的目标绝对值。
     const normalized = 1 - (mouseY - plotTop) / plotHeight;
     const range = point.maxValue - point.minValue;
-    const newValue = point.minValue + normalized * range;
-    
-    // 更新残差 - 直接使用 residual 和 baseResidual
-    const frameIndex = point.keyframe.frame;
+    const targetValue = point.minValue + normalized * range;
+    if (!Number.isFinite(targetValue)) return false;
     
     if (curve.type === 'joint') {
-      // 对于关节，newValue 就是残差值
-      if (!point.keyframe.residual) {
-        point.keyframe.residual = new Array(this.editor.trajectoryManager.jointCount).fill(0);
+      const baseValue = baseState.joints?.[curve.index];
+      if (!Number.isFinite(baseValue)) return false;
+      if (manager.isJointFixed?.(curve.index)) return false;
+
+      if (!Array.isArray(keyframe.residual)) {
+        keyframe.residual = new Array(manager.jointCount).fill(0);
+      } else if (keyframe.residual.length < manager.jointCount) {
+        keyframe.residual.push(
+          ...new Array(manager.jointCount - keyframe.residual.length).fill(0)
+        );
       }
-      point.keyframe.residual[curve.index] = newValue;
-      
-      // 更新 trajectoryManager 中的数据
-      this.editor.trajectoryManager.keyframes.get(frameIndex).residual[curve.index] = newValue;
+      keyframe.residual[curve.index] = targetValue - baseValue;
       
     } else if (curve.type === 'base_position') {
-      // 对于基体位置，newValue 就是残差值
-      if (!point.keyframe.baseResidual) {
-        point.keyframe.baseResidual = {
+      const baseValue = baseState.base?.position?.[curve.axis];
+      if (!Number.isFinite(baseValue)) return false;
+
+      if (!keyframe.baseResidual) {
+        keyframe.baseResidual = {
           position: { x: 0, y: 0, z: 0 },
           quaternion: { x: 0, y: 0, z: 0, w: 1 }
         };
       }
-      if (!point.keyframe.baseResidual.position) {
-        point.keyframe.baseResidual.position = { x: 0, y: 0, z: 0 };
+      if (!keyframe.baseResidual.position) {
+        keyframe.baseResidual.position = { x: 0, y: 0, z: 0 };
       }
-      point.keyframe.baseResidual.position[curve.axis] = newValue;
-      
-      // 更新 trajectoryManager 中的数据
-      const kf = this.editor.trajectoryManager.keyframes.get(frameIndex);
-      if (!kf.baseResidual) {
-        kf.baseResidual = {
-          position: { x: 0, y: 0, z: 0 },
-          quaternion: { x: 0, y: 0, z: 0, w: 1 }
-        };
-      }
-      kf.baseResidual.position[curve.axis] = newValue;
+      keyframe.baseResidual.position[curve.axis] = targetValue - baseValue;
+    } else {
+      return false;
     }
     
     // 更新时间轴控制器以触发机器人更新
     if (this.editor.timelineController) {
       const currentFrame = this.editor.timelineController.getCurrentFrame();
-      this.editor.timelineController.updateFromSlider(currentFrame);
+      this.editor.timelineController.setCurrentFrame(currentFrame);
     }
+    this.editor.triggerAutoSave?.();
+    return true;
   }
 
   // 滚轮缩放处理（只缩放X轴，Y轴自适应）
@@ -1463,8 +1488,8 @@ export class CurveEditor {
       // 获取当前帧位置，以它为中心缩放
       const currentFrame = this.editor.timelineController ? 
         this.editor.timelineController.getCurrentFrame() : 0;
-      const frameCount = this.editor.trajectoryManager ? 
-        this.editor.trajectoryManager.getFrameCount() : 1;
+      const frameCount = this.getTrajectoryManager() ?
+        this.getTrajectoryManager().getFrameCount() : 1;
       
       if (frameCount > 1) {
         // 计算当前帧的标准化位置（0-1）

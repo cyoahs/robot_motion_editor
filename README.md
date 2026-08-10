@@ -1,6 +1,6 @@
 # 机器人关键帧编辑器
 
-基于 Web 的机器人运动编辑工具，支持 URDF 加载、CSV 轨迹编辑、双视口对比和工程文件管理。
+基于 Web 的机器人与场景运动编辑工具，支持独立机器人/场景 URDF 与编辑轨道、机器人 CSV 轨迹、关键帧与固定自由度、双视口对比、单视口轨迹创建和工程文件管理。
 
 **Other language:** [English](README.en.md)
 
@@ -15,6 +15,9 @@
 ## ✨ 核心特性
 
 - **双视口对比**: 左侧显示原始轨迹，右侧显示编辑结果，相机同步
+- **机器人/场景双轨**: 独立加载机器人/场景 URDF，通过机器人 CSV 建立共享时钟，并分别编辑和导出两条轨迹
+- **场景自由度固定**: 每个场景自由度可启用 `Fix`，使其在整条轨迹中保持指定值
+- **从零创建轨迹**: 创建模式使用单视口，可生成零轨迹并随时修改帧数与 FPS
 - **轨迹编辑**: 基于残差的关键帧系统，支持关节和基体编辑
 - **工程保存/加载**: 保存完整工程状态（URDF、轨迹、关键帧、编辑历史）
 - **自动保存**: Cookie + IndexedDB 混合存储，自动保存工作状态
@@ -37,21 +40,59 @@
 
 ## 快速开始
 
+项目固定使用 Node.js 24.12.0 与 npm 11。推荐通过 NVM 初始化：
+
 ```bash
-npm install           # 安装依赖
-npm run dev           # 启动开发服务器
+nvm use               # 读取 .nvmrc，切换到项目 Node 版本
+npm ci                # 按 package-lock.json 干净安装依赖
+npm run dev           # 启动开发服务器（默认 http://localhost:3000）
 npm run build         # 生产构建
+npm test              # 完整回归测试
 ```
 
 ## 使用说明
 
 ### 基本流程
 
-1. **加载 URDF**: 选择包含 URDF 和 mesh 文件的文件夹
-2. **加载轨迹**: 加载 unitree CSV（base xyz + 四元数 xyzw + 关节弧度）或 seed CSV（Frame + cm/degree），内部会自动转换为 unitree 数据
-3. **编辑关键帧**: 点击自由度名称显示曲线，调整参数后添加关键帧（Shift+点击多选曲线）
-4. **保存工程**: 保存完整的编辑状态（支持加载恢复）
-5. **导出轨迹**: 选择 unitree/seed 格式和导出 FPS 后导出融合后的 CSV 轨迹；FPS 不同时会自动插值重采样
+1. **加载模型**: 从“添加机器人”直接选择内置 G1/H2，或上传机器人 URDF 文件夹；场景通过“上传场景”单独加载。“本地处理，数据安全”设置中的上传 Mesh 优化默认开启
+2. **加载轨迹**: 通过“加载 CSV 轨迹”导入机器人 unitree 或 seed CSV；场景轨迹与机器人共用帧数和 FPS
+3. **选择编辑对象**: 在“机器人/场景”之间切换，时间轴、关节面板和曲线会跟随当前轨道
+4. **编辑关键帧**: 点击自由度名称显示曲线，调整参数后添加关键帧（Shift+点击多选曲线）；场景自由度可勾选 `Fix`
+5. **从零创建**: 切到“创建模式”，用唯一一组帧数/FPS 同时创建或调整已加载的机器人与场景轨迹
+6. **独立导出**: 机器人和场景各有“编辑后/原始”导出按钮；机器人可选 unitree/seed，场景导出 unitree
+7. **保存工程**: 工程文件和自动保存会保留两条轨迹、场景固定值及当前工作模式
+
+### 两种轨迹 CSV 格式
+
+编辑器加载后统一使用米、弧度和四元数进行内部计算。机器人轨迹可导入/导出 Unitree 或 Seed；格式由 Seed 的固定表头自动识别。
+
+| 项目 | Unitree | Seed |
+|---|---|---|
+| 表头 | 无，第一行就是数值 | 必须有固定表头 |
+| 基体位置 | `x,y,z`，单位 m | `root_translateX/Y/Z`，单位 cm |
+| 基体姿态 | `qx,qy,qz,qw` | `root_rotateX/Y/Z`，单位 degree，分别表示 roll/pitch/yaw，按 ZYX 组合 |
+| 关节值 | 第 8 列起，单位 rad | 固定 7 列之后，单位 degree |
+| 默认导入 FPS | 50 | 120 |
+
+Unitree 是无表头的纯数值格式。下面是包含 3 个关节的缩写示例；以 `#` 开头的是可选注释，不是表头：
+
+```csv
+# x,y,z,qx,qy,qz,qw,joint_1,joint_2,joint_3
+0,0,0.8,0,0,0,1,0.1,-0.2,0.3
+```
+
+Seed 的前七列表头必须依次为 `Frame,root_translateX,root_translateY,root_translateZ,root_rotateX,root_rotateY,root_rotateZ`，其后是关节列：
+
+```csv
+Frame,root_translateX,root_translateY,root_translateZ,root_rotateX,root_rotateY,root_rotateZ,joint_1_dof,joint_2_dof,joint_3_dof
+0,0,0,80,0,0,0,5,-10,15
+```
+
+Seed 的 `Frame` 必须是数值，但导入以数据行顺序为准，导出时重新编号为 `0..N-1`。两种格式都不在文件中保存可靠的时间间隔：加载时会提示确认 FPS，之后机器人和场景共用该帧数/FPS。空行和以 `#` 开头的注释行会被忽略；所有数据行必须列数一致、全部为有限数值，且关节列数量必须等于已加载机器人 URDF 的可动关节数。关节值始终按 URDF 控制面板中的顺序对应；Seed 关节表头只作为标签。导出格式不会改变共享 FPS。场景自由度可能包含平移关节，因此场景轨迹仅导出 Unitree。
+
+### 内置 Mesh 优化
+
+内置 G1/H2 使用按部件分层的可视化预算，而不是统一面数上限：普通部件为 6k，手、腿部轮廓和大型外壳按重要性提高到 8k–50k。当前 URDF 可视网格总量为 G1 234,121 面、H2 286,451 面。可复现参数位于 `scripts/mesh_optimization_profile.json`，离线处理与固定机位渲染脚本分别为 `scripts/optimize_stl_assets.py` 和 `scripts/render_urdf_visuals.py`。
 
 ### 工程管理
 
@@ -75,6 +116,7 @@ npm run build         # 生产构建
 - Vite: 前端构建工具
 - Three.js: 3D 图形渲染
 - urdf-loader: URDF 解析
+- meshoptimizer: 上传模型的浏览器端 Mesh 简化
 - 原生 JavaScript: 无框架依赖
 
 ## 项目结构
@@ -96,12 +138,7 @@ src/
 ├── themeManager.js      # 主题管理
 └── i18n.js              # 多语言支持
 ```
-├── axisGizmo.js         # 坐标轴指示器
-├── timelineController.js # 时间轴控制
-└── i18n.js              # 国际化（中文/英文）
-```
 
 ## License
 
 MIT
-

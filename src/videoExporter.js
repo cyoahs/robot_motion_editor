@@ -242,9 +242,13 @@ export class VideoExporter {
    */
   async showFPSDialog() {
     return new Promise((resolve) => {
-      // 获取CSV的帧率
-      const csvFPS = this.editor.trajectoryManager.fps || 50;
-      const csvFrameCount = this.editor.trajectoryManager.getFrameCount();
+      // Robot and scene editing share a single source clock. The active panel
+      // must not change video duration or the displayed CSV FPS.
+      const timeline = this.editor.getSharedTimelineSpec?.();
+      const manager = this.editor.getSharedTimelineManager?.() ||
+        this.editor.getActiveTrajectoryManager?.() || this.editor.trajectoryManager;
+      const csvFPS = timeline?.fps || manager.fps || 50;
+      const csvFrameCount = timeline?.frameCount || manager.getFrameCount();
       
       // 创建对话框
       const dialog = document.createElement('div');
@@ -574,13 +578,23 @@ export class VideoExporter {
    */
   async startExport() {
     if (this.isExporting) return;
-    
-    if (!this.editor.robotLeft || !this.editor.robotRight) {
-      alert(i18n.t('needRobotForVideo'));
+
+    const activeTrack = this.editor.activeTrack === 'scene' ? 'scene' : 'robot';
+    const activeManager = this.editor.getActiveTrajectoryManager?.() || this.editor.trajectoryManager;
+    const timeline = this.editor.getSharedTimelineSpec?.() || (activeManager.hasTrajectory() ? {
+      frameCount: activeManager.getFrameCount(),
+      fps: activeManager.fps || 50
+    } : null);
+    const hasModels = activeTrack === 'scene'
+      ? this.editor.sceneModelLeft && this.editor.sceneModelRight
+      : this.editor.robotLeft && this.editor.robotRight;
+
+    if (!hasModels) {
+      alert(activeTrack === 'scene' ? i18n.t('needScene') : i18n.t('needRobotForVideo'));
       return;
     }
-    
-    if (!this.editor.trajectoryManager.hasTrajectory()) {
+
+    if (!timeline) {
       alert(i18n.t('needTrajectory'));
       return;
     }
@@ -599,9 +613,13 @@ export class VideoExporter {
     
     // 保存导出信息用于详细overlay
     this.exportInfo = {
-      urdfFolder: this.editor.currentURDFFolder || '',
-      urdfFile: this.editor.currentURDFFile || '',
-      trajectoryFile: this.editor.trajectoryManager.currentFile || '',
+      urdfFolder: activeTrack === 'scene'
+        ? (this.editor.currentSceneURDFFolder || '')
+        : (this.editor.currentURDFFolder || ''),
+      urdfFile: activeTrack === 'scene'
+        ? (this.editor.currentSceneURDFFile || '')
+        : (this.editor.currentURDFFile || ''),
+      trajectoryFile: activeManager.originalFileName || '',
       projectFile: this.editor.currentProjectFile || '',
       exportTime: new Date().toLocaleString('zh-CN', { 
         year: 'numeric', 
@@ -617,7 +635,9 @@ export class VideoExporter {
     this.isPaused = false;
     this.recordedChunks = [];
     this.startTime = null; // 重置开始时间
-    this.recordingDuration = 0; // 录制时长(毫秒)
+    let originalFrame = null;
+    let originalPlaying = false;
+    let playbackStateCaptured = false;
     this.recordingStartTime = null; // MediaRecorder开始时间
     this.recordingDuration = 0; // 录制时长(毫秒)
     
@@ -667,8 +687,9 @@ export class VideoExporter {
       await this.initMediaRecorder();
       
       // 保存当前状态
-      const originalFrame = this.editor.timelineController.getCurrentFrame();
-      const originalPlaying = this.editor.timelineController.isPlaying;
+      originalFrame = this.editor.timelineController.getCurrentFrame();
+      originalPlaying = this.editor.timelineController.isPlaying;
+      playbackStateCaptured = true;
       
       // 停止播放
       if (originalPlaying) {
@@ -676,7 +697,7 @@ export class VideoExporter {
       }
       
       // 计算总帧数
-      const duration = this.editor.trajectoryManager.getDuration();
+      const duration = timeline.frameCount / timeline.fps;
       const totalFrames = Math.ceil(duration * this.fps);
       
       // 开始录制，每100ms flush一次数据
@@ -697,7 +718,10 @@ export class VideoExporter {
         if (!this.isExporting) break;
         
         // 计算对应的帧索引
-        const frameIndex = Math.round((i / this.fps) * this.editor.trajectoryManager.fps);
+        const frameIndex = Math.min(
+          Math.round((i / this.fps) * timeline.fps),
+          timeline.frameCount - 1
+        );
         
         // 更新时间轴
         this.editor.timelineController.setCurrentFrame(frameIndex);
@@ -727,12 +751,6 @@ export class VideoExporter {
       this.recordingDuration = (totalFrames / this.fps) * 1000;
       await this.stopRecording();
       
-      // 恢复原始状态
-      this.editor.timelineController.setCurrentFrame(originalFrame);
-      if (originalPlaying) {
-        this.editor.timelineController.play();
-      }
-      
       if (this.isExporting && this.recordedChunks.length > 0) {
         // 保存视频
         this.saveVideo(this.recordedChunks);
@@ -742,6 +760,16 @@ export class VideoExporter {
       console.error('Export failed:', error);
       alert(i18n.t('exportFailed') + ': ' + error.message);
     } finally {
+      if (playbackStateCaptured) {
+        try {
+          this.editor.timelineController.setCurrentFrame(originalFrame);
+          if (originalPlaying && !this.editor.timelineController.isPlaying) {
+            this.editor.timelineController.play();
+          }
+        } catch (restoreError) {
+          console.error('Failed to restore playback state:', restoreError);
+        }
+      }
       this.isExporting = false;
       this.isPaused = false;
       this.hideProgress();
@@ -784,6 +812,7 @@ export class VideoExporter {
     const canvasWidth = this.canvas.width;
     const canvasHeight = this.canvas.height;
     const halfWidth = canvasWidth / 2;
+    const createMode = this.editor.workspaceMode === 'create';
     
     // 保存原始渲染器状态
     const originalWidth = renderer.domElement.width;
@@ -796,18 +825,25 @@ export class VideoExporter {
     this.ctx.fillStyle = '#1a1a1a';
     this.ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     
-    // 渲染左侧场景
     renderer.clear();
-    renderer.setViewport(0, 0, halfWidth, canvasHeight);
-    renderer.setScissor(0, 0, halfWidth, canvasHeight);
-    renderer.setScissorTest(true);
-    renderer.render(this.editor.sceneLeft, this.editor.cameraLeft);
-    
-    // 渲染右侧场景
-    renderer.setViewport(halfWidth, 0, halfWidth, canvasHeight);
-    renderer.setScissor(halfWidth, 0, halfWidth, canvasHeight);
-    renderer.setScissorTest(true);
-    renderer.render(this.editor.sceneRight, this.editor.cameraRight);
+    if (createMode) {
+      // 创建模式与应用预览一致：仅导出编辑后的单视口。
+      renderer.setViewport(0, 0, canvasWidth, canvasHeight);
+      renderer.setScissor(0, 0, canvasWidth, canvasHeight);
+      renderer.setScissorTest(true);
+      renderer.render(this.editor.sceneRight, this.editor.cameraRight);
+    } else {
+      // 对比模式保留原始/编辑后双视口。
+      renderer.setViewport(0, 0, halfWidth, canvasHeight);
+      renderer.setScissor(0, 0, halfWidth, canvasHeight);
+      renderer.setScissorTest(true);
+      renderer.render(this.editor.sceneLeft, this.editor.cameraLeft);
+
+      renderer.setViewport(halfWidth, 0, halfWidth, canvasHeight);
+      renderer.setScissor(halfWidth, 0, halfWidth, canvasHeight);
+      renderer.setScissorTest(true);
+      renderer.render(this.editor.sceneRight, this.editor.cameraRight);
+    }
     
     // 禁用scissor test
     renderer.setScissorTest(false);
@@ -875,12 +911,14 @@ export class VideoExporter {
       ctx.fillText(timeText, canvasWidth - padding, padding);
       ctx.fillText(frameText, canvasWidth - padding, padding + lineHeight);
       
-      // 左下角：Base Trajectory
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'bottom';
-      ctx.fillText('Base Trajectory', padding, canvasHeight - padding);
-      
-      // 右下角：Modified Trajectory
+      if (this.editor.workspaceMode !== 'create') {
+        // 对比模式标注左侧原始轨迹。
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('Base Trajectory', padding, canvasHeight - padding);
+      }
+
+      // 创建模式只有一个编辑视口；对比模式中它位于右侧。
       ctx.textAlign = 'right';
       ctx.textBaseline = 'bottom';
       ctx.fillText('Modified Trajectory', canvasWidth - padding, canvasHeight - padding);
@@ -895,10 +933,11 @@ export class VideoExporter {
       ctx.fillText(timeText, canvasWidth - padding, padding);
       ctx.fillText(frameText, canvasWidth - padding, padding + lineHeight);
       
-      // 左下角：Base Trajectory
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'bottom';
-      ctx.fillText('Base Trajectory', padding, canvasHeight - padding);
+      if (this.editor.workspaceMode !== 'create') {
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('Base Trajectory', padding, canvasHeight - padding);
+      }
       
       // 右下角：Modified Trajectory
       ctx.textAlign = 'right';

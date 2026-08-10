@@ -1,0 +1,39 @@
+{
+  "name": "visualization",
+  "genericFaceCap": 20000,
+  "defaultFaceCap": 6000,
+  "robots": {
+    "g1": {
+      "torso_link_rev_1_0.stl": 24000,
+      "left_rubber_hand.stl": 12000,
+      "right_rubber_hand.stl": 12000,
+      "pelvis_contour_link.stl": 16000,
+      "pelvis.stl": 16000,
+      "head_link.stl": 14000,
+      "left_knee_link.stl": 10000,
+      "right_knee_link.stl": 10000,
+      "left_ankle_roll_link.stl": 8000,
+      "right_ankle_roll_link.stl": 8000,
+      "waist_yaw_link_rev_1_0.stl": 8000
+    },
+    "h2": {
+      "torso_link.stl": 50000,
+      "head_yaw_link.stl": 30000,
+      "left_shoulder_pitch_link.stl": 24000,
+      "left_rubber_hand.stl": 12000,
+      "right_rubber_hand.stl": 12000,
+      "left_small_leg_pitch_link.stl": 12000,
+      "right_small_leg_pitch_link.stl": 12000,
+      "left_big_yaw_link.stl": 10000,
+      "right_big_leg_yaw_link.stl": 10000,
+      "left_hip_pitch_link.stl": 10000,
+      "right_hip_pitch_link.stl": 10000,
+      "left_big_arm_link.stl": 8000,
+      "right_big_arm_yaw_link.stl": 8000,
+      "left_ankle_pitch_link.stl": 8000,
+      "right_ankle_pitch_link.stl": 8000,
+      "left_shoulder_roll_link.stl": 8000,
+      "right_shoulder_roll_link.stl": 8000
+    }
+  }
+}

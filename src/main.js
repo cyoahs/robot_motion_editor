@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { URDFLoader } from './urdfLoader.js';
-import { TrajectoryManager } from './trajectoryManager.js';
+import { TrajectoryManager, assertSharedTimelineInvariant } from './trajectoryManager.js';
 import { JointController } from './jointController.js';
 import { BaseController } from './baseController.js';
 import { TimelineController } from './timelineController.js';
@@ -12,7 +12,9 @@ import { CurveEditor } from './curveEditor.js';
 import { AxisGizmo } from './axisGizmo.js';
 import { VideoExporter } from './videoExporter.js';
 import { CookieManager } from './cookieManager.js';
-import { DEFAULT_FPS_BY_FORMAT, TRAJECTORY_FORMATS } from './trajectoryFormatConverter.js';
+import { TRAJECTORY_FORMATS } from './trajectoryFormatConverter.js';
+import { getBuiltinRobotFiles } from './builtinRobots.js';
+import { optimizeObject3DMeshes } from './meshOptimizer.js';
 
 class RobotKeyframeEditor {
   constructor() {
@@ -37,6 +39,10 @@ class RobotKeyframeEditor {
     this.cameraRight = null;
     this.controlsRight = null;
     this.robotRight = null;
+
+    // 独立场景模型（例如可运动平台），同样保留原始/编辑后两份实例
+    this.sceneModelLeft = null;
+    this.sceneModelRight = null;
     
     // 共享渲染器
     this.renderer = null;
@@ -48,8 +54,13 @@ class RobotKeyframeEditor {
     this.robot = null;
     
     this.urdfLoader = new URDFLoader();
-    this.trajectoryManager = new TrajectoryManager();
+    this.sceneURDFLoader = new URDFLoader();
+    this.robotTrajectoryManager = new TrajectoryManager();
+    this.sceneTrajectoryManager = new TrajectoryManager();
+    // 兼容机器人专用的旧代码路径
+    this.trajectoryManager = this.robotTrajectoryManager;
     this.jointController = null;
+    this.sceneJointController = null;
     this.baseController = null;
     this.timelineController = null;
     this.curveEditor = null;
@@ -72,6 +83,14 @@ class RobotKeyframeEditor {
     this.currentURDFFolder = '';
     this.currentURDFFile = '';
     this.currentProjectFile = '';
+    this.currentSceneURDFFolder = '';
+    this.currentSceneURDFFile = '';
+    this.robotLoadGeneration = 0;
+    this.sceneLoadGeneration = 0;
+
+    // 编辑对象与工作区模式
+    this.activeTrack = 'robot';
+    this.workspaceMode = 'compare';
     
     // 相机控制状态
     this.cameraMode = 'rotate'; // 'rotate' 或 'pan'
@@ -86,9 +105,237 @@ class RobotKeyframeEditor {
     // 脚部识别数据：[{ linkName, ankleJoints: [] }]
     this.identifiedFeet = [];
 
+    this.initialRestorePromise = null;
     this.init();
+    this.initialRestorePromise = this.restoreStateIfAvailable().catch(err => {
+      console.error('恢复状态错误:', err);
+    });
     this.setupEventListeners();
+    this.setActiveTrack('robot', { resetTimeline: false });
+    this.setWorkspaceMode('compare');
     this.animate();
+  }
+
+  getTrajectoryManager(track = 'robot') {
+    return track === 'scene' ? this.sceneTrajectoryManager : this.robotTrajectoryManager;
+  }
+
+  async waitForInitialRestore() {
+    const pendingRestore = this.initialRestorePromise;
+    if (pendingRestore) await pendingRestore;
+  }
+
+  getActiveTrajectoryManager() {
+    return this.getTrajectoryManager(this.activeTrack);
+  }
+
+  getSharedTimelineSpec(declaredTimeline = null, managers = null) {
+    const timelineManagers = managers || [
+      this.robotTrajectoryManager,
+      this.sceneTrajectoryManager
+    ];
+    return assertSharedTimelineInvariant(timelineManagers, declaredTimeline);
+  }
+
+  getSharedTimelineManager() {
+    if (this.robotTrajectoryManager?.hasTrajectory()) return this.robotTrajectoryManager;
+    if (this.sceneTrajectoryManager?.hasTrajectory()) return this.sceneTrajectoryManager;
+    return null;
+  }
+
+  getTrackEntries() {
+    return [
+      {
+        track: 'robot',
+        manager: this.robotTrajectoryManager,
+        controller: this.jointController,
+        defaultFileName: 'robot_zero.csv'
+      },
+      {
+        track: 'scene',
+        manager: this.sceneTrajectoryManager,
+        controller: this.sceneJointController,
+        defaultFileName: 'scene_zero.csv'
+      }
+    ];
+  }
+
+  createAlignedTrajectoryCandidate(entry, timeline, { reset = false } = {}) {
+    const sourceManager = entry.manager;
+    const hasSourceTrajectory = sourceManager?.hasTrajectory();
+    const hasController = !!entry.controller;
+    if (!hasSourceTrajectory && !hasController) return null;
+
+    if (!reset && hasSourceTrajectory && hasController &&
+        sourceManager.jointCount !== entry.controller.joints.length) {
+      throw new Error(
+        `${entry.track} 轨迹关节数 ${sourceManager.jointCount} 与模型关节数 ` +
+        `${entry.controller.joints.length} 不一致`
+      );
+    }
+
+    const jointCount = hasController
+      ? entry.controller.joints.length
+      : sourceManager.jointCount;
+    const candidate = new TrajectoryManager();
+
+    if (reset || !hasSourceTrajectory) {
+      candidate.createZeroTrajectory(
+        timeline.frameCount,
+        jointCount,
+        timeline.fps,
+        entry.defaultFileName
+      );
+    } else {
+      candidate.loadProjectData(sourceManager.getProjectData());
+      candidate.setFPS(timeline.fps);
+      candidate.resizeTrajectory(timeline.frameCount);
+    }
+
+    candidate.currentFile = sourceManager?.currentFile || candidate.originalFileName;
+    return candidate;
+  }
+
+  commitTrajectoryCandidate(track, candidate) {
+    if (!candidate) return;
+    const manager = this.getTrajectoryManager(track);
+    manager.loadProjectData(candidate.getProjectData());
+    manager.currentFile = candidate.currentFile || candidate.originalFileName;
+  }
+
+  buildAlignedTrackCandidates(timeline, options = {}) {
+    const candidates = {};
+    this.getTrackEntries().forEach(entry => {
+      candidates[entry.track] = this.createAlignedTrajectoryCandidate(entry, timeline, options);
+    });
+    assertSharedTimelineInvariant(
+      Object.values(candidates).filter(Boolean),
+      timeline
+    );
+    return candidates;
+  }
+
+  ensureLoadedTrackHasSharedTimeline(track) {
+    const manager = this.getTrajectoryManager(track);
+    const controller = this.getJointController(track);
+    if (!controller) return false;
+
+    // Capture the clock before clearing an incompatible old track so loading a
+    // replacement model does not destroy the common duration.
+    const timeline = this.getSharedTimelineSpec();
+    if (manager.hasTrajectory() && manager.jointCount !== controller.joints.length) {
+      manager.clearAll();
+    }
+
+    if (!manager.hasTrajectory() && timeline) {
+      const entry = this.getTrackEntries().find(item => item.track === track);
+      const candidate = this.createAlignedTrajectoryCandidate(entry, timeline, { reset: true });
+      this.commitTrajectoryCandidate(track, candidate);
+      return true;
+    }
+
+    this.getSharedTimelineSpec();
+    return false;
+  }
+
+  getJointController(track = 'robot') {
+    return track === 'scene' ? this.sceneJointController : this.jointController;
+  }
+
+  getActiveJointController() {
+    return this.getJointController(this.activeTrack);
+  }
+
+  getActiveBaseController() {
+    return this.activeTrack === 'robot' ? this.baseController : null;
+  }
+
+  setActiveTrack(track, options = {}) {
+    if (track !== 'robot' && track !== 'scene') return;
+    const previousFrame = this.timelineController?.getCurrentFrame?.() || 0;
+    const trackChanged = this.activeTrack !== track;
+    this.activeTrack = track;
+
+    // 关键帧选择属于当前轨道，切换后不能继续引用另一条轨迹的帧。
+    if (trackChanged) {
+      this.timelineController?.clearSelectedKeyframes?.();
+    }
+
+    const robotButton = document.getElementById('edit-target-robot');
+    const sceneButton = document.getElementById('edit-target-scene');
+    const robotPanel = document.getElementById('robot-control-panel');
+    const scenePanel = document.getElementById('scene-control-panel');
+
+    if (robotButton) {
+      robotButton.classList.toggle('active', track === 'robot');
+      robotButton.setAttribute('aria-pressed', String(track === 'robot'));
+    }
+    if (sceneButton) {
+      sceneButton.classList.toggle('active', track === 'scene');
+      sceneButton.setAttribute('aria-pressed', String(track === 'scene'));
+    }
+    if (robotPanel) robotPanel.style.display = track === 'robot' ? 'flex' : 'none';
+    if (scenePanel) scenePanel.style.display = track === 'scene' ? 'flex' : 'none';
+
+    if (options.resetTimeline !== false && this.timelineController) {
+      this.refreshTimelineForActiveTrack(previousFrame);
+    }
+
+    if (this.curveEditor) {
+      this.curveEditor.resetForActiveTrack();
+    }
+    this.updateCreateModeInputs();
+  }
+
+  refreshTimelineForActiveTrack(frame = 0) {
+    const manager = this.getActiveTrajectoryManager();
+    const timeline = this.getSharedTimelineSpec();
+    const frameCount = timeline?.frameCount || 0;
+    const fps = timeline?.fps || 50;
+    // 刷新意味着轨迹身份或长度可能已变化，旧选择不能跨数据集复用。
+    this.timelineController.clearSelectedKeyframes?.();
+    this.timelineController.setFPS(fps);
+    this.timelineController.updateTimeline(frameCount, frameCount / fps);
+    this.timelineController.updateKeyframeMarkers(
+      manager ? Array.from(manager.keyframes.keys()) : []
+    );
+    if (frameCount > 0) {
+      this.timelineController.setCurrentFrame(Math.min(frame, frameCount - 1));
+    }
+  }
+
+  setWorkspaceMode(mode) {
+    if (mode !== 'compare' && mode !== 'create') return;
+    this.workspaceMode = mode;
+
+    const compareButton = document.getElementById('compare-mode-button');
+    const createButton = document.getElementById('create-mode-button');
+    const createControls = document.getElementById('create-mode-controls');
+    const baseLabel = document.getElementById('base-viewport-label');
+    const divider = document.getElementById('viewport-divider');
+
+    if (compareButton) {
+      compareButton.classList.toggle('active', mode === 'compare');
+      compareButton.setAttribute('aria-pressed', String(mode === 'compare'));
+    }
+    if (createButton) {
+      createButton.classList.toggle('active', mode === 'create');
+      createButton.setAttribute('aria-pressed', String(mode === 'create'));
+    }
+    if (createControls) createControls.style.display = mode === 'create' ? 'flex' : 'none';
+    if (baseLabel) baseLabel.style.display = mode === 'compare' ? 'block' : 'none';
+    if (divider) divider.style.display = mode === 'compare' ? 'block' : 'none';
+
+    this.updateCreateModeInputs();
+    this.handleResize();
+  }
+
+  updateCreateModeInputs() {
+    const timeline = this.getSharedTimelineSpec();
+    const frameInput = document.getElementById('create-frame-count');
+    const fpsInput = document.getElementById('create-fps');
+    if (frameInput && timeline) frameInput.value = timeline.frameCount;
+    if (fpsInput && timeline) fpsInput.value = timeline.fps;
   }
 
   updateStatus(message, type = 'info') {
@@ -98,12 +345,23 @@ class RobotKeyframeEditor {
       // 只修改文字颜色
       if (type === 'error') {
         statusText.style.color = 'var(--warning-color)';
+      } else if (type === 'warning') {
+        statusText.style.color = 'var(--warning-color)';
       } else if (type === 'success') {
         statusText.style.color = 'var(--success-color)';
       } else {
         statusText.style.color = 'var(--text-secondary)';
       }
     }
+  }
+
+  shouldOptimizeUploadedMeshes() {
+    return document.getElementById('optimize-mesh-on-upload')?.checked !== false;
+  }
+
+  setMeshOptimizationPreference(enabled) {
+    const checkbox = document.getElementById('optimize-mesh-on-upload');
+    if (checkbox) checkbox.checked = enabled !== false;
   }
 
   /**
@@ -257,18 +515,14 @@ class RobotKeyframeEditor {
     // 窗口大小调整
     window.addEventListener('resize', () => this.handleResize());
     
-    // 尝试恢复上次保存的状态（异步）
-    this.restoreStateIfAvailable().catch(err => {
-      console.error('恢复状态错误:', err);
-    });
   }
 
   handleResize() {
     const viewport = document.getElementById('viewport');
     const fullWidth = viewport.clientWidth;
     const fullHeight = viewport.clientHeight;
-    const halfWidth = fullWidth / 2;
-    const aspect = halfWidth / fullHeight;
+    const viewWidth = this.workspaceMode === 'create' ? fullWidth : fullWidth / 2;
+    const aspect = viewWidth / fullHeight;
     
     // 更新正交相机的frustum
     this.cameraLeft.left = this.frustumSize * aspect / -2;
@@ -287,9 +541,36 @@ class RobotKeyframeEditor {
   }
 
   setupEventListeners() {
+    document.getElementById('upload-robot-urdf')?.addEventListener('click', () => {
+      document.getElementById('urdf-folder')?.click();
+    });
+
+    document.querySelectorAll('[data-robot-preset]').forEach(button => {
+      button.addEventListener('click', () => {
+        this.loadBuiltinRobot(button.dataset.robotPreset);
+      });
+    });
+
     // URDF 文件夹加载
     document.getElementById('urdf-folder').addEventListener('change', (e) => {
-      this.loadURDFFolder(e.target.files);
+      this.loadURDFFolder(Array.from(e.target.files), {
+        optimizeMeshes: this.shouldOptimizeUploadedMeshes()
+      });
+      e.target.value = '';
+    });
+
+    document.getElementById('scene-urdf-folder')?.addEventListener('change', (e) => {
+      this.loadSceneURDFFolder(Array.from(e.target.files), {
+        optimizeMeshes: this.shouldOptimizeUploadedMeshes()
+      });
+      e.target.value = '';
+    });
+
+    document.getElementById('optimize-mesh-on-upload')?.addEventListener('change', async event => {
+      const enabled = event.target.checked;
+      await this.waitForInitialRestore();
+      this.setMeshOptimizationPreference(enabled);
+      this.triggerAutoSave();
     });
 
     // CSV 文件加载
@@ -298,6 +579,31 @@ class RobotKeyframeEditor {
       if (file) {
         this.loadCSV(file);
       }
+      e.target.value = '';
+    });
+
+    document.getElementById('edit-target-robot')?.addEventListener('click', () => {
+      this.setActiveTrack('robot');
+    });
+
+    document.getElementById('edit-target-scene')?.addEventListener('click', () => {
+      this.setActiveTrack('scene');
+    });
+
+    document.getElementById('compare-mode-button')?.addEventListener('click', () => {
+      this.setWorkspaceMode('compare');
+    });
+
+    document.getElementById('create-mode-button')?.addEventListener('click', () => {
+      this.setWorkspaceMode('create');
+    });
+
+    document.getElementById('create-zero-trajectory')?.addEventListener('click', () => {
+      this.createZeroTrajectory();
+    });
+
+    document.getElementById('apply-trajectory-length')?.addEventListener('click', () => {
+      this.applyTrajectoryLength();
     });
 
     // 添加关键帧
@@ -317,12 +623,17 @@ class RobotKeyframeEditor {
 
     // 重置关节
     document.getElementById('reset-joints').addEventListener('click', () => {
-      if (this.jointController) {
-        this.jointController.resetToBase();
+      const jointController = this.getActiveJointController();
+      if (jointController) {
+        jointController.resetToBase();
       }
-      if (this.baseController) {
+      if (this.activeTrack === 'robot' && this.baseController) {
         this.baseController.resetToBase();
       }
+    });
+
+    document.getElementById('reset-scene-joints')?.addEventListener('click', () => {
+      this.sceneJointController?.resetToBase();
     });
 
     // 播放/暂停
@@ -338,6 +649,14 @@ class RobotKeyframeEditor {
     // 导出原始轨迹
     document.getElementById('export-base-trajectory').addEventListener('click', () => {
       this.exportBaseTrajectory();
+    });
+
+    document.getElementById('export-scene-trajectory')?.addEventListener('click', () => {
+      this.exportSceneTrajectory();
+    });
+
+    document.getElementById('export-scene-base-trajectory')?.addEventListener('click', () => {
+      this.exportSceneBaseTrajectory();
     });
 
     // 导出视频
@@ -492,7 +811,7 @@ class RobotKeyframeEditor {
           e.preventDefault();
           if (this.timelineController) {
             const currentFrame = this.timelineController.getCurrentFrame();
-            const maxFrame = this.trajectoryManager.getFrameCount() - 1;
+            const maxFrame = (this.getSharedTimelineSpec()?.frameCount || 0) - 1;
             if (currentFrame < maxFrame) {
               this.timelineController.setCurrentFrame(currentFrame + 1);
             }
@@ -502,164 +821,477 @@ class RobotKeyframeEditor {
     });
   }
 
-  async loadURDFFolder(files) {
-    console.log('========================================');
-    console.log('📂 开始加载 URDF 文件夹...');
-    console.log(`文件数量: ${files.length}`);
-    this.updateStatus(i18n.t('loadingURDFFolder'), 'info');
-    
-    // 保存URDF文件名
-    const urdfFile = Array.from(files).find(f => f.name.endsWith('.urdf'));
-    if (urdfFile) {
-      this.currentURDFFile = urdfFile.name;
-      this.currentURDFFolder = urdfFile.webkitRelativePath ? 
-        urdfFile.webkitRelativePath.split('/')[0] : '';
+  getCreateTrajectorySettings() {
+    const frameInput = document.getElementById('create-frame-count');
+    const fpsInput = document.getElementById('create-fps');
+    const frameCount = Math.max(1, Math.floor(Number(frameInput?.value) || 1));
+    const fps = Math.max(1, Math.min(240, Math.floor(Number(fpsInput?.value) || 50)));
+
+    if (frameInput) frameInput.value = frameCount;
+    if (fpsInput) fpsInput.value = fps;
+    return { frameCount, fps };
+  }
+
+  async createZeroTrajectory() {
+    await this.waitForInitialRestore();
+    const entries = this.getTrackEntries();
+    if (!entries.some(entry => entry.controller || entry.manager.hasTrajectory())) {
+      alert(i18n.t('needRobot'));
+      return;
     }
-    
+
+    const { frameCount, fps } = this.getCreateTrajectorySettings();
+    const timeline = { frameCount, fps };
+    const candidates = this.buildAlignedTrackCandidates(timeline, { reset: true });
+    Object.entries(candidates).forEach(([track, candidate]) => {
+      this.commitTrajectoryCandidate(track, candidate);
+    });
+
+    this.setWorkspaceMode('create');
+    this.refreshTimelineForActiveTrack(0);
+    this.curveEditor?.resetForActiveTrack();
+    this.updateRobotState(0);
+    this.updateStatus(i18n.t('zeroTrajectoryCreated', { frames: frameCount, fps }), 'success');
+    this.triggerAutoSave();
+  }
+
+  async applyTrajectoryLength() {
+    await this.waitForInitialRestore();
+    if (!this.getSharedTimelineSpec()) {
+      await this.createZeroTrajectory();
+      return;
+    }
+
+    const { frameCount, fps } = this.getCreateTrajectorySettings();
+    const currentFrame = this.timelineController.getCurrentFrame();
+    const timeline = { frameCount, fps };
+    const candidates = this.buildAlignedTrackCandidates(timeline);
+    Object.entries(candidates).forEach(([track, candidate]) => {
+      this.commitTrajectoryCandidate(track, candidate);
+    });
+    this.refreshTimelineForActiveTrack(Math.min(currentFrame, frameCount - 1));
+    this.curveEditor?.updateCurves();
+    this.curveEditor?.draw();
+    this.updateStatus(i18n.t('trajectoryLengthUpdated', { frames: frameCount, fps }), 'success');
+    this.triggerAutoSave();
+  }
+
+  async optimizeLoadedModelMeshes(model, modelLabel) {
+    if (!model) return null;
+
     try {
-      console.log('🔄 调用 urdfLoader.loadFromFolder()...');
-      await this.urdfLoader.loadFromFolder(files);
-      console.log('✅ urdfLoader.loadFromFolder() 完成');
-      
-      // 移除旧机器人
-      if (this.robot) {
-        console.log('🗑️ 移除旧机器人模型');
-        this.scene.remove(this.robot);
+      return await optimizeObject3DMeshes(model, {
+        onProgress: (_detail, stats) => {
+          this.updateStatus(i18n.t('optimizingMeshes', {
+            model: modelLabel,
+            current: stats.details.length,
+            total: stats.totalMeshes
+          }), 'info');
+        }
+      });
+    } catch (error) {
+      // Mesh 优化是上传加速项，不应该因为某种不常见几何而阻断 URDF。
+      console.warn(`${modelLabel} Mesh 优化失败，保留原始几何:`, error);
+      return null;
+    }
+  }
+
+  summarizeMeshOptimization(...results) {
+    const validResults = results.filter(Boolean);
+    if (validResults.length === 0) return null;
+    return validResults.reduce((summary, stats) => {
+      summary.beforeTriangles += stats.beforeTriangles || 0;
+      summary.afterTriangles += stats.afterTriangles || 0;
+      summary.optimizedMeshes += stats.optimizedMeshes || 0;
+      summary.failedMeshes += stats.failedMeshes || 0;
+      return summary;
+    }, {
+      beforeTriangles: 0,
+      afterTriangles: 0,
+      optimizedMeshes: 0,
+      failedMeshes: 0
+    });
+  }
+
+  shareModelGeometries(sourceRoot, targetRoot) {
+    const collectMeshes = root => {
+      const meshes = [];
+      root?.traverse?.(object => {
+        if (object?.isMesh && object.geometry?.isBufferGeometry) meshes.push(object);
+      });
+      return meshes;
+    };
+    const sourceMeshes = collectMeshes(sourceRoot);
+    const targetMeshes = collectMeshes(targetRoot);
+    if (sourceMeshes.length !== targetMeshes.length) return false;
+
+    const pairsMatch = sourceMeshes.every((sourceMesh, index) => {
+      const targetMesh = targetMeshes[index];
+      return sourceMesh.name === targetMesh.name
+        && sourceMesh.geometry?.type === targetMesh.geometry?.type;
+    });
+    if (!pairsMatch) return false;
+
+    const sourceGeometries = new Set(sourceMeshes.map(mesh => mesh.geometry));
+    const replacedGeometries = new Set();
+    sourceMeshes.forEach((sourceMesh, index) => {
+      const targetMesh = targetMeshes[index];
+      if (targetMesh.geometry !== sourceMesh.geometry) {
+        replacedGeometries.add(targetMesh.geometry);
+        targetMesh.geometry = sourceMesh.geometry;
+      }
+    });
+    replacedGeometries.forEach(geometry => {
+      if (!sourceGeometries.has(geometry)) geometry?.dispose?.();
+    });
+    return true;
+  }
+
+  disposeObject3DResources(...roots) {
+    const geometries = new Set();
+    const materials = new Set();
+    const textures = new Set();
+
+    roots.filter(Boolean).forEach(root => {
+      root.traverse?.(object => {
+        if (object.geometry?.dispose) geometries.add(object.geometry);
+        const objectMaterials = Array.isArray(object.material)
+          ? object.material
+          : (object.material ? [object.material] : []);
+        objectMaterials.forEach(material => {
+          if (!material) return;
+          materials.add(material);
+          Object.values(material).forEach(value => {
+            if (value?.isTexture && value.dispose) textures.add(value);
+          });
+        });
+        if (object.skeleton?.boneTexture?.dispose) textures.add(object.skeleton.boneTexture);
+      });
+    });
+
+    textures.forEach(texture => texture.dispose());
+    materials.forEach(material => material.dispose?.());
+    geometries.forEach(geometry => geometry.dispose());
+  }
+
+  async loadBuiltinRobot(robotId) {
+    await this.waitForInitialRestore();
+    const normalizedId = String(robotId || '').toLowerCase();
+    const robotName = normalizedId.toUpperCase();
+    // The intent starts before asset fetches. Reset, a manual upload, or a
+    // newer preset selection can therefore invalidate a slow built-in fetch.
+    const requestGeneration = ++this.robotLoadGeneration;
+    const presetButtons = Array.from(document.querySelectorAll('[data-robot-preset]'));
+    const addRobotButton = document.getElementById('add-robot-button');
+
+    presetButtons.forEach(button => { button.disabled = true; });
+    if (addRobotButton) addRobotButton.disabled = true;
+    addRobotButton?.setAttribute('aria-busy', 'true');
+    this.updateStatus(i18n.t('loadingBuiltinRobot', { robot: robotName }), 'info');
+
+    try {
+      const files = await getBuiltinRobotFiles(normalizedId);
+      if (requestGeneration !== this.robotLoadGeneration) return false;
+      const loaded = await this.loadURDFFolder(files, {
+        optimizeMeshes: false,
+        requestGeneration
+      });
+      if (loaded) {
+        this.updateStatus(i18n.t('builtinRobotLoadSuccess', { robot: robotName }), 'success');
+      }
+      return loaded;
+    } catch (error) {
+      if (requestGeneration !== this.robotLoadGeneration) return false;
+      console.error(`内置机器人 ${robotName} 加载失败:`, error);
+      this.updateStatus(i18n.t('builtinRobotLoadFailed', { robot: robotName }), 'error');
+      alert(i18n.t('builtinRobotLoadFailed', { robot: robotName }) + ': ' + error.message);
+      return false;
+    } finally {
+      presetButtons.forEach(button => { button.disabled = false; });
+      if (addRobotButton) addRobotButton.disabled = false;
+      addRobotButton?.removeAttribute('aria-busy');
+    }
+  }
+
+  async loadURDFFolder(files, {
+    optimizeMeshes = true,
+    requestGeneration: suppliedGeneration = null
+  } = {}) {
+    await this.waitForInitialRestore();
+    if (!files || files.length === 0) return false;
+    const requestGeneration = suppliedGeneration ?? ++this.robotLoadGeneration;
+    if (requestGeneration !== this.robotLoadGeneration) return false;
+    this.updateStatus(i18n.t('loadingURDFFolder'), 'info');
+
+    const urdfFile = Array.from(files).find(f => f.name.endsWith('.urdf'));
+    const nextURDFFile = urdfFile?.name || '';
+    const nextURDFFolder = urdfFile?.webkitRelativePath
+      ? urdfFile.webkitRelativePath.split('/')[0]
+      : '';
+    const candidateLoader = new URDFLoader();
+    let nextRobotRight = null;
+    let nextRobotLeft = null;
+    let committed = false;
+
+    try {
+      await candidateLoader.loadFromFolder(files);
+      nextRobotRight = candidateLoader.getRobotModel();
+      if (!nextRobotRight) throw new Error(i18n.t('robotModelCreateFailed'));
+      if (requestGeneration !== this.robotLoadGeneration) {
+        this.disposeObject3DResources(nextRobotRight);
+        return false;
       }
 
-      // 加载并添加新机器人
-      console.log('🔄 获取机器人模型...');
-      this.robot = this.urdfLoader.getRobotModel();
-      console.log('机器人模型:', this.robot);
-      
-      if (this.robot) {
-        console.log('➕ 将机器人添加到两个场景...');
-        
-        // 为右侧场景使用原始机器人
-        this.robotRight = this.robot;
-        this.sceneRight.add(this.robotRight);
-        
-        // 为左侧场景创建第二个机器人实例
-        console.log('🔄 为左侧场景创建第二个机器人实例...');
-        const fileMapCopy = new Map(this.urdfLoader.fileMap);
-        this.urdfLoader.loadFromMap(fileMapCopy, (leftRobot) => {
-          this.robotLeft = leftRobot;
-          this.sceneLeft.add(this.robotLeft);
-          console.log('✅ 左侧机器人模型已添加');
-          
-          // 如果已经加载了轨迹，更新左侧机器人状态
-          if (this.trajectoryManager.hasTrajectory()) {
-            const currentFrame = this.timelineController.getCurrentFrame();
-            this.updateRobotState(currentFrame);
-          }
-          
-          // 更新COM显示
-          if (this.showCOM && this.comVisualizerLeft) {
-            console.log('🎯 更新左侧COM显示');
-            this.comVisualizerLeft.update(this.robotLeft);
-          }
-        });
-        
-        console.log('✅ 右侧机器人模型已添加到场景');
-        
-        // 初始化关节控制器
-        console.log('🎮 初始化关节控制器...');
-        const joints = this.urdfLoader.getJoints();
-        console.log(`关节信息:`, joints);
-        
-        this.jointController = new JointController(joints, this);
-        this.baseController = new BaseController(this);
-        
-        // 更新COM显示（无论是否有轨迹，都显示当前状态的COM）
-        if (this.showCOM) {
-          if (this.comVisualizerLeft && this.robotLeft) {
-            console.log('🎯 更新左侧COM显示');
-            this.comVisualizerLeft.update(this.robotLeft);
-          }
-          if (this.comVisualizerRight && this.robotRight) {
-            console.log('🎯 更新右侧COM显示');
-            this.comVisualizerRight.update(this.robotRight);
-          }
-        }
-        
-        console.log('✅ 关节控制面板已初始化');
-        console.log('========================================');
-        this.updateStatus(i18n.t('urdfLoadSuccess', { count: joints.length }), 'success');
-        alert(i18n.t('urdfLoadSuccess', { count: joints.length }));
-        
-        // 触发完整保存（包含 URDF）
-        this.triggerAutoSave(true);
-      } else {
-        console.error('❌ 机器人模型为 null 或 undefined');
-        throw new Error('机器人模型创建失败');
+      nextRobotLeft = await candidateLoader.loadFromMap(
+        new Map(candidateLoader.fileMap)
+      );
+      if (requestGeneration !== this.robotLoadGeneration) {
+        this.disposeObject3DResources(nextRobotRight, nextRobotLeft);
+        return false;
       }
+
+      let meshOptimization = null;
+      if (optimizeMeshes) {
+        const rightStats = await this.optimizeLoadedModelMeshes(
+          nextRobotRight,
+          i18n.t('robot')
+        );
+        if (requestGeneration !== this.robotLoadGeneration) {
+          this.disposeObject3DResources(nextRobotRight, nextRobotLeft);
+          return false;
+        }
+        // 左右视口来自同一份 URDF。共享右侧已优化 geometry，既保持
+        // 两侧完全一致，也避免把高面数简化工作重复执行两遍。
+        if (this.shareModelGeometries(nextRobotRight, nextRobotLeft)) {
+          meshOptimization = rightStats;
+        } else {
+          const leftStats = await this.optimizeLoadedModelMeshes(
+            nextRobotLeft,
+            i18n.t('robot')
+          );
+          meshOptimization = this.summarizeMeshOptimization(rightStats, leftStats);
+        }
+      }
+      if (requestGeneration !== this.robotLoadGeneration) {
+        this.disposeObject3DResources(nextRobotRight, nextRobotLeft);
+        return false;
+      }
+
+      const previousRobotLeft = this.robotLeft;
+      const previousRobotRight = this.robotRight;
+      if (this.robotLeft) this.sceneLeft.remove(this.robotLeft);
+      if (this.robotRight) this.sceneRight.remove(this.robotRight);
+      this.urdfLoader = candidateLoader;
+      this.robotRight = nextRobotRight;
+      this.robotLeft = nextRobotLeft;
+      this.robot = this.robotRight;
+      this.currentURDFFile = nextURDFFile;
+      this.currentURDFFolder = nextURDFFolder;
+      this.sceneRight.add(this.robotRight);
+      this.sceneLeft.add(this.robotLeft);
+      committed = true;
+      this.disposeObject3DResources(previousRobotLeft, previousRobotRight);
+
+      const joints = candidateLoader.getJoints();
+      this.jointController = new JointController(joints, this, {
+        track: 'robot',
+        containerId: 'joint-controls',
+        idPrefix: 'robot'
+      });
+      this.baseController = new BaseController(this);
+
+      this.ensureLoadedTrackHasSharedTimeline('robot');
+
+      this.setActiveTrack('robot');
+      this.updateRobotState(this.timelineController.getCurrentFrame());
+
+      if (this.showCOM) {
+        this.comVisualizerLeft?.update(this.robotLeft);
+        this.comVisualizerRight?.update(this.robotRight);
+      }
+
+      const statusKey = meshOptimization?.optimizedMeshes > 0
+        ? 'robotUrdfOptimizedLoadSuccess'
+        : 'robotUrdfLoadSuccess';
+      this.updateStatus(i18n.t(statusKey, {
+        count: joints.length,
+        before: meshOptimization?.beforeTriangles?.toLocaleString() || '0',
+        after: meshOptimization?.afterTriangles?.toLocaleString() || '0'
+      }), meshOptimization?.failedMeshes > 0 ? 'warning' : 'success');
+      this.triggerAutoSave(true);
+      return true;
     } catch (error) {
-      console.error('========================================');
-      console.error('❌ URDF 加载失败');
-      console.error('错误类型:', error.constructor.name);
-      console.error('错误信息:', error.message);
-      console.error('错误堆栈:', error.stack);
-      console.error('========================================');
+      if (!committed) this.disposeObject3DResources(nextRobotRight, nextRobotLeft);
+      if (requestGeneration !== this.robotLoadGeneration) return false;
+      console.error('机器人 URDF 加载失败:', error);
       this.updateStatus(i18n.t('urdfLoadFailed'), 'error');
       alert(i18n.t('urdfLoadFailed') + ': ' + error.message);
+      return false;
+    }
+  }
+
+  async loadSceneURDFFolder(files, { optimizeMeshes = true } = {}) {
+    await this.waitForInitialRestore();
+    if (!files || files.length === 0) return false;
+    const requestGeneration = ++this.sceneLoadGeneration;
+    this.updateStatus(i18n.t('loadingSceneURDFFolder'), 'info');
+
+    const urdfFile = Array.from(files).find(file => file.name.toLowerCase().endsWith('.urdf'));
+    const nextSceneURDFFile = urdfFile?.name || '';
+    const nextSceneURDFFolder = urdfFile?.webkitRelativePath
+      ? urdfFile.webkitRelativePath.split('/')[0]
+      : '';
+    const candidateLoader = new URDFLoader();
+    let nextSceneRight = null;
+    let nextSceneLeft = null;
+    let committed = false;
+
+    try {
+      await candidateLoader.loadFromFolder(files);
+      nextSceneRight = candidateLoader.getRobotModel();
+      if (!nextSceneRight) throw new Error(i18n.t('sceneModelCreateFailed'));
+      if (requestGeneration !== this.sceneLoadGeneration) {
+        this.disposeObject3DResources(nextSceneRight);
+        return false;
+      }
+
+      nextSceneLeft = await candidateLoader.loadFromMap(
+        new Map(candidateLoader.fileMap)
+      );
+      if (requestGeneration !== this.sceneLoadGeneration) {
+        this.disposeObject3DResources(nextSceneRight, nextSceneLeft);
+        return false;
+      }
+
+      let meshOptimization = null;
+      if (optimizeMeshes) {
+        const rightStats = await this.optimizeLoadedModelMeshes(
+          nextSceneRight,
+          i18n.t('scene')
+        );
+        if (requestGeneration !== this.sceneLoadGeneration) {
+          this.disposeObject3DResources(nextSceneRight, nextSceneLeft);
+          return false;
+        }
+        if (this.shareModelGeometries(nextSceneRight, nextSceneLeft)) {
+          meshOptimization = rightStats;
+        } else {
+          const leftStats = await this.optimizeLoadedModelMeshes(
+            nextSceneLeft,
+            i18n.t('scene')
+          );
+          meshOptimization = this.summarizeMeshOptimization(rightStats, leftStats);
+        }
+      }
+      if (requestGeneration !== this.sceneLoadGeneration) {
+        this.disposeObject3DResources(nextSceneRight, nextSceneLeft);
+        return false;
+      }
+
+      const previousSceneLeft = this.sceneModelLeft;
+      const previousSceneRight = this.sceneModelRight;
+      if (this.sceneModelLeft) this.sceneLeft.remove(this.sceneModelLeft);
+      if (this.sceneModelRight) this.sceneRight.remove(this.sceneModelRight);
+      this.sceneURDFLoader = candidateLoader;
+      this.sceneModelRight = nextSceneRight;
+      this.sceneModelLeft = nextSceneLeft;
+      this.currentSceneURDFFile = nextSceneURDFFile;
+      this.currentSceneURDFFolder = nextSceneURDFFolder;
+      this.sceneRight.add(this.sceneModelRight);
+      this.sceneLeft.add(this.sceneModelLeft);
+      committed = true;
+      this.disposeObject3DResources(previousSceneLeft, previousSceneRight);
+
+      const joints = candidateLoader.getJoints();
+      this.sceneJointController = new JointController(joints, this, {
+        track: 'scene',
+        containerId: 'scene-joint-controls',
+        idPrefix: 'scene',
+        allowFix: true
+      });
+
+      this.ensureLoadedTrackHasSharedTimeline('scene');
+
+      this.setActiveTrack('scene');
+      this.updateRobotState(this.timelineController.getCurrentFrame());
+      const statusKey = meshOptimization?.optimizedMeshes > 0
+        ? 'sceneUrdfOptimizedLoadSuccess'
+        : 'sceneUrdfLoadSuccess';
+      this.updateStatus(i18n.t(statusKey, {
+        count: joints.length,
+        before: meshOptimization?.beforeTriangles?.toLocaleString() || '0',
+        after: meshOptimization?.afterTriangles?.toLocaleString() || '0'
+      }), meshOptimization?.failedMeshes > 0 ? 'warning' : 'success');
+      this.triggerAutoSave(true);
+      return true;
+    } catch (error) {
+      if (!committed) this.disposeObject3DResources(nextSceneRight, nextSceneLeft);
+      if (requestGeneration !== this.sceneLoadGeneration) return false;
+      console.error('场景 URDF 加载失败:', error);
+      this.updateStatus(i18n.t('sceneUrdfLoadFailed'), 'error');
+      alert(i18n.t('sceneUrdfLoadFailed') + ': ' + error.message);
+      return false;
     }
   }
 
   async loadCSV(file) {
+    await this.waitForInitialRestore();
     this.updateStatus(i18n.t('loadingCSVFile'), 'info');
-    
-    // 保存轨迹文件名
-    this.trajectoryManager.currentFile = file.name;
-    
+    const controller = this.jointController;
+    if (!controller) {
+      alert(i18n.t('needRobot'));
+      return;
+    }
+
     try {
       const text = await file.text();
-      
-      // 清理之前的所有操作
-      console.log('🔄 清理之前的操作信息...');
-      this.trajectoryManager.clearAllKeyframes();
-      
-      // 停止播放
-      if (this.timelineController.isPlaying) {
-        this.timelineController.pause();
-      }
-      
-      // 解析CSV
-      this.trajectoryManager.parseCSV(text, file.name);
-      
-      // 设置 FPS
-      const defaultFPS = this.trajectoryManager.fps || 50;
-      const fpsInput = prompt('请设置轨迹 FPS（帧率）:', String(defaultFPS));
-      const fps = parseInt(fpsInput) || defaultFPS;
-      this.trajectoryManager.setFPS(fps);
-      this.timelineController.setFPS(fps);
-      
-      // 更新时间轴
-      this.timelineController.updateTimeline(
-        this.trajectoryManager.getFrameCount(),
-        this.trajectoryManager.getFrameCount() / fps
+      const candidate = new TrajectoryManager();
+      candidate.parseCSV(text, file.name);
+
+      if (!candidate.hasTrajectory()) throw new Error(i18n.t('emptyTrajectory'));
+
+      const expectedJointCount = controller.joints.length;
+      const hasInvalidRow = candidate.baseTrajectory.some(
+        state => !Array.isArray(state.joints) || state.joints.length !== expectedJointCount
       );
-      
-      // 清空关键帧标记
-      this.timelineController.updateKeyframeMarkers([]);
-      
-      // 更新到第一帧
-      this.timelineController.setCurrentFrame(0);
-      this.updateRobotState(0);
-      
-      // 更新曲线编辑器
-      if (this.curveEditor) {
-        this.curveEditor.updateCurves();
+      if (candidate.jointCount !== expectedJointCount || hasInvalidRow) {
+        throw new Error(i18n.t('trajectoryJointCountMismatch', {
+          expected: expectedJointCount,
+          actual: candidate.jointCount
+        }));
       }
-      
-      const frameCount = this.trajectoryManager.getFrameCount();
-      console.log('✅ CSV 加载成功, 帧数:', frameCount, 'FPS:', fps);
-      console.log('📄 文件名:', file.name);
+
+      const defaultFPS = candidate.fps || 50;
+      const requestedFPS = prompt(i18n.t('setTrajectoryFPS'), String(defaultFPS));
+      const fps = Math.max(1, parseInt(requestedFPS) || defaultFPS);
+      candidate.setFPS(fps);
+      candidate.currentFile = file.name;
+
+      // Robot CSV is the sole imported clock. Build the aligned scene copy
+      // first and commit both only after every validation succeeds.
+      const timeline = { frameCount: candidate.getFrameCount(), fps };
+      const sceneEntry = this.getTrackEntries().find(entry => entry.track === 'scene');
+      const nextSceneManager = this.createAlignedTrajectoryCandidate(sceneEntry, timeline);
+      assertSharedTimelineInvariant(
+        [candidate, nextSceneManager].filter(Boolean),
+        timeline
+      );
+
+      this.commitTrajectoryCandidate('robot', candidate);
+      this.robotTrajectoryManager.currentFile = file.name;
+      if (nextSceneManager) {
+        this.commitTrajectoryCandidate('scene', nextSceneManager);
+      }
+
+      this.timelineController.pause();
+      this.setActiveTrack('robot', { resetTimeline: false });
+      this.refreshTimelineForActiveTrack(0);
+      this.curveEditor?.resetForActiveTrack();
+      this.updateRobotState(0);
+
+      const frameCount = this.robotTrajectoryManager.getFrameCount();
       this.updateStatus(i18n.t('csvLoadSuccess', { frames: frameCount, fps: fps }), 'success');
-      
-      // 更新文件名显示
       this.updateCurrentFileName(file.name, 'csv');
-      
-      // 触发自动保存
       this.triggerAutoSave();
     } catch (error) {
       console.error('CSV 加载失败:', error);
@@ -668,102 +1300,102 @@ class RobotKeyframeEditor {
     }
   }
 
+  mapTimelineFrameToTrack(frameIndex, track) {
+    const targetManager = this.getTrajectoryManager(track);
+    if (!targetManager?.hasTrajectory()) return null;
+
+    const timeline = this.getSharedTimelineSpec();
+    if (!timeline) return null;
+    const integerFrame = Math.round(Number(frameIndex) || 0);
+    return Math.max(0, Math.min(integerFrame, timeline.frameCount - 1));
+  }
+
+  applyStateToModel(model, state, joints) {
+    if (!model || !state) return;
+    model.position.set(state.base.position.x, state.base.position.y, state.base.position.z);
+    model.quaternion.set(
+      state.base.quaternion.x,
+      state.base.quaternion.y,
+      state.base.quaternion.z,
+      state.base.quaternion.w
+    );
+    state.joints.forEach((value, index) => {
+      if (joints && index < joints.length) {
+        model.setJointValue(joints[index].name, value);
+      }
+    });
+  }
+
   updateRobotState(frameIndex) {
-    if ((!this.robotLeft && !this.robotRight) || !this.trajectoryManager.hasTrajectory()) {
-      return;
-    }
-    
-    // 检查 jointController 是否已初始化
-    if (!this.jointController || !this.jointController.joints || this.jointController.joints.length === 0) {
-      console.warn('⚠️ jointController 未初始化，跳过更新机器人状态');
-      return;
+    const robotFrame = this.mapTimelineFrameToTrack(frameIndex, 'robot');
+    const sceneFrame = this.mapTimelineFrameToTrack(frameIndex, 'scene');
+    this.updateRobotTrackState(robotFrame);
+    this.updateSceneTrackState(sceneFrame);
+  }
+
+  updateRobotTrackState(frameIndex) {
+    if (frameIndex === null || !this.jointController ||
+        (!this.robotLeft && !this.robotRight)) return;
+
+    const baseState = this.robotTrajectoryManager.getInterpolatedBaseState(frameIndex);
+    const combinedState = this.robotTrajectoryManager.getCombinedStateAtFrame(frameIndex);
+    const joints = this.jointController.joints;
+
+    this.applyStateToModel(this.robotLeft, baseState, joints);
+    this.applyStateToModel(this.robotRight, combinedState, joints);
+
+    if (this.activeTrack === 'robot' && combinedState) {
+      this.jointController.updateJoints(combinedState.joints);
+      this.baseController?.updateBase(combinedState.base.position, combinedState.base.quaternion);
     }
 
-    // 获取原始状态和编辑后状态
-    const baseState = this.trajectoryManager.getBaseState(frameIndex);
-    const combinedState = this.trajectoryManager.getCombinedState(frameIndex);
-    
-    // 更新左侧机器人 (原始轨迹)
-    if (this.robotLeft && baseState) {
-      this.robotLeft.position.set(
-        baseState.base.position.x,
-        baseState.base.position.y,
-        baseState.base.position.z
-      );
-      this.robotLeft.quaternion.set(
-        baseState.base.quaternion.x,
-        baseState.base.quaternion.y,
-        baseState.base.quaternion.z,
-        baseState.base.quaternion.w
-      );
-      
-      // 更新左侧关节
-      baseState.joints.forEach((value, index) => {
-        if (index < this.jointController.joints.length) {
-          const jointName = this.jointController.joints[index].name;
-          this.robotLeft.setJointValue(jointName, value);
-        }
-      });
-    }
-    
-    // 更新右侧机器人 (编辑后轨迹)
-    if (this.robotRight && combinedState) {
-      this.robotRight.position.set(
-        combinedState.base.position.x,
-        combinedState.base.position.y,
-        combinedState.base.position.z
-      );
-      this.robotRight.quaternion.set(
-        combinedState.base.quaternion.x,
-        combinedState.base.quaternion.y,
-        combinedState.base.quaternion.z,
-        combinedState.base.quaternion.w
-      );
-      
-      // 更新UI和右侧关节
-      if (this.jointController) {
-        this.jointController.updateJoints(combinedState.joints);
-      }
-      
-      // 更新基体控制器显示
-      if (this.baseController) {
-        this.baseController.updateBase(combinedState.base.position, combinedState.base.quaternion);
-      }
-    }
-        // 更新COM可视化
     if (this.showCOM) {
-      if (this.comVisualizerLeft && this.robotLeft) {
-        this.comVisualizerLeft.update(this.robotLeft);
-      }
-      if (this.comVisualizerRight && this.robotRight) {
-        this.comVisualizerRight.update(this.robotRight);
-      }
+      if (this.robotLeft) this.comVisualizerLeft?.update(this.robotLeft);
+      if (this.robotRight) this.comVisualizerRight?.update(this.robotRight);
     }
-        // 兼容旧代码
     this.robot = this.robotRight;
   }
 
+  updateSceneTrackState(frameIndex) {
+    if (frameIndex === null || !this.sceneJointController ||
+        (!this.sceneModelLeft && !this.sceneModelRight)) return;
+
+    const baseState = this.sceneTrajectoryManager.getInterpolatedBaseState(frameIndex);
+    const combinedState = this.sceneTrajectoryManager.getCombinedStateAtFrame(frameIndex);
+    const joints = this.sceneJointController.joints;
+
+    this.applyStateToModel(this.sceneModelLeft, baseState, joints);
+    this.applyStateToModel(this.sceneModelRight, combinedState, joints);
+
+    if (this.activeTrack === 'scene' && combinedState) {
+      this.sceneJointController.updateJoints(combinedState.joints);
+    }
+  }
+
   addKeyframe() {
-    if (!this.jointController) {
-      alert('请先加载 URDF 文件');
+    const manager = this.getActiveTrajectoryManager();
+    const jointController = this.getActiveJointController();
+    const baseController = this.getActiveBaseController();
+
+    if (!jointController) {
+      alert(this.activeTrack === 'scene' ? i18n.t('needScene') : i18n.t('needRobot'));
       return;
     }
 
-    if (!this.trajectoryManager.hasTrajectory()) {
-      alert('请先加载 CSV 轨迹');
+    if (!manager.hasTrajectory()) {
+      alert(i18n.t('needTrajectory'));
       return;
     }
 
     const currentFrame = this.timelineController.getCurrentFrame();
-    const currentJointValues = this.jointController.getCurrentJointValues();
-    const currentBaseValues = this.baseController ? 
-      this.baseController.getCurrentBaseValues() : null;
+    const currentJointValues = jointController.getCurrentJointValues();
+    const currentBaseValues = baseController ? baseController.getCurrentBaseValues() : null;
     
-    const isNew = this.trajectoryManager.addKeyframe(currentFrame, currentJointValues, currentBaseValues);
+    const isNew = manager.addKeyframe(currentFrame, currentJointValues, currentBaseValues);
     
     // 只有新关键帧才更新标记
     if (isNew) {
-      const keyframes = Array.from(this.trajectoryManager.keyframes.keys());
+      const keyframes = Array.from(manager.keyframes.keys());
       this.timelineController.updateKeyframeMarkers(keyframes);
       console.log('➕ 添加关键帧:', currentFrame);
     } else {
@@ -771,11 +1403,11 @@ class RobotKeyframeEditor {
     }
     
     // 更新关键帧指示器
-    if (this.jointController && this.jointController.updateKeyframeIndicators) {
-      this.jointController.updateKeyframeIndicators();
+    if (jointController.updateKeyframeIndicators) {
+      jointController.updateKeyframeIndicators();
     }
-    if (this.baseController && this.baseController.updateKeyframeIndicators) {
-      this.baseController.updateKeyframeIndicators();
+    if (baseController?.updateKeyframeIndicators) {
+      baseController.updateKeyframeIndicators();
     }
     
     // 通知曲线编辑器更新
@@ -789,29 +1421,33 @@ class RobotKeyframeEditor {
   }
 
   deleteCurrentKeyframe() {
-    if (!this.trajectoryManager.hasTrajectory()) {
-      alert('请先加载 CSV 轨迹');
+    const manager = this.getActiveTrajectoryManager();
+    const jointController = this.getActiveJointController();
+    const baseController = this.getActiveBaseController();
+
+    if (!manager.hasTrajectory()) {
+      alert(i18n.t('needTrajectory'));
       return;
     }
 
     const currentFrame = this.timelineController.getCurrentFrame();
     
-    if (this.trajectoryManager.keyframes.has(currentFrame)) {
-      this.trajectoryManager.removeKeyframe(currentFrame);
+    if (manager.keyframes.has(currentFrame)) {
+      manager.removeKeyframe(currentFrame);
       
       // 更新时间轴上的关键帧标记
-      const keyframes = Array.from(this.trajectoryManager.keyframes.keys());
+      const keyframes = Array.from(manager.keyframes.keys());
       this.timelineController.updateKeyframeMarkers(keyframes);
       
       // 更新显示
       this.updateRobotState(currentFrame);
       
       // 更新关键帧指示器
-      if (this.jointController && this.jointController.updateKeyframeIndicators) {
-        this.jointController.updateKeyframeIndicators();
+      if (jointController?.updateKeyframeIndicators) {
+        jointController.updateKeyframeIndicators();
       }
-      if (this.baseController && this.baseController.updateKeyframeIndicators) {
-        this.baseController.updateKeyframeIndicators();
+      if (baseController?.updateKeyframeIndicators) {
+        baseController.updateKeyframeIndicators();
       }
       
       // 通知曲线编辑器更新
@@ -836,8 +1472,9 @@ class RobotKeyframeEditor {
    *       使得叠加值等于前后关键帧叠加值的线性插值
    */
   smoothSelectedKeyframes() {
-    if (!this.trajectoryManager.hasTrajectory()) {
-      alert('请先加载 CSV 轨迹');
+    const manager = this.getActiveTrajectoryManager();
+    if (!manager.hasTrajectory()) {
+      alert(i18n.t('needTrajectory'));
       return;
     }
 
@@ -854,7 +1491,7 @@ class RobotKeyframeEditor {
     for (let i = 1; i < selectedKeyframes.length; i++) {
       const prevFrame = selectedKeyframes[i - 1];
       const currentFrame = selectedKeyframes[i];
-      const keyframesBetween = Array.from(this.trajectoryManager.keyframes.keys())
+      const keyframesBetween = Array.from(manager.keyframes.keys())
         .filter(f => f > prevFrame && f < currentFrame);
       
       if (keyframesBetween.length > 0) {
@@ -879,8 +1516,8 @@ class RobotKeyframeEditor {
     }
 
     // 获取起始和结束关键帧数据
-    const startKeyframe = this.trajectoryManager.keyframes.get(startFrame);
-    const endKeyframe = this.trajectoryManager.keyframes.get(endFrame);
+    const startKeyframe = manager.keyframes.get(startFrame);
+    const endKeyframe = manager.keyframes.get(endFrame);
 
     // 计算起始和结束的叠加值（原始值 + 残差）
     const startOverlay = this.calculateOverlayValues(startFrame, startKeyframe);
@@ -888,7 +1525,7 @@ class RobotKeyframeEditor {
 
     // 对每个中间关键帧进行平滑
     middleFrames.forEach(frame => {
-      const keyframe = this.trajectoryManager.keyframes.get(frame);
+      const keyframe = manager.keyframes.get(frame);
       
       // 计算插值比例
       const t = (frame - startFrame) / (endFrame - startFrame);
@@ -900,7 +1537,7 @@ class RobotKeyframeEditor {
           const interpolatedOverlay = startOverlay.joints[i] + t * (endOverlay.joints[i] - startOverlay.joints[i]);
           
           // 获取该帧的原始关节角度
-          const frameBaseState = this.trajectoryManager.getBaseState(frame);
+          const frameBaseState = manager.getBaseState(frame);
           const baseJointValue = frameBaseState ? frameBaseState.joints[i] : 0;
           
           // 新残差 = 插值叠加值 - 原始值
@@ -910,7 +1547,7 @@ class RobotKeyframeEditor {
       
       // 对基座位置进行线性插值并计算新残差
       if (keyframe.baseResidual && startOverlay.basePosition && endOverlay.basePosition) {
-        const frameBaseState = this.trajectoryManager.getBaseState(frame);
+        const frameBaseState = manager.getBaseState(frame);
         if (frameBaseState) {
           ['x', 'y', 'z'].forEach(axis => {
             const interpolatedOverlay = startOverlay.basePosition[axis] + 
@@ -944,7 +1581,7 @@ class RobotKeyframeEditor {
         const interpolatedQuat = new THREE.Quaternion();
         interpolatedQuat.slerpQuaternions(startQuat, endQuat, t);
         
-        const frameBaseState = this.trajectoryManager.getBaseState(frame);
+        const frameBaseState = manager.getBaseState(frame);
         if (frameBaseState) {
           const baseQuat = new THREE.Quaternion(
             frameBaseState.base.quaternion.x,
@@ -991,6 +1628,7 @@ class RobotKeyframeEditor {
    * 计算指定帧的叠加值（原始值 + 残差）
    */
   calculateOverlayValues(frame, keyframe) {
+    const manager = this.getActiveTrajectoryManager();
     const result = {
       joints: [],
       basePosition: { x: 0, y: 0, z: 0 },
@@ -998,7 +1636,7 @@ class RobotKeyframeEditor {
     };
 
     // 计算关节角度叠加值
-    const baseState = this.trajectoryManager.getBaseState(frame);
+    const baseState = manager.getBaseState(frame);
     if (keyframe.residual && baseState) {
       for (let i = 0; i < keyframe.residual.length; i++) {
         const baseValue = baseState.joints[i];
@@ -1048,17 +1686,17 @@ class RobotKeyframeEditor {
     return result;
   }
 
-  async showTrajectoryExportFormatDialog() {
+  async showTrajectoryExportFormatDialog(
+    manager = this.robotTrajectoryManager,
+    options = { allowSeed: true }
+  ) {
     return new Promise((resolve) => {
-      const sourceFormat = this.trajectoryManager.resolveExportFormat('source');
-      const currentFPS = this.trajectoryManager.fps || 50;
-      const getDefaultFPSForFormat = (format) => {
-        if (format === TRAJECTORY_FORMATS.SEED) {
-          return DEFAULT_FPS_BY_FORMAT[TRAJECTORY_FORMATS.SEED];
-        }
-
-        return currentFPS;
-      };
+      const sourceFormat = manager.resolveExportFormat('source');
+      const currentFPS = this.getSharedTimelineSpec()?.fps || manager.fps || 50;
+      // Robot and scene CSV files have independent content but share one
+      // clock. Export format must never silently change that clock (Seed used
+      // to default to 120 FPS here).
+      const getDefaultFPSForFormat = () => currentFPS;
       const formatOptions = [
         {
           value: TRAJECTORY_FORMATS.UNITREE,
@@ -1070,7 +1708,7 @@ class RobotKeyframeEditor {
           label: i18n.t('seedFormat'),
           description: i18n.t('seedFormatDescription')
         }
-      ];
+      ].filter(format => options.allowSeed !== false || format.value !== TRAJECTORY_FORMATS.SEED);
 
       const dialog = document.createElement('div');
       dialog.style.cssText = `
@@ -1186,6 +1824,7 @@ class RobotKeyframeEditor {
       fpsInput.max = '240';
       fpsInput.step = '1';
       fpsInput.value = String(getDefaultFPSForFormat(sourceFormat));
+      fpsInput.disabled = true;
       fpsInput.style.cssText = `
         width: 86px;
         padding: 6px 8px;
@@ -1297,8 +1936,7 @@ class RobotKeyframeEditor {
 
       confirmBtn.addEventListener('click', () => {
         const selectedFormat = getSelectedFormat();
-        const selectedFPS = Math.max(1, parseInt(fpsInput.value) || getDefaultFPSForFormat(selectedFormat));
-        finish({ format: selectedFormat, fps: selectedFPS });
+        finish({ format: selectedFormat, fps: currentFPS });
       });
 
       cancelBtn.addEventListener('click', () => finish(null));
@@ -1321,75 +1959,97 @@ class RobotKeyframeEditor {
   }
 
   async exportTrajectory() {
-    if (!this.trajectoryManager.hasTrajectory()) {
-      alert(i18n.t('needTrajectory'));
-      return;
-    }
-
-    const exportOptions = await this.showTrajectoryExportFormatDialog();
-    if (!exportOptions) {
-      console.log(i18n.t('userCancel'));
-      return;
-    }
-
-    const csv = this.trajectoryManager.exportCombinedTrajectory(exportOptions.format, exportOptions.fps);
-    const defaultFileName = this.trajectoryManager.getExportFileName(exportOptions.format);
-    
-    // 让用户确认或修改文件名
-    const fileName = prompt(i18n.t('exportFileName'), defaultFileName);
-    if (!fileName) {
-      console.log(i18n.t('userCancel'));
-      return;
-    }
-    
-    const finalFileName = this.downloadCSV(csv, fileName);
-    
-    console.log('✅ 轨迹已导出:', finalFileName);
-    this.updateStatus(i18n.t('trajectoryExported'), 'success');
+    return this.exportTrackTrajectory('robot', false);
   }
 
   async exportBaseTrajectory() {
-    if (!this.trajectoryManager.hasTrajectory()) {
+    return this.exportTrackTrajectory('robot', true);
+  }
+
+  async exportSceneTrajectory() {
+    return this.exportTrackTrajectory('scene', false);
+  }
+
+  async exportSceneBaseTrajectory() {
+    return this.exportTrackTrajectory('scene', true);
+  }
+
+  async exportTrackTrajectory(track, baseOnly = false) {
+    await this.waitForInitialRestore();
+    const manager = this.getTrajectoryManager(track);
+    if (!manager.hasTrajectory()) {
       alert(i18n.t('needTrajectory'));
       return;
     }
+    const timeline = this.getSharedTimelineSpec();
 
-    const exportOptions = await this.showTrajectoryExportFormatDialog();
+    const exportOptions = await this.showTrajectoryExportFormatDialog(manager, {
+      allowSeed: track === 'robot'
+    });
     if (!exportOptions) {
       console.log(i18n.t('userCancel'));
       return;
     }
 
-    const csv = this.trajectoryManager.exportBaseTrajectory(exportOptions.format, exportOptions.fps);
-    const originalFileName = this.trajectoryManager.originalFileName || 'trajectory';
+    const csv = baseOnly
+      ? manager.exportBaseTrajectory(exportOptions.format, timeline.fps)
+      : manager.exportCombinedTrajectory(exportOptions.format, timeline.fps);
+    const originalFileName = manager.originalFileName || `${track}_trajectory`;
     const nameWithoutExt = originalFileName.replace(/\.csv$/i, '');
-    const sourceFormat = this.trajectoryManager.resolveExportFormat('source');
+    const sourceFormat = manager.resolveExportFormat('source');
     const formatSuffix = exportOptions.format === sourceFormat ? '' : `_${exportOptions.format}`;
-    const defaultFileName = `${nameWithoutExt}_base${formatSuffix}.csv`;
-    
-    // 让用户确认或修改文件名
+    const defaultFileName = baseOnly
+      ? `${nameWithoutExt}_base${formatSuffix}.csv`
+      : manager.getExportFileName(exportOptions.format);
+
     const fileName = prompt(i18n.t('exportFileName'), defaultFileName);
     if (!fileName) {
       console.log(i18n.t('userCancel'));
       return;
     }
-    
+
     const finalFileName = this.downloadCSV(csv, fileName);
-    
-    console.log('✅ 原始轨迹已导出:', finalFileName);
-    this.updateStatus(i18n.t('baseTrajectoryExported'), 'success');
+    console.log('✅ 轨迹已导出:', finalFileName);
+    this.updateStatus(
+      track === 'scene'
+        ? i18n.t(baseOnly ? 'sceneBaseTrajectoryExported' : 'sceneTrajectoryExported')
+        : i18n.t(baseOnly ? 'baseTrajectoryExported' : 'trajectoryExported'),
+      'success'
+    );
   }
 
-  saveProject() {
-    if (!this.trajectoryManager.hasTrajectory()) {
-      alert('请先加载 CSV 轨迹');
+  async saveProject() {
+    await this.waitForInitialRestore();
+    if (!this.robotTrajectoryManager.hasTrajectory() && !this.sceneTrajectoryManager.hasTrajectory()) {
+      alert(i18n.t('needTrajectory'));
       return;
     }
 
-    const projectData = this.trajectoryManager.getProjectData();
+    let timeline;
+    try {
+      timeline = this.getSharedTimelineSpec();
+    } catch (error) {
+      console.error('工程时间轴校验失败:', error);
+      alert(error.message);
+      return;
+    }
+
+    const projectData = {
+      version: '3.1',
+      timeline,
+      robotTrajectory: this.robotTrajectoryManager.hasTrajectory()
+        ? this.robotTrajectoryManager.getProjectData()
+        : null,
+      sceneTrajectory: this.sceneTrajectoryManager.hasTrajectory()
+        ? this.sceneTrajectoryManager.getProjectData()
+        : null,
+      activeTrack: this.activeTrack,
+      workspaceMode: this.workspaceMode
+    };
     const json = JSON.stringify(projectData, null, 2);
-    
-    const originalFileName = this.trajectoryManager.originalFileName || 'project';
+
+    const originalFileName = this.robotTrajectoryManager.originalFileName ||
+      this.sceneTrajectoryManager.originalFileName || 'project';
     const defaultFileName = originalFileName.replace(/\.csv$/i, '') + '_project.json';
     
     // 让用户确认或修改文件名
@@ -1418,45 +2078,108 @@ class RobotKeyframeEditor {
   async loadProject(event) {
     const file = event.target.files[0];
     if (!file) return;
-    
-    // 保存工程文件名
-    this.currentProjectFile = file.name;
+    await this.waitForInitialRestore();
 
     try {
       const text = await file.text();
       const projectData = JSON.parse(text);
-      
-      // 清除当前所有数据
-      this.trajectoryManager.clearAll();
-      
-      // 加载新数据
-      this.trajectoryManager.loadProjectData(projectData);
-      
-      // 如果有URDF，更新机器人状态
-      if (this.robotLeft && this.robotRight) {
-        // 更新时间轴
-        const frameCount = this.trajectoryManager.getFrameCount();
-        const duration = this.trajectoryManager.getDuration();
-        this.timelineController.updateTimeline(frameCount, duration);
-        this.timelineController.setFPS(this.trajectoryManager.fps || 50);
-        
-        // 更新关键帧标记
-        const keyframes = Array.from(this.trajectoryManager.keyframes.keys());
-        this.timelineController.updateKeyframeMarkers(keyframes);
-        
-        // 更新插值模式按钮显示
-        if (this.curveEditor) {
-          this.curveEditor.updateInterpolationButton();
+
+      // 先在临时 manager 中完成两条轨迹的全部解析与校验；只有全部成功才提交，
+      // 避免坏场景数据把用户当前机器人工程清空一半。
+      const nextRobotManager = new TrajectoryManager();
+      const nextSceneManager = new TrajectoryManager();
+      const isDualTrackProject = Object.prototype.hasOwnProperty.call(projectData, 'robotTrajectory') ||
+        Object.prototype.hasOwnProperty.call(projectData, 'sceneTrajectory');
+
+      if (isDualTrackProject) {
+        if (projectData.robotTrajectory) {
+          nextRobotManager.loadProjectData(projectData.robotTrajectory);
         }
-        
-        // 更新到第一帧
-        this.updateRobotState(0);
-        this.timelineController.setCurrentFrame(0);
+        if (projectData.sceneTrajectory) {
+          nextSceneManager.loadProjectData(projectData.sceneTrajectory);
+        }
       } else {
-        alert(i18n.t('needRobot'));
+        // v1-v2 工程只有一条机器人轨迹。
+        nextRobotManager.loadProjectData(projectData);
       }
-      
+
+      if (String(projectData.version) === '3.1' &&
+          (!Object.prototype.hasOwnProperty.call(projectData, 'timeline') ||
+           projectData.timeline === null)) {
+        throw new Error('v3.1 工程缺少共享时间轴');
+      }
+
+      let timeline = assertSharedTimelineInvariant(
+        [nextRobotManager, nextSceneManager],
+        projectData.timeline ?? null
+      );
+      if (!nextRobotManager.hasTrajectory() && !nextSceneManager.hasTrajectory()) {
+        throw new Error(i18n.t('emptyTrajectory'));
+      }
+
+      if (nextRobotManager.hasTrajectory() && this.jointController &&
+          nextRobotManager.jointCount !== this.jointController.joints.length) {
+        throw new Error(i18n.t('trajectoryJointCountMismatch', {
+          expected: this.jointController.joints.length,
+          actual: nextRobotManager.jointCount
+        }));
+      }
+      if (nextSceneManager.hasTrajectory() && this.sceneJointController &&
+          nextSceneManager.jointCount !== this.sceneJointController.joints.length) {
+        throw new Error(i18n.t('trajectoryJointCountMismatch', {
+          expected: this.sceneJointController.joints.length,
+          actual: nextSceneManager.jointCount
+        }));
+      }
+
+      // Legacy robot-only projects remain valid. If the corresponding other
+      // model is already loaded, materialize its zero track on the same clock.
+      if (!nextRobotManager.hasTrajectory() && this.jointController) {
+        nextRobotManager.createZeroTrajectory(
+          timeline.frameCount,
+          this.jointController.joints.length,
+          timeline.fps,
+          'robot_zero.csv'
+        );
+      }
+      if (!nextSceneManager.hasTrajectory() && this.sceneJointController) {
+        nextSceneManager.createZeroTrajectory(
+          timeline.frameCount,
+          this.sceneJointController.joints.length,
+          timeline.fps,
+          'scene_zero.csv'
+        );
+      }
+      timeline = assertSharedTimelineInvariant(
+        [nextRobotManager, nextSceneManager],
+        timeline
+      );
+
+      this.robotTrajectoryManager = nextRobotManager;
+      this.sceneTrajectoryManager = nextSceneManager;
+      this.trajectoryManager = this.robotTrajectoryManager;
+
+      const requestedTrack = projectData.activeTrack === 'scene' ? 'scene' : 'robot';
+      const requestedManager = this.getTrajectoryManager(requestedTrack);
+      const fallbackTrack = requestedTrack === 'scene' ? 'robot' : 'scene';
+      const preferredTrack = requestedManager.hasTrajectory()
+        ? requestedTrack
+        : (this.getTrajectoryManager(fallbackTrack).hasTrajectory() ? fallbackTrack : requestedTrack);
+      this.setWorkspaceMode(projectData.workspaceMode === 'create' ? 'create' : 'compare');
+      this.setActiveTrack(preferredTrack, { resetTimeline: false });
+      this.refreshTimelineForActiveTrack(0);
+      this.curveEditor?.resetForActiveTrack();
+      this.updateRobotState(0);
+
+      const missingModels = [];
+      if (this.robotTrajectoryManager.hasTrajectory() && !this.jointController) missingModels.push(i18n.t('robot'));
+      if (this.sceneTrajectoryManager.hasTrajectory() && !this.sceneJointController) missingModels.push(i18n.t('scene'));
+      if (missingModels.length > 0) {
+        alert(i18n.t('projectNeedsModels', { models: missingModels.join(', ') }));
+      }
+
       console.log('✅ 工程文件已加载:', file.name);
+      this.currentProjectFile = file.name;
       this.updateStatus(i18n.t('projectLoaded'), 'success');
       
       // 更新文件名显示
@@ -1989,7 +2712,7 @@ class RobotKeyframeEditor {
       return;
     }
     
-    const stateInfo = this.cookieManager.getStateInfo();
+    const stateInfo = await this.cookieManager.getStateInfo();
     if (!stateInfo) {
       console.log('📕 没有找到已保存的状态');
       return;
@@ -2017,15 +2740,31 @@ class RobotKeyframeEditor {
     if (!confirm(i18n.t('resetConfirm'))) {
       return;
     }
+    await this.waitForInitialRestore();
     
     console.log('🔄 重置应用...');
-    
+    // 使尚未完成的 URDF 请求失效，防止重置后又被旧请求写回。
+    this.robotLoadGeneration += 1;
+    this.sceneLoadGeneration += 1;
+
     // 清除轨迹管理器
-    if (this.trajectoryManager) {
-      this.trajectoryManager.clearAll();
+    this.robotTrajectoryManager.clearAll();
+    this.sceneTrajectoryManager.clearAll();
+
+    if (this.footprintUpdateTimer) {
+      clearTimeout(this.footprintUpdateTimer);
+      this.footprintUpdateTimer = null;
     }
-    
-    // 移除机器人模型
+    this.comVisualizerLeft?.hide();
+    this.comVisualizerRight?.hide();
+
+    // 移除机器人模型并释放 WebGL 资源
+    const removedModels = [
+      this.robotLeft,
+      this.robotRight,
+      this.sceneModelLeft,
+      this.sceneModelRight
+    ];
     if (this.robotLeft) {
       this.sceneLeft.remove(this.robotLeft);
       this.robotLeft = null;
@@ -2035,6 +2774,15 @@ class RobotKeyframeEditor {
       this.robotRight = null;
       this.robot = null;
     }
+    if (this.sceneModelLeft) {
+      this.sceneLeft.remove(this.sceneModelLeft);
+      this.sceneModelLeft = null;
+    }
+    if (this.sceneModelRight) {
+      this.sceneRight.remove(this.sceneModelRight);
+      this.sceneModelRight = null;
+    }
+    this.disposeObject3DResources(...removedModels);
     
     // 清除控制器
     if (this.jointController) {
@@ -2044,14 +2792,22 @@ class RobotKeyframeEditor {
       }
       this.jointController = null;
     }
+    if (this.sceneJointController) {
+      const sceneContainer = document.getElementById('scene-joint-controls');
+      if (sceneContainer) sceneContainer.innerHTML = '';
+      this.sceneJointController = null;
+    }
     
     if (this.baseController) {
+      const baseContainer = document.getElementById('base-controls');
+      if (baseContainer) baseContainer.innerHTML = '';
       this.baseController = null;
     }
     
     // 重置时间轴
     if (this.timelineController) {
       this.timelineController.pause();
+      this.timelineController.clearSelectedKeyframes?.();
       this.timelineController.updateTimeline(0, 0);
       this.timelineController.updateKeyframeMarkers([]);
       this.timelineController.setCurrentFrame(0);
@@ -2072,6 +2828,36 @@ class RobotKeyframeEditor {
     this.showCOM = true;
     this.autoRefreshFootprint = false;
     this.footprintHeightThresholdCm = 10;
+    this.currentURDFFolder = '';
+    this.currentURDFFile = '';
+    this.currentSceneURDFFolder = '';
+    this.currentSceneURDFFile = '';
+    this.currentProjectFile = '';
+    this.identifiedFeet = [];
+
+    // 清掉 loader 中的模型和文件引用，确保重置后的自动保存不会复活旧资源。
+    [this.urdfLoader, this.sceneURDFLoader].forEach(loader => {
+      loader.robot = null;
+      loader.joints = [];
+      loader.fileMap.clear();
+    });
+
+    this.controls.enableRotate = true;
+    this.controls.enablePan = false;
+    this.controls.mouseButtons = {
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: THREE.MOUSE.PAN
+    };
+
+    const createFrameInput = document.getElementById('create-frame-count');
+    const createFPSInput = document.getElementById('create-fps');
+    const interpolationToggle = document.getElementById('interpolation-mode-toggle');
+    if (createFrameInput) createFrameInput.value = '100';
+    if (createFPSInput) createFPSInput.value = '50';
+    if (interpolationToggle) interpolationToggle.checked = false;
+    this.setWorkspaceMode('compare');
+    this.setActiveTrack('robot', { resetTimeline: false });
     
     // 更新按钮状态
     document.getElementById('toggle-camera-mode').textContent = i18n.t('rotate');
@@ -2103,6 +2889,7 @@ class RobotKeyframeEditor {
    * 切换自动保存
    */
   async toggleAutoSave(enabled) {
+    await this.waitForInitialRestore();
     await this.cookieManager.setAutoSaveEnabled(enabled);
     
     const notice = document.getElementById('cookie-notice');
@@ -2128,7 +2915,8 @@ class RobotKeyframeEditor {
     if (!confirm(i18n.t('clearCookiesConfirm'))) {
       return;
     }
-    
+    await this.waitForInitialRestore();
+
     await this.cookieManager.clearState();
     this.updateStatus(i18n.t('cookiesCleared'), 'success');
     console.log('🗑️ 已清除 Cookies');
@@ -2197,17 +2985,24 @@ class RobotKeyframeEditor {
     // 清除整个画布
     this.renderer.clear();
     
-    // 渲染左侧视口 (原始轨迹)
-    this.renderer.setViewport(0, 0, halfWidth, fullHeight);
-    this.renderer.setScissor(0, 0, halfWidth, fullHeight);
-    this.renderer.setScissorTest(true);
-    this.renderer.render(this.sceneLeft, this.cameraLeft);
-    
-    // 渲染右侧视口 (编辑后轨迹)
-    this.renderer.setViewport(halfWidth, 0, halfWidth, fullHeight);
-    this.renderer.setScissor(halfWidth, 0, halfWidth, fullHeight);
-    this.renderer.setScissorTest(true);
-    this.renderer.render(this.sceneRight, this.cameraRight);
+    if (this.workspaceMode === 'create') {
+      // 创建模式仅显示编辑结果，避免无意义的左右对比。
+      this.renderer.setViewport(0, 0, fullWidth, fullHeight);
+      this.renderer.setScissor(0, 0, fullWidth, fullHeight);
+      this.renderer.setScissorTest(true);
+      this.renderer.render(this.sceneRight, this.cameraRight);
+    } else {
+      // 对比模式：左侧原始轨迹，右侧编辑结果。
+      this.renderer.setViewport(0, 0, halfWidth, fullHeight);
+      this.renderer.setScissor(0, 0, halfWidth, fullHeight);
+      this.renderer.setScissorTest(true);
+      this.renderer.render(this.sceneLeft, this.cameraLeft);
+
+      this.renderer.setViewport(halfWidth, 0, halfWidth, fullHeight);
+      this.renderer.setScissor(halfWidth, 0, halfWidth, fullHeight);
+      this.renderer.setScissorTest(true);
+      this.renderer.render(this.sceneRight, this.cameraRight);
+    }
     
     // 渲染坐标轴指示器
     if (this.axisGizmo) {
@@ -2539,43 +3334,107 @@ initHelpModal();
 
 // 初始化下拉菜单
 function initDropdowns() {
-  const dropdowns = document.querySelectorAll('.dropdown');
-  
+  const dropdowns = Array.from(document.querySelectorAll('.dropdown'));
+
+  const closeDropdown = (dropdown, restoreFocus = false) => {
+    const toggle = dropdown.querySelector('.dropdown-toggle');
+    const menu = Array.from(dropdown.children).find(child =>
+      child.classList?.contains('dropdown-menu')
+    );
+    if (!toggle || !menu) return;
+
+    menu.classList.remove('show');
+    toggle.setAttribute('aria-expanded', 'false');
+    const submenu = menu.querySelector('.dropdown-submenu');
+    const submenuToggle = submenu?.querySelector('.submenu-toggle');
+    submenu?.classList.remove('open');
+    submenuToggle?.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) toggle.focus();
+  };
+
+  const closeAllDropdowns = (except = null) => {
+    dropdowns.forEach(dropdown => {
+      if (dropdown !== except) closeDropdown(dropdown);
+    });
+  };
+
   dropdowns.forEach(dropdown => {
     const toggle = dropdown.querySelector('.dropdown-toggle');
-    const menu = dropdown.querySelector('.dropdown-menu');
-    
+    const menu = Array.from(dropdown.children).find(child =>
+      child.classList?.contains('dropdown-menu')
+    );
     if (!toggle || !menu) return;
-    
-    // 点击切换下拉菜单
+
+    toggle.setAttribute('aria-haspopup', 'menu');
+    toggle.setAttribute('aria-expanded', 'false');
+
     toggle.addEventListener('click', (e) => {
       e.stopPropagation();
-      
-      // 关闭其他下拉菜单
-      document.querySelectorAll('.dropdown-menu.show').forEach(otherMenu => {
-        if (otherMenu !== menu) {
-          otherMenu.classList.remove('show');
-        }
-      });
-      
-      // 切换当前菜单
-      menu.classList.toggle('show');
+      const willOpen = !menu.classList.contains('show');
+      closeAllDropdowns(dropdown);
+      if (willOpen) {
+        menu.classList.add('show');
+        toggle.setAttribute('aria-expanded', 'true');
+      } else {
+        closeDropdown(dropdown);
+      }
     });
-    
-    // 点击菜单项后关闭菜单
+
+    toggle.addEventListener('keydown', (event) => {
+      if (event.key !== 'ArrowDown') return;
+      event.preventDefault();
+      closeAllDropdowns(dropdown);
+      menu.classList.add('show');
+      toggle.setAttribute('aria-expanded', 'true');
+      menu.querySelector('.dropdown-item:not([disabled])')?.focus();
+    });
+
+    const submenu = menu.querySelector('.dropdown-submenu');
+    const submenuToggle = submenu?.querySelector('.submenu-toggle');
+    const submenuMenu = submenu?.querySelector('.submenu-menu');
+    if (submenuToggle && submenuMenu) {
+      submenuToggle.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const willOpen = !submenu.classList.contains('open');
+        submenu.classList.toggle('open', willOpen);
+        submenuToggle.setAttribute('aria-expanded', String(willOpen));
+      });
+
+      submenuToggle.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowRight' && event.key !== 'ArrowDown') return;
+        event.preventDefault();
+        submenu.classList.add('open');
+        submenuToggle.setAttribute('aria-expanded', 'true');
+        submenuMenu.querySelector('.dropdown-item:not([disabled])')?.focus();
+      });
+    }
+
     menu.querySelectorAll('.dropdown-item').forEach(item => {
+      if (item.classList.contains('submenu-toggle')) return;
       item.addEventListener('click', () => {
-        menu.classList.remove('show');
+        closeDropdown(dropdown);
       });
     });
   });
-  
-  // 点击外部关闭所有下拉菜单
+
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.dropdown')) {
-      document.querySelectorAll('.dropdown-menu.show').forEach(menu => {
-        menu.classList.remove('show');
-      });
+      closeAllDropdowns();
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      const openDropdown = dropdowns.find(dropdown =>
+        Array.from(dropdown.children).some(child =>
+          child.classList?.contains('dropdown-menu') && child.classList.contains('show')
+        )
+      );
+      if (openDropdown) {
+        event.preventDefault();
+        closeDropdown(openDropdown, true);
+      }
     }
   });
 }

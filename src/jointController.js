@@ -1,13 +1,18 @@
 import { i18n } from './i18n.js';
 
 export class JointController {
-  constructor(joints, editor) {
+  constructor(joints, editor, options = {}) {
     console.log('🎮 JointController 构造函数');
     console.log('接收到的关节数量:', joints.length);
     console.log('关节详情:', joints);
     
     this.joints = joints;
     this.editor = editor;
+    this.track = options.track || 'robot';
+    this.containerId = options.containerId || 'joint-controls';
+    this.allowFix = Boolean(options.allowFix);
+    this.idPrefix = options.idPrefix || this.track;
+    this.isProgrammaticUpdate = false;
     this.jointValues = new Array(joints.length).fill(0);
     
     console.log('🔧 开始设置 UI...');
@@ -15,12 +20,39 @@ export class JointController {
     console.log('✅ JointController 初始化完成');
   }
 
+  getTrajectoryManager() {
+    if (this.editor.getTrajectoryManager) {
+      return this.editor.getTrajectoryManager(this.track);
+    }
+    return this.editor.trajectoryManager;
+  }
+
+  getBaseController() {
+    if (this.track !== 'robot') return null;
+    return this.editor.baseController;
+  }
+
+  getContainer() {
+    return document.getElementById(this.containerId);
+  }
+
+  getIndicatorId(index) {
+    return `keyframe-indicator-${this.idPrefix}-${index}`;
+  }
+
+  isFixedJoint(index) {
+    const manager = this.getTrajectoryManager();
+    return Boolean(
+      manager && manager.hasTrajectory() && index < manager.jointCount && manager.isJointFixed(index)
+    );
+  }
+
   setupUI() {
     console.log('📋 setupUI 开始');
-    const container = document.getElementById('joint-controls');
+    const container = this.getContainer();
     
     if (!container) {
-      console.error('❌ 找不到 joint-controls 容器');
+      console.error(`❌ 找不到 ${this.containerId} 容器`);
       return;
     }
     
@@ -35,8 +67,11 @@ export class JointController {
       control.dataset.jointIndex = index;
       control.style.transition = 'background-color 0.2s';
 
+      const header = document.createElement('div');
+      header.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 8px;';
+
       const label = document.createElement('label');
-      label.style.cssText = 'cursor: pointer; display: flex; align-items: center; user-select: none;';
+      label.style.cssText = 'cursor: pointer; display: flex; align-items: center; user-select: none; min-width: 0;';
       label.title = '点击切换曲线显示';
       
       const labelText = document.createElement('span');
@@ -45,7 +80,7 @@ export class JointController {
       
       // 添加关键帧状态圈圈
       const keyframeIndicator = document.createElement('span');
-      keyframeIndicator.id = `keyframe-indicator-${index}`;
+      keyframeIndicator.id = this.getIndicatorId(index);
       keyframeIndicator.style.cssText = `
         display: none;
         width: 10px;
@@ -89,7 +124,54 @@ export class JointController {
         }
       }, 100);
       
-      control.appendChild(label);
+      header.appendChild(label);
+
+      if (this.allowFix) {
+        const fixLabel = document.createElement('label');
+        fixLabel.className = 'joint-fix-option';
+        fixLabel.style.cssText = 'display: inline-flex; align-items: center; gap: 4px; margin: 0; cursor: pointer; font-size: 11px; color: var(--text-secondary); white-space: nowrap;';
+        fixLabel.title = i18n.t('fixJointTitle');
+        fixLabel.dataset.i18nTitle = 'fixJointTitle';
+
+        const fixCheckbox = document.createElement('input');
+        fixCheckbox.type = 'checkbox';
+        fixCheckbox.dataset.jointIndex = index;
+        const manager = this.getTrajectoryManager();
+        const hasMatchingTrajectory = Boolean(manager?.hasTrajectory?.() && index < manager.jointCount);
+        fixCheckbox.checked = hasMatchingTrajectory ? manager.isJointFixed(index) : false;
+        fixCheckbox.disabled = !hasMatchingTrajectory;
+
+        const fixText = document.createElement('span');
+        fixText.textContent = i18n.t('fix');
+        fixText.dataset.i18n = 'fix';
+
+        fixCheckbox.addEventListener('change', (event) => {
+          event.stopPropagation();
+          const trajectoryManager = this.getTrajectoryManager();
+          if (!trajectoryManager?.hasTrajectory() || index >= trajectoryManager.jointCount) {
+            event.target.checked = false;
+            return;
+          }
+
+          if (event.target.checked) {
+            trajectoryManager.setFixedJoint(index, this.jointValues[index] || 0);
+          } else {
+            trajectoryManager.clearFixedJoint(index);
+          }
+
+          const currentFrame = this.editor.timelineController?.getCurrentFrame() || 0;
+          this.editor.updateRobotState(currentFrame);
+          this.editor.curveEditor?.updateCurves();
+          this.editor.curveEditor?.draw();
+          this.editor.triggerAutoSave?.();
+        });
+
+        fixLabel.appendChild(fixCheckbox);
+        fixLabel.appendChild(fixText);
+        header.appendChild(fixLabel);
+      }
+
+      control.appendChild(header);
 
       // 创建水平布局容器
       const row = document.createElement('div');
@@ -111,6 +193,7 @@ export class JointController {
       
       slider.addEventListener('input', (e) => {
         const value = parseFloat(e.target.value);
+        if (!Number.isFinite(value)) return;
         this.jointValues[index] = value;
         numberInput.value = value.toFixed(3);
         this.applyJointValue(index, value);
@@ -129,6 +212,13 @@ export class JointController {
       
       numberInput.addEventListener('change', (e) => {
         let value = parseFloat(e.target.value);
+        if (!Number.isFinite(value)) {
+          const previousValue = Number.isFinite(this.jointValues[index])
+            ? this.jointValues[index]
+            : 0;
+          numberInput.value = previousValue.toFixed(3);
+          return;
+        }
         value = Math.max(joint.limits.lower, Math.min(joint.limits.upper, value));
         this.jointValues[index] = value;
         slider.value = value;
@@ -164,10 +254,11 @@ export class JointController {
   updateKeyframeIndicators() {
     const t0 = performance.now();
     
-    if (!this.editor.trajectoryManager || !this.editor.trajectoryManager.hasTrajectory()) {
+    const manager = this.getTrajectoryManager();
+    if (!manager || !manager.hasTrajectory()) {
       // 没有轨迹时隐藏所有圈圈
       this.joints.forEach((joint, index) => {
-        const indicator = document.getElementById(`keyframe-indicator-${index}`);
+        const indicator = document.getElementById(this.getIndicatorId(index));
         if (indicator) {
           indicator.style.display = 'none';
         }
@@ -176,12 +267,12 @@ export class JointController {
     }
     
     const currentFrame = this.editor.timelineController.getCurrentFrame();
-    const keyframes = this.editor.trajectoryManager.getKeyframes();
+    const keyframes = manager.getKeyframes();
     
     let totalVisible = 0;
     
     this.joints.forEach((joint, index) => {
-      const indicator = document.getElementById(`keyframe-indicator-${index}`);
+      const indicator = document.getElementById(this.getIndicatorId(index));
       if (!indicator) return;
       
       let hasAdjacentResidual = false;  // i-1, i, i+1 有残差
@@ -239,7 +330,7 @@ export class JointController {
     if (!this.editor.curveEditor) return;
     
     this.joints.forEach((joint, index) => {
-      const control = document.querySelector(`.joint-control[data-joint-index="${index}"]`);
+      const control = this.getContainer()?.querySelector(`.joint-control[data-joint-index="${index}"]`);
       if (!control) return;
       
       const curveKey = `joint_${index}`;
@@ -255,12 +346,21 @@ export class JointController {
   }
 
   applyJointValue(index, value) {
+    if (!Number.isFinite(value)) return false;
+
     if (this.joints[index] && this.joints[index].joint) {
       this.joints[index].joint.setJointValue(value);
     }
     
     // 更新COM显示
-    if (this.editor.showCOM) {
+    const manager = this.getTrajectoryManager();
+    if (this.allowFix && this.isFixedJoint(index) && !this.isProgrammaticUpdate) {
+      manager.setFixedJoint(index, value);
+      this.editor.curveEditor?.drawDebounced();
+      this.editor.triggerAutoSave?.();
+    }
+
+    if (this.track === 'robot' && this.editor.showCOM) {
       if (this.editor.comVisualizerRight && this.editor.robotRight) {
         this.editor.comVisualizerRight.update(this.editor.robotRight);
       }
@@ -269,11 +369,15 @@ export class JointController {
     }
     
     // 如果当前帧是关键帧，自动更新残差
-    this.autoUpdateKeyframe();
+    if (!this.isProgrammaticUpdate && !(this.allowFix && this.isFixedJoint(index))) {
+      this.autoUpdateKeyframe();
+    }
+    return true;
   }
 
   autoUpdateKeyframe() {
-    if (!this.editor.trajectoryManager.hasTrajectory()) {
+    const manager = this.getTrajectoryManager();
+    if (!manager || !manager.hasTrajectory()) {
       return;
     }
     
@@ -285,17 +389,17 @@ export class JointController {
     const currentFrame = this.editor.timelineController.getCurrentFrame();
     
     // 如果当前帧是关键帧，自动更新
-    if (this.editor.trajectoryManager.keyframes.has(currentFrame)) {
+    if (manager.keyframes.has(currentFrame)) {
       const t0 = performance.now();
       this.editor.isUpdatingKeyframe = true;
       
       const t1 = performance.now();
       const currentJointValues = this.getCurrentJointValues();
       const t2 = performance.now();
-      const currentBaseValues = this.editor.baseController ? 
-        this.editor.baseController.getCurrentBaseValues() : null;
+      const baseController = this.getBaseController();
+      const currentBaseValues = baseController ? baseController.getCurrentBaseValues() : null;
       const t3 = performance.now();
-      this.editor.trajectoryManager.addKeyframe(currentFrame, currentJointValues, currentBaseValues);
+      manager.addKeyframe(currentFrame, currentJointValues, currentBaseValues);
       const t4 = performance.now();
       
       // 更新关键帧指示器
@@ -322,21 +426,35 @@ export class JointController {
   updateJoints(jointValues) {
     this.jointValues = [...jointValues];
     
-    const container = document.getElementById('joint-controls');
+    const container = this.getContainer();
+    if (!container) return;
     const controls = container.querySelectorAll('.joint-control');
-    
-    controls.forEach((control, index) => {
-      if (index >= jointValues.length) return;
-      
-      const value = jointValues[index];
-      const slider = control.querySelector('input[type="range"]');
-      const numberInput = control.querySelector('input[type="number"]');
-      
-      if (slider) slider.value = value;
-      if (numberInput) numberInput.value = value.toFixed(3);
-      
-      this.applyJointValue(index, value);
-    });
+    const manager = this.getTrajectoryManager();
+
+    this.isProgrammaticUpdate = true;
+    try {
+      controls.forEach((control, index) => {
+        if (index >= jointValues.length) return;
+
+        const value = jointValues[index];
+        const slider = control.querySelector('input[type="range"]');
+        const numberInput = control.querySelector('input[type="number"]');
+
+        if (slider) slider.value = value;
+        if (numberInput) numberInput.value = value.toFixed(3);
+
+        const fixCheckbox = control.querySelector('.joint-fix-option input[type="checkbox"]');
+        if (fixCheckbox) {
+          const canFix = Boolean(manager?.hasTrajectory?.() && index < manager.jointCount);
+          fixCheckbox.disabled = !canFix;
+          fixCheckbox.checked = canFix ? manager.isJointFixed(index) : false;
+        }
+
+        this.applyJointValue(index, value);
+      });
+    } finally {
+      this.isProgrammaticUpdate = false;
+    }
     
     // 更新关键帧指示器
     this.updateKeyframeIndicators();
@@ -348,11 +466,28 @@ export class JointController {
 
   resetToBase() {
     // 重置到当前帧的base值
-    if (this.editor.trajectoryManager.hasTrajectory()) {
+    const manager = this.getTrajectoryManager();
+    if (manager?.hasTrajectory()) {
       const currentFrame = this.editor.timelineController.getCurrentFrame();
-      const baseState = this.editor.trajectoryManager.getBaseState(currentFrame);
+      const baseState = manager.getBaseState(currentFrame);
       if (baseState) {
+        if (this.allowFix) {
+          baseState.joints.forEach((value, index) => {
+            if (this.isFixedJoint(index)) manager.setFixedJoint(index, value);
+          });
+        }
         this.updateJoints(baseState.joints);
+        if (manager.keyframes.has(currentFrame)) {
+          const baseController = this.getBaseController();
+          manager.addKeyframe(
+            currentFrame,
+            this.getCurrentJointValues(),
+            baseController ? baseController.getCurrentBaseValues() : null
+          );
+          this.updateKeyframeIndicators();
+        }
+        this.editor.curveEditor?.drawDebounced();
+        this.editor.triggerAutoSave?.();
         console.log('✅ 已重置到 CSV base 值');
       }
     } else {
@@ -364,15 +499,16 @@ export class JointController {
 
   resetJoint(index) {
     // 重置单个关节到base值
-    if (this.editor.trajectoryManager.hasTrajectory()) {
+    const manager = this.getTrajectoryManager();
+    if (manager?.hasTrajectory()) {
       const currentFrame = this.editor.timelineController.getCurrentFrame();
-      const baseState = this.editor.trajectoryManager.getBaseState(currentFrame);
+      const baseState = manager.getBaseState(currentFrame);
       if (baseState) {
         const baseValue = baseState.joints[index];
         this.jointValues[index] = baseValue;
         
         // 更新UI
-        const container = document.getElementById('joint-controls');
+        const container = this.getContainer();
         const controls = container.querySelectorAll('.joint-control');
         if (controls[index]) {
           const slider = controls[index].querySelector('input[type="range"]');
@@ -387,7 +523,7 @@ export class JointController {
     } else {
       // 如果没有轨迹，重置到 0
       this.jointValues[index] = 0;
-      const container = document.getElementById('joint-controls');
+      const container = this.getContainer();
       const controls = container.querySelectorAll('.joint-control');
       if (controls[index]) {
         const slider = controls[index].querySelector('input[type="range"]');

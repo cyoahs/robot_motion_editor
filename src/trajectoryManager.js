@@ -9,6 +9,61 @@ import {
 } from './trajectoryFormatConverter.js';
 
 /**
+ * Validate the single clock shared by the independently editable robot and
+ * scene tracks. Empty managers are ignored because a model may not have been
+ * loaded yet; every non-empty manager must use exactly the same frame count
+ * and FPS.
+ */
+export function assertSharedTimelineInvariant(managers, declaredTimeline = null) {
+  const activeManagers = (Array.isArray(managers) ? managers : [])
+    .filter(manager => manager?.hasTrajectory?.());
+
+  const validateTimeline = (timeline, label) => {
+    if (!timeline || typeof timeline !== 'object' || Array.isArray(timeline)) {
+      throw new TypeError(`${label} 必须包含 frameCount 和 fps`);
+    }
+
+    const { frameCount, fps } = timeline;
+    if (!Number.isInteger(frameCount) || frameCount <= 0) {
+      throw new RangeError(`${label}.frameCount 必须是正整数`);
+    }
+    if (!Number.isFinite(fps) || fps <= 0) {
+      throw new RangeError(`${label}.fps 必须是大于 0 的有限数值`);
+    }
+
+    return { frameCount, fps };
+  };
+
+  let sharedTimeline = declaredTimeline === null || declaredTimeline === undefined
+    ? null
+    : validateTimeline(declaredTimeline, '共享时间轴');
+
+  if (!sharedTimeline && activeManagers.length > 0) {
+    sharedTimeline = validateTimeline({
+      frameCount: activeManagers[0].getFrameCount(),
+      fps: activeManagers[0].fps
+    }, '轨迹时间轴');
+  }
+
+  if (!sharedTimeline) return null;
+
+  activeManagers.forEach((manager, index) => {
+    const actual = validateTimeline({
+      frameCount: manager.getFrameCount(),
+      fps: manager.fps
+    }, `第 ${index + 1} 条轨迹时间轴`);
+    if (actual.frameCount !== sharedTimeline.frameCount || actual.fps !== sharedTimeline.fps) {
+      throw new Error(
+        `机器人与场景轨迹的帧数/FPS必须一致：期望 ${sharedTimeline.frameCount} 帧 @ ` +
+        `${sharedTimeline.fps} FPS，实际 ${actual.frameCount} 帧 @ ${actual.fps} FPS`
+      );
+    }
+  });
+
+  return sharedTimeline;
+}
+
+/**
  * 轨迹管理器 - 管理基础轨迹和关键帧残差
  * 
  * 数据结构说明：
@@ -24,6 +79,9 @@ export class TrajectoryManager {
   constructor() {
     this.baseTrajectory = [];  // CSV 加载的基础轨迹
     this.keyframes = new Map(); // 关键帧残差: frameIndex -> { residual, baseResidual }
+    // 轨迹级固定关节覆盖。键是关节索引，值是整个轨迹中使用的固定值。
+    // 使用普通对象，确保工程数据可以直接 JSON 序列化。
+    this.fixedJointValues = {};
     this.jointCount = 0;
     this.originalFileName = ''; // 原始CSV文件名
     this.fps = 50; // 默认帧率
@@ -36,7 +94,12 @@ export class TrajectoryManager {
   parseCSV(csvText, fileName = '') {
     const parsed = parseTrajectoryCSV(csvText, fileName);
 
+    this.validateCSVInput(csvText, parsed.format);
+    this.validateTrajectory(parsed.baseTrajectory, parsed.jointCount, false);
+
     this.baseTrajectory = parsed.baseTrajectory;
+    this.keyframes.clear();
+    this.fixedJointValues = {};
     this.jointCount = parsed.jointCount;
     this.originalFileName = fileName;
     this.sourceFormat = parsed.format;
@@ -80,7 +143,96 @@ export class TrajectoryManager {
   }
 
   setFPS(fps) {
+    if (!Number.isFinite(fps) || fps <= 0) {
+      throw new RangeError('FPS 必须是大于 0 的有限数值');
+    }
     this.fps = fps;
+  }
+
+  /**
+   * 创建一条基体位置和关节值均为 0、基体姿态为单位四元数的轨迹。
+   */
+  createZeroTrajectory(frameCount, jointCount, fps = 50, fileName = '') {
+    this.validatePositiveInteger(frameCount, 'frameCount');
+    this.validateNonNegativeInteger(jointCount, 'jointCount');
+    if (!Number.isFinite(fps) || fps <= 0) {
+      throw new RangeError('fps 必须是大于 0 的有限数值');
+    }
+    if (typeof fileName !== 'string') {
+      throw new TypeError('fileName 必须是字符串');
+    }
+
+    this.baseTrajectory = Array.from({ length: frameCount }, () => this.createZeroState(jointCount));
+    this.keyframes.clear();
+    this.fixedJointValues = {};
+    this.jointCount = jointCount;
+    this.originalFileName = fileName;
+    this.fps = fps;
+    this.sourceFormat = TRAJECTORY_FORMATS.UNITREE;
+    this.seedHeader = null;
+    this.seedJointColumns = [];
+
+    return this.getFrameCount();
+  }
+
+  /**
+   * 修改轨迹帧数。扩展时克隆原末帧，缩短时删除越界关键帧。
+   */
+  resizeTrajectory(frameCount) {
+    this.validatePositiveInteger(frameCount, 'frameCount');
+    if (!this.hasTrajectory()) {
+      throw new Error('没有可调整长度的轨迹');
+    }
+
+    const currentFrameCount = this.baseTrajectory.length;
+    if (frameCount < currentFrameCount) {
+      this.baseTrajectory.length = frameCount;
+    } else if (frameCount > currentFrameCount) {
+      const lastState = this.baseTrajectory[currentFrameCount - 1];
+      for (let index = currentFrameCount; index < frameCount; index++) {
+        this.baseTrajectory.push(this.cloneTrajectoryState(lastState));
+      }
+    }
+
+    for (const keyframeIndex of this.keyframes.keys()) {
+      if (keyframeIndex >= frameCount) {
+        this.keyframes.delete(keyframeIndex);
+      }
+    }
+
+    return this.getFrameCount();
+  }
+
+  setFixedJoint(index, value) {
+    this.validateJointIndex(index);
+    if (!Number.isFinite(value)) {
+      throw new TypeError('固定关节值必须是有限数值');
+    }
+
+    this.fixedJointValues[index] = value;
+    return value;
+  }
+
+  clearFixedJoint(index) {
+    if (!this.isValidJointIndex(index)) {
+      return false;
+    }
+    const existed = this.isJointFixed(index);
+    delete this.fixedJointValues[index];
+    return existed;
+  }
+
+  isJointFixed(index) {
+    return this.isValidJointIndex(index) &&
+      Object.prototype.hasOwnProperty.call(this.fixedJointValues, index);
+  }
+
+  getFixedJointValue(index) {
+    return this.isJointFixed(index) ? this.fixedJointValues[index] : null;
+  }
+
+  clearAllFixedJoints() {
+    this.fixedJointValues = {};
   }
 
   getBaseState(frameIndex) {
@@ -209,6 +361,14 @@ export class TrajectoryManager {
       };
     }
 
+    // 固定关节是最终输出约束，优先级高于基础轨迹和关键帧残差。
+    Object.entries(this.fixedJointValues).forEach(([indexText, value]) => {
+      const index = Number(indexText);
+      if (Number.isInteger(index) && index >= 0 && index < combinedJoints.length && Number.isFinite(value)) {
+        combinedJoints[index] = value;
+      }
+    });
+
     return {
       base: combinedBase,
       joints: combinedJoints
@@ -223,6 +383,250 @@ export class TrajectoryManager {
       },
       joints: [...state.joints]
     };
+  }
+
+  createZeroState(jointCount = this.jointCount) {
+    this.validateNonNegativeInteger(jointCount, 'jointCount');
+    return {
+      base: {
+        position: { x: 0, y: 0, z: 0 },
+        quaternion: { x: 0, y: 0, z: 0, w: 1 }
+      },
+      joints: new Array(jointCount).fill(0)
+    };
+  }
+
+  validatePositiveInteger(value, name) {
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new RangeError(`${name} 必须是大于 0 的整数`);
+    }
+  }
+
+  validateNonNegativeInteger(value, name) {
+    if (!Number.isInteger(value) || value < 0) {
+      throw new RangeError(`${name} 必须是大于等于 0 的整数`);
+    }
+  }
+
+  validateJointIndex(index) {
+    if (!Number.isInteger(index)) {
+      throw new TypeError('关节索引必须是整数');
+    }
+    if (index < 0 || index >= this.jointCount) {
+      throw new RangeError(`关节索引超出范围: ${index}`);
+    }
+  }
+
+  isValidJointIndex(index) {
+    return Number.isInteger(index) && index >= 0 && index < this.jointCount;
+  }
+
+  validateTrajectory(trajectory, jointCount, allowEmpty = true) {
+    if (!Array.isArray(trajectory)) {
+      throw new TypeError('轨迹必须是数组');
+    }
+    this.validateNonNegativeInteger(jointCount, 'jointCount');
+    if (!allowEmpty && trajectory.length === 0) {
+      throw new Error('轨迹不包含有效帧');
+    }
+
+    trajectory.forEach((state, frameIndex) => {
+      if (!state || !state.base || !state.base.position || !state.base.quaternion || !Array.isArray(state.joints)) {
+        throw new TypeError(`轨迹第 ${frameIndex} 帧结构无效`);
+      }
+      if (state.joints.length !== jointCount) {
+        throw new Error(`轨迹第 ${frameIndex} 帧关节数量不一致: 期望 ${jointCount}，实际 ${state.joints.length}`);
+      }
+
+      const values = [
+        state.base.position.x,
+        state.base.position.y,
+        state.base.position.z,
+        state.base.quaternion.x,
+        state.base.quaternion.y,
+        state.base.quaternion.z,
+        state.base.quaternion.w,
+        ...state.joints
+      ];
+      if (!values.every(Number.isFinite)) {
+        throw new TypeError(`轨迹第 ${frameIndex} 帧包含非有限数值`);
+      }
+    });
+  }
+
+  buildProjectCandidate(projectData) {
+    if (!projectData || typeof projectData !== 'object' || Array.isArray(projectData)) {
+      throw new TypeError('工程数据必须是对象');
+    }
+
+    const jointCount = projectData.jointCount === undefined ? 0 : projectData.jointCount;
+    this.validateNonNegativeInteger(jointCount, 'jointCount');
+
+    const baseTrajectory = projectData.baseTrajectory === undefined
+      ? []
+      : projectData.baseTrajectory;
+    this.validateTrajectory(baseTrajectory, jointCount, true);
+
+    const fps = projectData.fps === undefined ? 50 : projectData.fps;
+    if (!Number.isFinite(fps) || fps <= 0) {
+      throw new RangeError('工程 FPS 必须是大于 0 的有限数值');
+    }
+
+    const interpolationMode = projectData.interpolationMode === undefined
+      ? 'linear'
+      : projectData.interpolationMode;
+    if (interpolationMode !== 'linear' && interpolationMode !== 'bezier') {
+      throw new TypeError(`无效的工程插值模式: ${interpolationMode}`);
+    }
+
+    const keyframes = projectData.keyframes === undefined ? [] : projectData.keyframes;
+    if (!Array.isArray(keyframes)) {
+      throw new TypeError('工程 keyframes 必须是数组');
+    }
+
+    const candidateKeyframes = new Map();
+    const seenFrameIndices = new Set();
+    keyframes.forEach((keyframe, keyframeIndex) => {
+      if (!keyframe || typeof keyframe !== 'object' || Array.isArray(keyframe)) {
+        throw new TypeError(`工程第 ${keyframeIndex} 个关键帧结构无效`);
+      }
+
+      const frameIndex = keyframe.frameIndex;
+      if (!Number.isInteger(frameIndex) || frameIndex < 0 || frameIndex >= baseTrajectory.length) {
+        throw new RangeError(`工程关键帧索引超出范围: ${frameIndex}`);
+      }
+      if (seenFrameIndices.has(frameIndex)) {
+        throw new Error(`工程包含重复关键帧索引: ${frameIndex}`);
+      }
+      seenFrameIndices.add(frameIndex);
+
+      if (!Array.isArray(keyframe.residual) || keyframe.residual.length !== jointCount) {
+        throw new TypeError(`工程关键帧 ${frameIndex} 的 residual 必须是长度为 ${jointCount} 的数组`);
+      }
+      if (!keyframe.residual.every(Number.isFinite)) {
+        throw new TypeError(`工程关键帧 ${frameIndex} 的 residual 必须全部是有限数值`);
+      }
+
+      let baseResidual = null;
+      if (keyframe.baseResidual !== null && keyframe.baseResidual !== undefined) {
+        const position = keyframe.baseResidual.position;
+        const quaternion = keyframe.baseResidual.quaternion;
+        const baseResidualValues = position && quaternion ? [
+          position.x,
+          position.y,
+          position.z,
+          quaternion.x,
+          quaternion.y,
+          quaternion.z,
+          quaternion.w
+        ] : [];
+        if (baseResidualValues.length !== 7 || !baseResidualValues.every(Number.isFinite)) {
+          throw new TypeError(`工程关键帧 ${frameIndex} 的 baseResidual 必须包含有限数值的 position 和 quaternion`);
+        }
+        baseResidual = {
+          position: { x: position.x, y: position.y, z: position.z },
+          quaternion: {
+            x: quaternion.x,
+            y: quaternion.y,
+            z: quaternion.z,
+            w: quaternion.w
+          }
+        };
+      }
+
+      candidateKeyframes.set(frameIndex, {
+        residual: [...keyframe.residual],
+        baseResidual
+      });
+    });
+
+    const fixedJointValues = {};
+    if (projectData.fixedJointValues !== null && projectData.fixedJointValues !== undefined) {
+      const fixedEntries = Array.isArray(projectData.fixedJointValues)
+        ? projectData.fixedJointValues.map((value, index) => [index, value])
+        : Object.entries(projectData.fixedJointValues);
+
+      fixedEntries.forEach(([rawIndex, value]) => {
+        const index = Number(rawIndex);
+        if (value === null || value === undefined) {
+          return;
+        }
+        if (!Number.isInteger(index) || index < 0 || index >= jointCount || !Number.isFinite(value)) {
+          console.warn('忽略无效的固定关节工程数据:', rawIndex, value);
+          return;
+        }
+        fixedJointValues[index] = value;
+      });
+    }
+
+    const originalFileName = projectData.originalFileName === undefined || projectData.originalFileName === null
+      ? ''
+      : projectData.originalFileName;
+    if (typeof originalFileName !== 'string') {
+      throw new TypeError('工程 originalFileName 必须是字符串');
+    }
+
+    const seedJointColumns = projectData.seedJointColumns === undefined || projectData.seedJointColumns === null
+      ? []
+      : projectData.seedJointColumns;
+    if (!Array.isArray(seedJointColumns) || !seedJointColumns.every(column => typeof column === 'string')) {
+      throw new TypeError('工程 seedJointColumns 必须是字符串数组');
+    }
+
+    const seedHeader = projectData.seedHeader === undefined || projectData.seedHeader === null
+      ? null
+      : projectData.seedHeader;
+    if (seedHeader !== null &&
+        (!Array.isArray(seedHeader) || !seedHeader.every(column => typeof column === 'string'))) {
+      throw new TypeError('工程 seedHeader 必须是字符串数组或 null');
+    }
+
+    return {
+      version: projectData.version || '1.0',
+      baseTrajectory: baseTrajectory.map(state => this.cloneTrajectoryState(state)),
+      keyframes: candidateKeyframes,
+      fixedJointValues,
+      jointCount,
+      originalFileName,
+      fps,
+      interpolationMode,
+      sourceFormat: normalizeTrajectoryFormat(projectData.sourceFormat),
+      seedHeader: seedHeader ? [...seedHeader] : null,
+      seedJointColumns: [...seedJointColumns]
+    };
+  }
+
+  validateCSVInput(csvText, format) {
+    if (typeof csvText !== 'string') {
+      throw new TypeError('CSV 内容必须是字符串');
+    }
+
+    const lines = csvText
+      .trim()
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line && !line.startsWith('#'));
+    const dataLines = format === TRAJECTORY_FORMATS.SEED ? lines.slice(1) : lines;
+    const expectedColumnCount = format === TRAJECTORY_FORMATS.SEED
+      ? (lines[0] ? lines[0].split(',').length : 0)
+      : (dataLines[0] ? dataLines[0].split(',').length : 0);
+
+    if (expectedColumnCount > 0 && expectedColumnCount < 7) {
+      throw new Error(`CSV 至少需要 7 列，实际 ${expectedColumnCount} 列`);
+    }
+
+    dataLines.forEach((line, rowIndex) => {
+      const columns = line.split(',').map(value => value.trim());
+      if (columns.length !== expectedColumnCount) {
+        throw new Error(
+          `CSV 第 ${rowIndex + 1} 个数据行列数不一致: 期望 ${expectedColumnCount}，实际 ${columns.length}`
+        );
+      }
+      const hasInvalidValue = columns.some(value => value === '' || !Number.isFinite(Number(value)));
+      if (hasInvalidValue) {
+        throw new TypeError(`CSV 第 ${rowIndex + 1} 个数据行包含无效数值`);
+      }
+    });
   }
 
   getExportFramePositions(targetFPS = this.fps) {
@@ -409,12 +813,29 @@ export class TrajectoryManager {
   }
 
   addKeyframe(frameIndex, jointValues, baseValues = null) {
+    if (!Number.isInteger(frameIndex) || frameIndex < 0 || frameIndex >= this.baseTrajectory.length) {
+      throw new RangeError(`无效的帧索引: ${frameIndex}`);
+    }
+    if (!Array.isArray(jointValues) || jointValues.length !== this.jointCount) {
+      throw new TypeError(`jointValues 必须是长度为 ${this.jointCount} 的数组`);
+    }
+    if (!jointValues.every(Number.isFinite)) {
+      throw new TypeError('jointValues 必须全部是有限数值');
+    }
+    if (baseValues) {
+      const position = baseValues.position;
+      const quaternion = baseValues.quaternion;
+      const baseNumbers = position && quaternion ? [
+        position.x, position.y, position.z,
+        quaternion.x, quaternion.y, quaternion.z, quaternion.w
+      ] : [];
+      if (baseNumbers.length !== 7 || !baseNumbers.every(Number.isFinite)) {
+        throw new TypeError('baseValues 必须包含有限数值的 position 和 quaternion');
+      }
+    }
+
     // 计算残差（当前值 - base 值）
     const baseState = this.getBaseState(frameIndex);
-    if (!baseState) {
-      console.warn('无效的帧索引:', frameIndex);
-      return;
-    }
 
     const residual = jointValues.map((value, idx) => {
       return value - baseState.joints[idx];
@@ -512,9 +933,10 @@ export class TrajectoryManager {
     }));
 
     return {
-      version: '2.2', // 升级：支持轨迹 CSV 格式元数据
+      version: '2.3', // 升级：支持轨迹级固定关节值
       baseTrajectory: this.baseTrajectory,
       keyframes: keyframesArray,
+      fixedJointValues: { ...this.fixedJointValues },
       jointCount: this.jointCount,
       originalFileName: this.originalFileName,
       fps: this.fps || 50,
@@ -526,8 +948,11 @@ export class TrajectoryManager {
   }
 
   loadProjectData(projectData) {
+    // 先构造并完整校验独立 candidate。此步骤失败时不得修改当前 manager。
+    const candidate = this.buildProjectCandidate(projectData);
+
     // 检查版本兼容性
-    const version = projectData.version || '1.0';
+    const version = candidate.version;
     
     if (version === '1.0') {
       console.warn('⚠️ 检测到旧版本工程文件 (v1.0)');
@@ -538,56 +963,17 @@ export class TrajectoryManager {
       }
     }
     
-    // 清除当前数据
-    this.baseTrajectory = [];
-    this.keyframes.clear();
-    
-    // 先设置基本属性（关键帧处理需要用到 jointCount）
-    this.jointCount = projectData.jointCount || 0;
-    this.originalFileName = projectData.originalFileName || '';
-    this.fps = projectData.fps || 50;
-    // 加载插值模式（兼容旧版本，默认为线性）
-    this.interpolationMode = projectData.interpolationMode || 'linear';
-    this.sourceFormat = normalizeTrajectoryFormat(projectData.sourceFormat);
-    this.seedHeader = projectData.seedHeader || null;
-    this.seedJointColumns = projectData.seedJointColumns || [];
-    
-    // 加载基础轨迹数据
-    if (projectData.baseTrajectory) {
-      this.baseTrajectory = projectData.baseTrajectory;
-    }
-    
-    // 加载关键帧数据
-    if (projectData.keyframes) {
-      projectData.keyframes.forEach(kf => {
-        // 提取 residual 和 baseResidual
-        let residual = kf.residual;
-        let baseResidual = kf.baseResidual;
-        
-        // 验证并修复 residual
-        if (!Array.isArray(residual)) {
-          console.warn(`关键帧 ${kf.frameIndex} 的 residual 不是数组，使用零值`);
-          residual = new Array(this.jointCount).fill(0);
-        } else if (residual.length === 0) {
-          console.warn(`关键帧 ${kf.frameIndex} 的 residual 长度为0，使用零值`);
-          residual = new Array(this.jointCount).fill(0);
-        }
-        
-        // 验证 baseResidual（可以为 null）
-        if (baseResidual !== null && baseResidual !== undefined) {
-          if (!baseResidual.position || !baseResidual.quaternion) {
-            console.warn(`关键帧 ${kf.frameIndex} 的 baseResidual 数据无效，设为 null`);
-            baseResidual = null;
-          }
-        }
-        
-        // 使用统一的数据结构保存
-        this.keyframes.set(kf.frameIndex, {
-          residual: residual,
-          baseResidual: baseResidual
-        });
-      });
-    }
+    // candidate 已完全校验且深拷贝；以下提交不会再执行可能失败的转换。
+    this.baseTrajectory = candidate.baseTrajectory;
+    this.keyframes = candidate.keyframes;
+    this.fixedJointValues = candidate.fixedJointValues;
+    this.jointCount = candidate.jointCount;
+    this.originalFileName = candidate.originalFileName;
+    this.fps = candidate.fps;
+    this.interpolationMode = candidate.interpolationMode;
+    this.sourceFormat = candidate.sourceFormat;
+    this.seedHeader = candidate.seedHeader;
+    this.seedJointColumns = candidate.seedJointColumns;
     
     console.log('✅ 加载工程文件:', this.baseTrajectory.length, '帧,', this.keyframes.size, '个关键帧');
   }
@@ -628,8 +1014,11 @@ export class TrajectoryManager {
   clearAll() {
     this.baseTrajectory = [];
     this.keyframes.clear();
+    this.fixedJointValues = {};
     this.jointCount = 0;
     this.originalFileName = '';
+    this.fps = 50;
+    this.interpolationMode = 'linear';
     this.sourceFormat = TRAJECTORY_FORMATS.UNITREE;
     this.seedHeader = null;
     this.seedJointColumns = [];
