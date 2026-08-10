@@ -1,6 +1,6 @@
 # 机器人关键帧编辑器
 
-基于 Web 的机器人与场景运动编辑工具，支持独立 URDF/CSV、关键帧与固定自由度、双视口对比、单视口轨迹创建和工程文件管理。
+基于 Web 的机器人与场景运动编辑工具，支持独立机器人/场景 URDF 与编辑轨道、机器人 CSV 轨迹、关键帧与固定自由度、双视口对比、单视口轨迹创建和工程文件管理。
 
 **Other language:** [English](README.en.md)
 
@@ -61,6 +61,34 @@ npm test              # 完整回归测试
 5. **从零创建**: 切到“创建模式”，用唯一一组帧数/FPS 同时创建或调整已加载的机器人与场景轨迹
 6. **独立导出**: 机器人和场景各有“编辑后/原始”导出按钮；机器人可选 unitree/seed，场景导出 unitree
 7. **保存工程**: 工程文件和自动保存会保留两条轨迹、场景固定值及当前工作模式
+
+### 两种轨迹 CSV 格式
+
+编辑器加载后统一使用米、弧度和四元数进行内部计算。机器人轨迹可导入/导出 Unitree 或 Seed；格式由 Seed 的固定表头自动识别。
+
+| 项目 | Unitree | Seed |
+|---|---|---|
+| 表头 | 无，第一行就是数值 | 必须有固定表头 |
+| 基体位置 | `x,y,z`，单位 m | `root_translateX/Y/Z`，单位 cm |
+| 基体姿态 | `qx,qy,qz,qw` | `root_rotateX/Y/Z`，单位 degree，分别表示 roll/pitch/yaw，按 ZYX 组合 |
+| 关节值 | 第 8 列起，单位 rad | 固定 7 列之后，单位 degree |
+| 默认导入 FPS | 50 | 120 |
+
+Unitree 是无表头的纯数值格式。下面是包含 3 个关节的缩写示例；以 `#` 开头的是可选注释，不是表头：
+
+```csv
+# x,y,z,qx,qy,qz,qw,joint_1,joint_2,joint_3
+0,0,0.8,0,0,0,1,0.1,-0.2,0.3
+```
+
+Seed 的前七列表头必须依次为 `Frame,root_translateX,root_translateY,root_translateZ,root_rotateX,root_rotateY,root_rotateZ`，其后是关节列：
+
+```csv
+Frame,root_translateX,root_translateY,root_translateZ,root_rotateX,root_rotateY,root_rotateZ,joint_1_dof,joint_2_dof,joint_3_dof
+0,0,0,80,0,0,0,5,-10,15
+```
+
+Seed 的 `Frame` 必须是数值，但导入以数据行顺序为准，导出时重新编号为 `0..N-1`。两种格式都不在文件中保存可靠的时间间隔：加载时会提示确认 FPS，之后机器人和场景共用该帧数/FPS。空行和以 `#` 开头的注释行会被忽略；所有数据行必须列数一致、全部为有限数值，且关节列数量必须等于已加载机器人 URDF 的可动关节数。关节值始终按 URDF 控制面板中的顺序对应；Seed 关节表头只作为标签。导出格式不会改变共享 FPS。场景自由度可能包含平移关节，因此场景轨迹仅导出 Unitree。
 
 ### 内置 Mesh 优化
 

@@ -1,6 +1,6 @@
 # Robot Keyframe Editor
 
-A web-based robot and scene motion editor with independent URDF/CSV tracks, keyframes and fixed scene DOFs, dual-viewport comparison, single-viewport trajectory creation, and project management.
+A web-based robot and scene motion editor with independent robot/scene URDFs and editing tracks, robot CSV trajectories, keyframes and fixed scene DOFs, dual-viewport comparison, single-viewport trajectory creation, and project management.
 
 **其他语言:** [中文](README.md)
 
@@ -61,6 +61,34 @@ npm test              # Full regression suite
 5. **Create from Zero**: Enter Create mode and use one frame-count/FPS setting to create or resize aligned robot and scene trajectories together
 6. **Export Independently**: Robot and scene each have edited/base export actions. Robot supports unitree/seed; scene exports unitree
 7. **Save Project**: Project files and auto-save preserve both tracks, fixed scene values, and the active workspace mode
+
+### The Two Trajectory CSV Formats
+
+After loading, the editor uses meters, radians, and quaternions internally. Robot trajectories can be imported or exported as Unitree or Seed; a Seed file is detected by its fixed header.
+
+| Field | Unitree | Seed |
+|---|---|---|
+| Header | None; the first row is numeric data | Required fixed header |
+| Base position | `x,y,z` in metres | `root_translateX/Y/Z` in centimetres |
+| Base orientation | `qx,qy,qz,qw` | `root_rotateX/Y/Z` in degrees, interpreted as roll/pitch/yaw with ZYX composition |
+| Joint values | Column 8 onward, radians | After the seven fixed columns, degrees |
+| Default import FPS | 50 | 120 |
+
+Unitree is a headerless numeric format. This abbreviated example has three joints; the line beginning with `#` is an optional comment, not a header:
+
+```csv
+# x,y,z,qx,qy,qz,qw,joint_1,joint_2,joint_3
+0,0,0.8,0,0,0,1,0.1,-0.2,0.3
+```
+
+The first seven Seed header columns must be `Frame,root_translateX,root_translateY,root_translateZ,root_rotateX,root_rotateY,root_rotateZ`, followed by joint columns:
+
+```csv
+Frame,root_translateX,root_translateY,root_translateZ,root_rotateX,root_rotateY,root_rotateZ,joint_1_dof,joint_2_dof,joint_3_dof
+0,0,0,80,0,0,0,5,-10,15
+```
+
+Seed `Frame` values must be numeric, but import follows row order and export regenerates `0..N-1`. Neither format stores a reliable sample interval. The editor asks for the FPS on import, after which robot and scene share that frame count and FPS. Blank lines and lines beginning with `#` are ignored. Every data row must contain the same number of finite numeric values, and the joint count must match the movable joints in the loaded robot URDF. Joint values are positional and follow the URDF control-panel order; Seed joint headers are labels only. Choosing another export format does not change the shared FPS. Because scene DOFs may be prismatic while Seed treats every trailing DOF as an angle, scene trajectories are exported only as Unitree.
 
 ### Built-in Mesh Optimization
 
